@@ -20,6 +20,25 @@ enum Role {
   STOREKEEPER
   SELLER
   HR_MANAGER
+  AGENT
+}
+
+enum ApprovalStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum TrustEntryType {
+  DEBT
+  PAYMENT
+}
+
+enum DdsSource {
+  MANUAL
+  DEAL_CHECK
+  TRUST_PAYMENT
+  SYNC
 }
 
 enum DealStatus {
@@ -56,21 +75,30 @@ enum ExpenseCategoryType {
 }
 
 model User {
-  id              String           @id @default(uuid())
-  username        String           @unique
-  fullName        String
-  passwordHash    String
-  initialPassword String?
-  role            Role             @default(OPERATOR)
-  telegramId   BigInt?          @unique
-  isActive     Boolean          @default(true)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  dealsCreated Deal[]           @relation("DealCreator")
-  transactions DdsTransaction[]
-  botDeals     BotDeal[]
-  auditLogs    AuditLog[]
-  leadsCreated Lead[]
+  id               String           @id @default(uuid())
+  username         String           @unique
+  fullName         String
+  passwordHash     String
+  initialPassword  String?
+  role             Role             @default(OPERATOR)
+  telegramId       BigInt?          @unique
+  isActive         Boolean          @default(true)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  dealsCreated     Deal[]           @relation("DealCreator")
+  transactions     DdsTransaction[]
+  botDeals         BotDeal[]
+  auditLogs        AuditLog[]
+  leadsCreated     Lead[]
+  // AGENT roli: qaysi agentlikka tegishli; OPERATOR: qaysi agent jamoasida
+  agencyId         String?
+  agency           Agency?          @relation(fields: [agencyId], references: [id])
+  parentAgentId    String?
+  parentAgent      User?            @relation("AgentTeam", fields: [parentAgentId], references: [id])
+  operators        User[]           @relation("AgentTeam")
+  telegramLinkCode String?          @unique
+  dealsApproved    Deal[]           @relation("DealApprover")
+  deviceTokens     DeviceToken[]
 }
 
 model Store {
@@ -111,6 +139,7 @@ model Agency {
   phone  String?
   agents Agent[]
   deals  Deal[]
+  users  User[]
 }
 
 model Agent {
@@ -139,34 +168,34 @@ model Partner {
 }
 
 model Deal {
-  id                  String        @id @default(uuid())
-  dealNumber          Int           @unique
-  date                DateTime      @default(now())
+  id                  String            @id @default(uuid())
+  dealNumber          Int               @unique
+  date                DateTime          @default(now())
   createdById         String?
-  createdBy           User?         @relation("DealCreator", fields: [createdById], references: [id])
+  createdBy           User?             @relation("DealCreator", fields: [createdById], references: [id])
   sellerName          String
   providerId          String
-  provider            Provider      @relation(fields: [providerId], references: [id])
-  isDaftar            Boolean       @default(false)
+  provider            Provider          @relation(fields: [providerId], references: [id])
+  isDaftar            Boolean           @default(false)
   customerName        String?
   customerPhone1      String?
   customerPhone2      String?
   contractUrl         String?
   passportPhotoUrl    String?
   storeId             String
-  store               Store         @relation(fields: [storeId], references: [id])
-  customerLimit       Decimal       @default(0)
-  withdrawnLimit      Decimal       @default(0)
-  agentAmount         Decimal       @default(0)
-  totalPurchaseCost   Decimal       @default(0)
-  purchaseDiscountPct Decimal       @default(0)
-  agentPct            Decimal       @default(0)
-  calculatedAmount    Decimal       @default(0)
-  remainingLimit      Decimal       @default(0)
-  differenceAmount    Decimal       @default(0)
-  isActualDeviceSale  Boolean       @default(false)
+  store               Store             @relation(fields: [storeId], references: [id])
+  customerLimit       Decimal           @default(0)
+  withdrawnLimit      Decimal           @default(0)
+  agentAmount         Decimal           @default(0)
+  totalPurchaseCost   Decimal           @default(0)
+  purchaseDiscountPct Decimal           @default(0)
+  agentPct            Decimal           @default(0)
+  calculatedAmount    Decimal           @default(0)
+  remainingLimit      Decimal           @default(0)
+  differenceAmount    Decimal           @default(0)
+  isActualDeviceSale  Boolean           @default(false)
   productName         String?
-  quantity            Int           @default(1)
+  quantity            Int               @default(1)
   imeiBarcode         String?
   imei2               String?
   color               String?
@@ -175,36 +204,69 @@ model Deal {
   statusChangeReason  String?
   debtDueDate         DateTime?
   debtPayments        DebtPayment[]
-  status              DealStatus    @default(NEED_TO_BUY)
+  status              DealStatus        @default(NEED_TO_BUY)
   agencyId            String?
-  agency              Agency?       @relation(fields: [agencyId], references: [id])
+  agency              Agency?           @relation(fields: [agencyId], references: [id])
   agentId             String?
-  agent               Agent?        @relation(fields: [agentId], references: [id])
-  extraDaftar         Decimal       @default(0)
-  qodirDebt           Decimal       @default(0)
-  qodirBalance        Decimal       @default(0)
-  greenBazarBalance   Decimal       @default(0)
-  trustBalance        Decimal       @default(0)
-  totalExtraBalance   Decimal       @default(0)
+  agent               Agent?            @relation(fields: [agentId], references: [id])
+  extraDaftar         Decimal           @default(0)
+  qodirDebt           Decimal           @default(0)
+  qodirBalance        Decimal           @default(0)
+  greenBazarBalance   Decimal           @default(0)
+  trustBalance        Decimal           @default(0)
+  totalExtraBalance   Decimal           @default(0)
   buyerId             String?
-  buyer               Buyer?        @relation(fields: [buyerId], references: [id])
+  buyer               Buyer?            @relation(fields: [buyerId], references: [id])
   saleDate            DateTime?
-  salePrice           Decimal       @default(0)
-  paidTransfer        Decimal       @default(0)
-  paidCashUzs         Decimal       @default(0)
-  paidCashUsd         Decimal       @default(0)
-  paidBank            Decimal       @default(0)
-  exchangeRate        Decimal       @default(1)
-  profit              Decimal       @default(0)
-  marginPct           Decimal       @default(0)
-  receivedFromBuyer   Decimal       @default(0)
-  debtRemainder       Decimal       @default(0)
-  paymentStatus       PaymentStatus @default(PARTIAL)
+  salePrice           Decimal           @default(0)
+  paidTransfer        Decimal           @default(0)
+  paidCashUzs         Decimal           @default(0)
+  paidCashUsd         Decimal           @default(0)
+  paidBank            Decimal           @default(0)
+  exchangeRate        Decimal           @default(1)
+  profit              Decimal           @default(0)
+  marginPct           Decimal           @default(0)
+  receivedFromBuyer   Decimal           @default(0)
+  debtRemainder       Decimal           @default(0)
+  paymentStatus       PaymentStatus     @default(PARTIAL)
   note                String?
-  botDealId           String?       @unique
-  botDeal             BotDeal?      @relation(fields: [botDealId], references: [id])
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  botDealId           String?           @unique
+  botDeal             BotDeal?          @relation(fields: [botDealId], references: [id])
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  // Tasdiqlash: OPERATOR/AGENT kiritgan bitim ADMIN tasdiqlamaguncha hisob-kitobga kirmaydi
+  approvalStatus      ApprovalStatus    @default(APPROVED)
+  approvedById        String?
+  approvedBy          User?             @relation("DealApprover", fields: [approvedById], references: [id])
+  approvedAt          DateTime?
+  rejectReason        String?
+  // Trust / Trust 1 bitimlari: Trust bizga qarzdor bo'lgan summa (yechilgan limit x 16%)
+  trustDebtAmount     Decimal           @default(0)
+  items               DealItem[]
+  ddsTransactions     DdsTransaction[]
+  trustEntry          TrustLedgerEntry?
+
+  @@index([approvalStatus])
+  @@index([createdById])
+  @@index([date])
+}
+
+// Bitta bitim/chekka biriktirilgan mahsulot (qurilma). Deal.deviceItems (Json) bilan sinxron saqlanadi.
+model DealItem {
+  id          String   @id @default(uuid())
+  dealId      String
+  deal        Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  position    Int      @default(0)
+  productName String
+  color       String?
+  storageGb   String?
+  imei1       String?
+  imei2       String?
+  quantity    Int      @default(1)
+  price       Decimal  @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([dealId])
 }
 
 model DdsTransaction {
@@ -221,6 +283,51 @@ model DdsTransaction {
   createdById  String?
   createdBy    User?               @relation(fields: [createdById], references: [id])
   createdAt    DateTime            @default(now())
+  source       DdsSource           @default(MANUAL)
+  dealId       String?
+  deal         Deal?               @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  trustEntry   TrustLedgerEntry?
+
+  // Bitta bitim uchun chek xarajati faqat bir marta yoziladi
+  @@unique([dealId, source])
+  @@index([dateTime])
+}
+
+// Har bir kassa/karta/hisob raqamning joriy qoldig'i (DDS yozilganda avtomatik yangilanadi)
+model AccountBalance {
+  account   AccountType @id
+  balance   Decimal     @default(0)
+  updatedAt DateTime    @updatedAt
+}
+
+// Trust hisob-kitobi daftari: DEBT = Trust qarzi (bitimdan 16%), PAYMENT = Trust bergan pul
+model TrustLedgerEntry {
+  id               String          @id @default(uuid())
+  type             TrustEntryType
+  amount           Decimal
+  dateTime         DateTime        @default(now())
+  dealId           String?         @unique
+  deal             Deal?           @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  ddsTransactionId String?         @unique
+  ddsTransaction   DdsTransaction? @relation(fields: [ddsTransactionId], references: [id], onDelete: Cascade)
+  note             String?
+  createdById      String?
+  createdAt        DateTime        @default(now())
+
+  @@index([dateTime])
+}
+
+// FCM push tokenlari (Android ilova)
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String   @default("android")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model DebtPayment {
@@ -309,21 +416,21 @@ model BotPayment {
 }
 
 model BotOperatorReport {
-  id             String   @id @default(uuid())
-  agentName      String
-  date           DateTime
-  operatorName   String
-  appName        String
-  calculatedPct  Decimal
-  productName    String
-  actualPrice    Decimal
-  purchasePrice  Decimal
-  paidAmount     Decimal
-  profit         Decimal
-  storeName      String
-  checkNumber    String?
-  responsible    String?
-  createdAt      DateTime @default(now())
+  id            String   @id @default(uuid())
+  agentName     String
+  date          DateTime
+  operatorName  String
+  appName       String
+  calculatedPct Decimal
+  productName   String
+  actualPrice   Decimal
+  purchasePrice Decimal
+  paidAmount    Decimal
+  profit        Decimal
+  storeName     String
+  checkNumber   String?
+  responsible   String?
+  createdAt     DateTime @default(now())
 }
 
 model DebtRecord {
@@ -381,13 +488,13 @@ model AppSetting {
 }
 
 model SwotAgencyAnalysis {
-  id          String   @id @default(uuid())
-  agencyName  String   @unique
-  strengths   String?
-  weaknesses  String?
+  id            String   @id @default(uuid())
+  agencyName    String   @unique
+  strengths     String?
+  weaknesses    String?
   opportunities String?
-  threats     String?
-  updatedAt   DateTime @updatedAt
+  threats       String?
+  updatedAt     DateTime @updatedAt
 }
 
 model AuditLog {
