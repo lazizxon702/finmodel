@@ -31,6 +31,9 @@ import leadsRoutes from './routes/leads.routes';
 import hrRoutes from './routes/hr.routes';
 import aiRoutes from './routes/ai.routes';
 import syncRoutes from './routes/sync.routes';
+import trustRoutes from './routes/trust.routes';
+import notificationsRoutes from './routes/notifications.routes';
+import teamRoutes from './routes/team.routes';
 
 const app = express();
 
@@ -66,6 +69,9 @@ app.use('/api/leads', leadsRoutes);
 app.use('/api/hr', hrRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/api/trust', trustRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/team', teamRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

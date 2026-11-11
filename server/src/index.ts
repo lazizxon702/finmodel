@@ -3,6 +3,7 @@ import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import app from './app';
 import { initTelegramBot } from './bot/telegram.bot';
+import { setRealtimeServer } from './lib/realtime';
 
 const server = http.createServer(app);
 
@@ -13,6 +14,9 @@ const io = new SocketIOServer(server, {
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
+
+// Routelar real vaqt hodisalarini shu orqali yuboradi (deals:updated, dds:updated, trust:updated)
+setRealtimeServer(io);
 
 io.on('connection', (socket) => {
   console.log(`⚡ WebSocket client connected: ${socket.id}`);
