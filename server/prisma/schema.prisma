@@ -1,0 +1,521 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  CASHIER
+  OPERATOR
+  VIEWER
+  CFO
+  COO
+  CALL_CENTER_HEAD
+  CALL_CENTER_AGENT
+  STOREKEEPER
+  SELLER
+  HR_MANAGER
+}
+
+enum DealStatus {
+  IN_WAREHOUSE
+  SOLD
+  IN_TRANSIT
+  PENDING
+  NEED_TO_BUY
+  MONEY_RECEIVED
+  PARTIAL_AMOUNT
+}
+
+enum PaymentStatus {
+  PAID
+  DEBT
+  PARTIAL
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum AccountType {
+  CASH
+  BANK_CARD
+  SETTLEMENT_ACCOUNT
+}
+
+enum ExpenseCategoryType {
+  COGS
+  OPEX
+  INCOME_TRANSFER
+}
+
+model User {
+  id              String           @id @default(uuid())
+  username        String           @unique
+  fullName        String
+  passwordHash    String
+  initialPassword String?
+  role            Role             @default(OPERATOR)
+  telegramId   BigInt?          @unique
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  dealsCreated Deal[]           @relation("DealCreator")
+  transactions DdsTransaction[]
+  botDeals     BotDeal[]
+  auditLogs    AuditLog[]
+  leadsCreated Lead[]
+}
+
+model Store {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  contactPhone    String?
+  address         String?
+  isActive        Boolean          @default(true)
+  deals           Deal[]
+  commissionRules CommissionRule[]
+}
+
+model Provider {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  defaultDiscount Decimal          @default(0)
+  isDaftarDefault Boolean          @default(false)
+  isActive        Boolean          @default(true)
+  deals           Deal[]
+  commissionRules CommissionRule[]
+}
+
+model CommissionRule {
+  id          String    @id @default(uuid())
+  name        String
+  storeId     String?
+  store       Store?    @relation(fields: [storeId], references: [id])
+  providerId  String?
+  provider    Provider? @relation(fields: [providerId], references: [id])
+  ratePercent Decimal
+  priority    Int       @default(1)
+  isActive    Boolean   @default(true)
+}
+
+model Agency {
+  id     String  @id @default(uuid())
+  name   String  @unique
+  phone  String?
+  agents Agent[]
+  deals  Deal[]
+}
+
+model Agent {
+  id       String  @id @default(uuid())
+  agencyId String
+  agency   Agency  @relation(fields: [agencyId], references: [id])
+  name     String
+  phone    String?
+  isActive Boolean @default(true)
+  deals    Deal[]
+}
+
+model Buyer {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  phone       String?
+  isWholesale Boolean @default(true)
+  deals       Deal[]
+}
+
+model Partner {
+  id       String                @id @default(uuid())
+  name     String                @unique
+  phone    String?
+  deposits PartnerDailyDeposit[]
+}
+
+model Deal {
+  id                  String        @id @default(uuid())
+  dealNumber          Int           @unique
+  date                DateTime      @default(now())
+  createdById         String?
+  createdBy           User?         @relation("DealCreator", fields: [createdById], references: [id])
+  sellerName          String
+  providerId          String
+  provider            Provider      @relation(fields: [providerId], references: [id])
+  isDaftar            Boolean       @default(false)
+  customerName        String?
+  customerPhone1      String?
+  customerPhone2      String?
+  contractUrl         String?
+  passportPhotoUrl    String?
+  storeId             String
+  store               Store         @relation(fields: [storeId], references: [id])
+  customerLimit       Decimal       @default(0)
+  withdrawnLimit      Decimal       @default(0)
+  agentAmount         Decimal       @default(0)
+  totalPurchaseCost   Decimal       @default(0)
+  purchaseDiscountPct Decimal       @default(0)
+  agentPct            Decimal       @default(0)
+  calculatedAmount    Decimal       @default(0)
+  remainingLimit      Decimal       @default(0)
+  differenceAmount    Decimal       @default(0)
+  isActualDeviceSale  Boolean       @default(false)
+  productName         String?
+  quantity            Int           @default(1)
+  imeiBarcode         String?
+  imei2               String?
+  color               String?
+  storageGb           String?
+  deviceItems         Json?
+  statusChangeReason  String?
+  debtDueDate         DateTime?
+  debtPayments        DebtPayment[]
+  status              DealStatus    @default(NEED_TO_BUY)
+  agencyId            String?
+  agency              Agency?       @relation(fields: [agencyId], references: [id])
+  agentId             String?
+  agent               Agent?        @relation(fields: [agentId], references: [id])
+  extraDaftar         Decimal       @default(0)
+  qodirDebt           Decimal       @default(0)
+  qodirBalance        Decimal       @default(0)
+  greenBazarBalance   Decimal       @default(0)
+  trustBalance        Decimal       @default(0)
+  totalExtraBalance   Decimal       @default(0)
+  buyerId             String?
+  buyer               Buyer?        @relation(fields: [buyerId], references: [id])
+  saleDate            DateTime?
+  salePrice           Decimal       @default(0)
+  paidTransfer        Decimal       @default(0)
+  paidCashUzs         Decimal       @default(0)
+  paidCashUsd         Decimal       @default(0)
+  paidBank            Decimal       @default(0)
+  exchangeRate        Decimal       @default(1)
+  profit              Decimal       @default(0)
+  marginPct           Decimal       @default(0)
+  receivedFromBuyer   Decimal       @default(0)
+  debtRemainder       Decimal       @default(0)
+  paymentStatus       PaymentStatus @default(PARTIAL)
+  note                String?
+  botDealId           String?       @unique
+  botDeal             BotDeal?      @relation(fields: [botDealId], references: [id])
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+}
+
+model DdsTransaction {
+  id           String              @id @default(uuid())
+  txNumber     String              @unique
+  dateTime     DateTime            @default(now())
+  type         TransactionType
+  account      AccountType
+  expenseType  ExpenseCategoryType
+  categoryName String
+  sourcePerson String
+  amount       Decimal
+  description  String?
+  createdById  String?
+  createdBy    User?               @relation(fields: [createdById], references: [id])
+  createdAt    DateTime            @default(now())
+}
+
+model DebtPayment {
+  id          String      @id @default(uuid())
+  dealId      String
+  deal        Deal        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  amount      Decimal
+  date        DateTime    @default(now())
+  paidBy      String?
+  accountType AccountType @default(CASH)
+  note        String?
+  createdAt   DateTime    @default(now())
+}
+
+model PartnerDailyDeposit {
+  id            String      @id @default(uuid())
+  partnerId     String
+  partner       Partner     @relation(fields: [partnerId], references: [id])
+  date          DateTime
+  accountType   AccountType
+  depositAmount Decimal     @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([partnerId, date, accountType])
+}
+
+model DailyAccountingEntry {
+  id           String   @id @default(uuid())
+  yearMonth    String
+  dayNumber    Int
+  providerCode String
+  dealCount    Int      @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@unique([yearMonth, dayNumber, providerCode])
+}
+
+model BotDeal {
+  id                String       @id @default(uuid())
+  uuid              String       @unique
+  checkNumber       Int?
+  dateTime          DateTime     @default(now())
+  telegramUsername  String?
+  telegramUserId    BigInt?
+  providerName      String?
+  installmentMonths Int?
+  isDaftar          Boolean      @default(false)
+  customerName      String?
+  customerPhone1    String?
+  customerPhone2    String?
+  contractUrl       String?
+  passportPhotoUrl  String?
+  storeName         String?
+  customerLimit     Decimal      @default(0)
+  withdrawnLimit    Decimal      @default(0)
+  productName       String?
+  quantity          Int          @default(1)
+  imeiBarcode       String?
+  agencyName        String?
+  agentName         String?
+  isApproved        Boolean      @default(false)
+  deal              Deal?
+  payments          BotPayment[]
+  createdById       String?
+  createdBy         User?        @relation(fields: [createdById], references: [id])
+  createdAt         DateTime     @default(now())
+}
+
+model BotPayment {
+  id              String   @id @default(uuid())
+  botDealId       String
+  botDeal         BotDeal  @relation(fields: [botDealId], references: [id])
+  checkNumber     Int?
+  dateTime        DateTime @default(now())
+  operatorTgId    BigInt?
+  operatorName    String?
+  stage           String?
+  paymentType     String
+  currencyAmount  Decimal
+  exchangeRate    Decimal  @default(1)
+  uzsAmount       Decimal
+  receiptPhotoUrl String?
+  isVerified      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+}
+
+model BotOperatorReport {
+  id             String   @id @default(uuid())
+  agentName      String
+  date           DateTime
+  operatorName   String
+  appName        String
+  calculatedPct  Decimal
+  productName    String
+  actualPrice    Decimal
+  purchasePrice  Decimal
+  paidAmount     Decimal
+  profit         Decimal
+  storeName      String
+  checkNumber    String?
+  responsible    String?
+  createdAt      DateTime @default(now())
+}
+
+model DebtRecord {
+  id              String    @id @default(uuid())
+  debtorName      String
+  roleDescription String?
+  telegram        String?
+  contactPhone    String?
+  amountUsd       Decimal   @default(0)
+  amountUzs       Decimal   @default(0)
+  remainingAmount Decimal   @default(0)
+  note            String?
+  weOwe           Boolean   @default(false)
+  isConfirmed     Boolean   @default(false)
+  debtReason      String?
+  contractDate    DateTime?
+  repaymentDate   DateTime?
+  createdAt       DateTime  @default(now())
+}
+
+model HandoverChecklist {
+  id               String  @id @default(uuid())
+  orderNum         Int
+  title            String
+  comment          String?
+  status           String  @default("Jarayonda")
+  actDone          Boolean @default(false)
+  applicationTaken Boolean @default(false)
+}
+
+model StaffKPIPlan {
+  id           String @id @default(uuid())
+  roleName     String
+  reportType   String
+  reportFormat String
+  kpiDetails   String
+}
+
+model EmployeeSalary {
+  id           String    @id @default(uuid())
+  employeeName String
+  position     String
+  baseSalary   Decimal   @default(0)
+  bonusAmount  Decimal   @default(0)
+  totalAmount  Decimal   @default(0)
+  paymentDate  DateTime?
+  isPaid       Boolean   @default(false)
+  note         String?
+}
+
+model AppSetting {
+  key         String  @id
+  value       String
+  description String?
+}
+
+model SwotAgencyAnalysis {
+  id          String   @id @default(uuid())
+  agencyName  String   @unique
+  strengths   String?
+  weaknesses  String?
+  opportunities String?
+  threats     String?
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  entity    String
+  entityId  String
+  action    String
+  oldValues Json?
+  newValues Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+model Lead {
+  id              String    @id @default(uuid())
+  leadNumber      Int       @default(autoincrement())
+  fullName        String
+  phone           String
+  additionalPhone String?
+  passportMasked  String?
+  requestedAmount Decimal   @default(0)
+  approvedLimit   Decimal   @default(0)
+  providerName    String?
+  partnerName     String?
+  source          String    @default("Qo'ng'iroq")
+  status          String    @default("YANGI")
+  visitDate       DateTime?
+  agentName       String?
+  teamName        String?
+  notes           String?
+  createdById     String?
+  createdBy       User?     @relation(fields: [createdById], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model CallCenterTeam {
+  id         String   @id @default(uuid())
+  leaderName String   @unique
+  members    String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+}
+
+model Employee {
+  id          String          @id @default(uuid())
+  fullName    String
+  phone       String?
+  position    String
+  department  String          @default("Asosiy")
+  managerName String?
+  hireDate    DateTime        @default(now())
+  salaryType  String          @default("MONTHLY")
+  baseSalary  Decimal         @default(0)
+  kpiBonus    Decimal         @default(0)
+  schedule    String?         @default("09:00 - 18:00")
+  isActive    Boolean         @default(true)
+  attendances Attendance[]
+  advances    SalaryAdvance[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model Attendance {
+  id              String   @id @default(uuid())
+  employeeId      String
+  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date            DateTime
+  checkInTime     String?
+  checkOutTime    String?
+  status          String   @default("KELDI")
+  lateMinutes     Int      @default(0)
+  overtimeMinutes Int      @default(0)
+  approvedBy      String?
+  createdAt       DateTime @default(now())
+}
+
+model SalaryAdvance {
+  id          String    @id @default(uuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date        DateTime  @default(now())
+  amount      Decimal   @default(0)
+  reason      String?
+  accountType String    @default("CASH")
+  status      String    @default("TASDIQLANDI")
+  approvedBy  String?
+  paidAt      DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model Task {
+  id           String    @id @default(uuid())
+  title        String
+  description  String?
+  assigneeName String?
+  priority     String    @default("ORTA")
+  dueDate      DateTime?
+  status       String    @default("YANGI")
+  resultNote   String?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model WarehouseTransfer {
+  id            String   @id @default(uuid())
+  transferNum   Int      @default(autoincrement())
+  dealId        String?
+  productName   String
+  imeiBarcode   String?
+  fromLocation  String
+  toLocation    String
+  transferredBy String
+  status        String   @default("YOLDA")
+  date          DateTime @default(now())
+  notes         String?
+}
+
+model InventoryAudit {
+  id               String   @id @default(uuid())
+  auditDate        DateTime @default(now())
+  conductedBy      String
+  totalSystem      Int      @default(0)
+  totalActual      Int      @default(0)
+  difference       Int      @default(0)
+  discrepancyNotes String?
+  status           String   @default("YOPILDI")
+}

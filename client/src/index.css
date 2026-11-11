@@ -1,0 +1,237 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-100 text-slate-800 font-sans antialiased transition-colors duration-200;
+    background-color: #f8fafc;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(6, 182, 212, 0.04) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.04) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  body.dark {
+    @apply bg-slate-950 text-slate-100;
+    background-color: #0b0f19;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(6, 182, 212, 0.08) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(99, 102, 241, 0.06) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+}
+
+/* 3D Surface & Card Utilities - Light Mode */
+.card-3d {
+  background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-top: 1px solid rgba(255, 255, 255, 1);
+  box-shadow: 
+    0 1px 3px 0 rgba(0, 0, 0, 0.04),
+    0 8px 20px -3px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+  border-radius: 1.25rem;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  color: #0f172a;
+}
+
+.card-3d:hover {
+  transform: translateY(-2px);
+  border-color: rgba(6, 182, 212, 0.4);
+  box-shadow: 
+    0 14px 28px -5px rgba(0, 0, 0, 0.08),
+    0 0 16px -2px rgba(6, 182, 212, 0.12),
+    inset 0 1px 0 #ffffff;
+}
+
+/* 3D Surface & Card Utilities - Dark Mode */
+.dark .card-3d {
+  background: linear-gradient(145deg, rgba(22, 30, 49, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 
+    0 1px 3px 0 rgba(0, 0, 0, 0.4),
+    0 12px 30px -4px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.dark .card-3d:hover {
+  border-color: rgba(6, 182, 212, 0.4);
+  box-shadow: 
+    0 18px 40px -8px rgba(0, 0, 0, 0.6),
+    0 0 20px -2px rgba(6, 182, 212, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Ensure numbers and headers inside cards are crystal clear in dark mode */
+.dark .card-3d h3,
+.dark .card-3d .text-slate-900,
+.dark .card-3d .text-gray-900 {
+  color: #ffffff !important;
+}
+
+.dark .card-3d .text-slate-600,
+.dark .card-3d .text-gray-600 {
+  color: #cbd5e1 !important;
+}
+
+.dark .card-3d .text-slate-500,
+.dark .card-3d .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+.dark .card-3d .border-slate-100,
+.dark .card-3d .border-gray-100 {
+  border-color: rgba(51, 65, 85, 0.5) !important;
+}
+
+/* 3D Interactive Buttons */
+.btn-3d {
+  position: relative;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 
+    0 3px 0 0 rgba(0, 0, 0, 0.16),
+    0 6px 14px -2px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.btn-3d:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 
+    0 4px 0 0 rgba(0, 0, 0, 0.18),
+    0 8px 18px -2px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.btn-3d:active {
+  transform: translateY(2px) !important;
+  box-shadow: 
+    0 1px 0 0 rgba(0, 0, 0, 0.15),
+    0 2px 4px rgba(0, 0, 0, 0.08),
+    inset 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* 3D Badge & Status Pills */
+.pill-3d {
+  box-shadow: 
+    0 2px 4px -1px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition: all 0.2s ease;
+}
+
+.pill-3d:hover {
+  transform: scale(1.02);
+}
+
+/* 3D Table styling */
+.table-scroll-container {
+  max-height: calc(100vh - 270px);
+  min-height: 320px;
+  overflow-y: auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+}
+
+.table-scroll-container table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.table-sticky-head th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.table-sticky-summary {
+  position: sticky;
+  top: 41px;
+  z-index: 15;
+}
+
+.table-sticky-summary td {
+  position: sticky;
+  top: 41px;
+  z-index: 15;
+}
+
+.table-3d tr {
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.table-3d tbody tr:hover {
+  background-color: rgba(241, 245, 249, 0.8);
+}
+
+.dark .table-3d tbody tr:hover {
+  background-color: rgba(30, 41, 59, 0.6);
+}
+
+/* Custom subtle scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.1);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+  border-radius: 4px;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 4px;
+}
+
+/* Universal select and option readability across Light and Dark themes */
+select option {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+.dark select option {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+/* Mobile Touch & Responsive Polish */
+html, body {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+/* Ensure smooth touch momentum scrolling on mobile devices */
+.overflow-x-auto, .overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Mobile scrollbar hide utility for tab bars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

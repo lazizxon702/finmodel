@@ -1,0 +1,641 @@
+diff -ru orig/README.md fm/README.md
+--- orig/README.md	2026-11-12 01:53:17.957876486 +0500
++++ fm/README.md	2026-11-12 01:56:23.006031942 +0500
+@@ -13,7 +13,7 @@
+ 3. **Telegram Bot Integratsiyasi (`@MacMobiUz_bot`)**:
+    - Operatorlar buyurtma cheklari va rasmlarini botga yuboradi.
+    - Saytda Socket.IO orqali real vaqt rejimida yangi to'lov va shartnoma rasmlari chiqadi.
+-   - `/bugun`, `/oy`, `/qoldiq`, `/qarz`, `/order` buyruqlari.
++   - `/new`, `/bugun`, `/qoldiq`, `/ombor`, `/bekor` buyruqlari.
+ 4. **O'zbek tili va qulay formatlash**:
+    - O'zbek tili (lotin) ustuvor, qavs ichida ruscha asl nomlar: `Bitimlar (Сделки_и_Склад)`.
+    - Raqamlar minglik ajratgich bilan: `10 000 000 UZS`.
+@@ -171,29 +171,37 @@
+ 
+ ---
+ 
+-## 🔐 Standart Tizimga Kirish (Akkauntlar)
++## 🔐 Tizimga Kirish va Xavfsizlik
+ 
+-Tizimda rollarga bo'lingan xavfsiz autentifikatsiya mavjud. Login sahifasida tezkor kirish tugmalari ham mavjud:
++Standart akkauntlar `server/src/seed.ts` faylida yaratiladi. **Sayt internetda ishlayotgan bo'lsa, birinchi kirishdan keyin barcha standart parollarni "Foydalanuvchilar" sahifasida almashtiring.**
+ 
+-| Rol | Login | Parol | Huquqlar |
+-|---|---|---|---|
+-| **Admin** | `admin` | `admin123` | Barcha imkoniyatlar, o'chirish, spravochniklar, sozlamalar |
+-| **Menejer** | `menejer` | `manager123` | Bitimlar, ombor, agentlar, hisobotlar |
+-| **Kassir** | `kassir` | `kassir123` | Pul kiritish (DDS), to'lovlarni tasdiqlash, qarzlar |
+-| **Operator** | `operator` | `operator123` | Bot arizalarini kiritish, cheklarni qabul qilish |
++Rollar: Admin, Menejer, Kassir, Operator, CFO, COO, Call-markaz rahbari/agenti, Omborchi, Sotuvchi, HR menejer, Kuzatuvchi.
++
++### Majburiy muhit o'zgaruvchilari (server, Vercel → Settings → Environment Variables)
++
++| O'zgaruvchi | Vazifasi |
++|---|---|
++| `DATABASE_URL` | PostgreSQL (Neon) ulanishi |
++| `JWT_SECRET` | **Majburiy.** Uzun tasodifiy qiymat. Bo'lmasa, hamma soxta admin token yasay oladi |
++| `ADMIN_OVERRIDE_CODE` | Qarz blokini ochish va ommaviy o'chirish kodi. Bo'lmasa — istalgan faol Admin paroli ishlaydi |
++| `SYNC_WEBHOOK_SECRET` | Google Sheets webhook kaliti (o'zgartirsangiz, Apps Script kodini qayta nusxalang) |
++| `CRON_SECRET` | Vercel Cron `/api/sync/cron` ni himoyalash uchun |
++| `PUBLIC_SERVER_URL` | Server manzili, masalan `https://server-ecru-three-97.vercel.app` |
++| `GEMINI_API_KEY`, `GEMINI_MODEL` | AI yordamchi (standart model: `gemini-2.5-flash`) |
++| `TELEGRAM_BOT_TOKEN` | Telegram bot |
+ 
+ ---
+ 
+-## 🤖 Telegram Bot Qo'llanmasi (`@MacMobiUz_bot`)
++## 🤖 Telegram Bot Qo'llanmasi
+ 
+-Bot to'g'ridan-to'g'ri backend bilan bog'langan bo'lib, quyidagi vazifalarni bajaradi:
++Bot to'g'ridan-to'g'ri backend bilan bog'langan. Har bir buyruqning o'zbekcha nomi ham ishlaydi:
+ 
+-- `/start` — Botni ishga tushirish va xush kelibsiz xabari.
+-- `/order` — Yangi ariza va chek rasmini yuborish tartibi.
+-- `/bugun` — Bugungi bitimlar soni, kassa tushumi va yechilgan limitlar sarhisobi.
+-- `/oy` — Joriy oylik tushum, COGS, yalpi marja va sof daromad.
+-- `/qoldiq` — Kassa, karta va hisob-raqamdagi joriy likvidlik qoldiqlari.
+-- `/qarz` — Mijozlar va sheriklar oldidagi debitorlik/kreditorlik qarzlari.
++- `/start`, `/help` — botni boshlash va yordam.
++- `/new` — yangi ariza (bitim) kiritish.
++- `/cancel` (`/bekor`) — joriy amalni bekor qilish.
++- `/balance` (`/qoldiq`) — kassa, karta va hisob-raqam qoldiqlari.
++- `/stats` (`/bugun`) — bugungi bitimlar va tushum.
++- `/warehouse` (`/ombor`) — ombor holati.
+ - **Chek rasmini yuborish**: Rasm yuklanganda bot uni qabul qiladi, backend uploads papkasiga saqlaydi va veb-saytga WebSocket orqali real vaqtda bildirishnoma uzatadi.
+ 
+ ---
+diff -ru orig/client/src/context/AuthContext.tsx fm/client/src/context/AuthContext.tsx
+--- orig/client/src/context/AuthContext.tsx	2026-11-12 01:53:17.956617208 +0500
++++ fm/client/src/context/AuthContext.tsx	2026-11-12 01:56:03.455323316 +0500
+@@ -26,6 +26,21 @@
+   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+   const [isLoading, setIsLoading] = useState(true);
+ 
++  // Token muddati o'tsa yoki yaroqsiz bo'lsa — avtomatik chiqish va login sahifasiga qaytish
++  useEffect(() => {
++    const id = axios.interceptors.response.use(
++      (res: any) => res,
++      (error: any) => {
++        const url: string = error?.config?.url || '';
++        if (error?.response?.status === 401 && !url.includes('/api/auth/login')) {
++          logout();
++        }
++        return Promise.reject(error);
++      }
++    );
++    return () => axios.interceptors.response.eject(id);
++  }, []);
++
+   useEffect(() => {
+     if (token) {
+       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+diff -ru orig/client/src/context/SocketContext.tsx fm/client/src/context/SocketContext.tsx
+--- orig/client/src/context/SocketContext.tsx	2026-11-12 01:53:17.956643019 +0500
++++ fm/client/src/context/SocketContext.tsx	2026-11-12 01:55:46.529040056 +0500
+@@ -26,7 +26,12 @@
+ 
+   useEffect(() => {
+     const serverUrl = import.meta.env.VITE_API_URL || undefined;
+-    const s = io(serverUrl);
++    // Vercel (serverless) WebSocketni qo'llamaydi: cheksiz qayta ulanish urinishlarini cheklaymiz
++    const s = io(serverUrl, {
++      reconnectionAttempts: 3,
++      reconnectionDelay: 5000,
++      timeout: 10000,
++    });
+     setSocket(s);
+ 
+     s.on('new_bot_payment', (data: any) => {
+diff -ru orig/client/src/pages/BotPaymentsPage.tsx fm/client/src/pages/BotPaymentsPage.tsx
+--- orig/client/src/pages/BotPaymentsPage.tsx	2026-11-12 01:53:17.956735260 +0500
++++ fm/client/src/pages/BotPaymentsPage.tsx	2026-11-12 01:55:38.767004856 +0500
+@@ -1,5 +1,6 @@
+ import React, { useState, useEffect } from 'react';
+ import axios from 'axios';
++import { useAuth } from '../context/AuthContext';
+ import { 
+   CreditCard, FileSpreadsheet, Plus, CheckCircle, Search, RefreshCw, 
+   TrendingUp, DollarSign, UserCheck, ShieldCheck, AlertCircle, Calendar, Trash2
+@@ -40,6 +41,8 @@
+ }
+ 
+ export const BotPaymentsPage: React.FC = () => {
++  const { user } = useAuth();
++  const isAdmin = user?.role === 'ADMIN';
+   const [activeTab, setActiveTab] = useState<'PAYMENTS' | 'OPERATOR_REPORTS'>('PAYMENTS');
+   
+   // Tab 1 state
+@@ -151,13 +154,11 @@
+   };
+ 
+   const handleClearAllReports = async () => {
+-    const conf = window.prompt("Barcha chek hisobotlarini tozalash uchun 'admin123' parolini kiriting:");
+-    if (conf !== 'admin123') {
+-      if (conf !== null) alert("Noto'g'ri parol!");
+-      return;
+-    }
++    const conf = window.prompt("Barcha chek hisobotlarini tozalash uchun administrator kodini kiriting:");
++    if (!conf) return;
+     try {
+-      await axios.delete('/api/bot/operator-reports/all');
++      // Kod serverda tekshiriladi; faqat ADMIN roli bajara oladi
++      await axios.delete('/api/bot/operator-reports/all', { data: { confirmCode: conf } });
+       fetchReports();
+       alert("Barcha chek hisobotlari o'chirildi!");
+     } catch (err: any) {
+@@ -203,6 +204,7 @@
+         <div className="flex flex-wrap items-center gap-2">
+           {activeTab === 'OPERATOR_REPORTS' && (
+             <div className="flex flex-wrap items-center gap-2">
++              {isAdmin && (
+               <button
+                 type="button"
+                 onClick={handleClearAllReports}
+@@ -212,6 +214,7 @@
+                 <Trash2 className="w-3.5 h-3.5" />
+                 Cheklarni tozalash
+               </button>
++              )}
+               <button
+                 onClick={() => setShowAddModal(true)}
+                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium shadow-sm transition"
+diff -ru orig/client/src/pages/DdsPage.tsx fm/client/src/pages/DdsPage.tsx
+--- orig/client/src/pages/DdsPage.tsx	2026-11-12 01:53:17.956844083 +0500
++++ fm/client/src/pages/DdsPage.tsx	2026-11-12 01:55:38.764196465 +0500
+@@ -1,5 +1,6 @@
+ import React, { useEffect, useState } from 'react';
+ import axios from 'axios';
++import { useAuth } from '../context/AuthContext';
+ import {
+   ArrowDownUp,
+   Plus,
+@@ -24,6 +25,8 @@
+ import { AmountInput } from '../components/AmountInput';
+ 
+ export const DdsPage: React.FC = () => {
++  const { user } = useAuth();
++  const isAdmin = user?.role === 'ADMIN';
+   const { t } = useTranslation();
+   const [transactions, setTransactions] = useState<DdsTransaction[]>([]);
+   const [summary, setSummary] = useState<any>(null);
+@@ -190,13 +193,11 @@
+   };
+ 
+   const handleClearAll = async () => {
+-    const conf = window.prompt("Barcha kirim-chiqimlarni o'chirish va kassa/karta balansini 0 qilish uchun 'admin123' parolini kiriting:");
+-    if (conf !== 'admin123') {
+-      if (conf !== null) alert("Noto'g'ri parol!");
+-      return;
+-    }
++    const conf = window.prompt("Barcha kirim-chiqimlarni o'chirish va kassa/karta balansini 0 qilish uchun administrator kodini kiriting:");
++    if (!conf) return;
+     try {
+-      await axios.delete('/api/dds/all');
++      // Kod serverda tekshiriladi; faqat ADMIN roli bajara oladi
++      await axios.delete('/api/dds/all', { data: { confirmCode: conf } });
+       fetchDdsData();
+       alert("Barcha kirim-chiqimlar o'chirildi va balans 0 qilindi!");
+     } catch (err: any) {
+@@ -251,6 +252,7 @@
+             {showCategoryBreakdown ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+           </button>
+ 
++          {isAdmin && (
+           <button
+             type="button"
+             onClick={handleClearAll}
+@@ -260,6 +262,7 @@
+             <Trash2 className="w-3.5 h-3.5" />
+             <span>Balansni 0 qilish</span>
+           </button>
++          )}
+ 
+           <button
+             onClick={() => {
+diff -ru orig/client/src/pages/DealsPage.tsx fm/client/src/pages/DealsPage.tsx
+--- orig/client/src/pages/DealsPage.tsx	2026-11-12 01:53:17.956862843 +0500
++++ fm/client/src/pages/DealsPage.tsx	2026-11-12 01:55:25.603959904 +0500
+@@ -76,6 +76,7 @@
+   const [isSyncSettingsOpen, setIsSyncSettingsOpen] = useState(false);
+   const [appsScriptUrlInput, setAppsScriptUrlInput] = useState('');
+   const [copiedScript, setCopiedScript] = useState(false);
++  const [syncWebhookUrl, setSyncWebhookUrl] = useState('');
+ 
+   const fetchSyncStatus = async () => {
+     try {
+@@ -83,6 +84,9 @@
+       if (res.data?.appsScriptUrl) {
+         setAppsScriptUrlInput(res.data.appsScriptUrl);
+       }
++      if (res.data?.webhookUrl) {
++        setSyncWebhookUrl(res.data.webhookUrl);
++      }
+     } catch (e) {}
+   };
+ 
+@@ -100,7 +104,7 @@
+  * Ushbu skript Google Sheets va sayt o'rtasida real vaqtda ikki tomonlama aloqa o'rnatadi.
+  */
+ 
+-const WEBSITE_WEBHOOK_URL = 'https://server-ecru-three-97.vercel.app/api/sync/webhook?token=finmodel_secret_sync_2026';
++const WEBSITE_WEBHOOK_URL = '${syncWebhookUrl || 'ADMIN_HISOBIDAN_OCHIB_NUSXALANG'}';
+ const SHEET_NAME = 'Сделки_и_Склад';
+ 
+ // 1. SHEETS -> SAYT: Jadval tahrirlanganda saytga xabar yuborish
+@@ -572,9 +576,19 @@
+ 
+     // Validate credit override if customer has debt
+     if (customerDebtAlert?.hasDebt) {
+-      if (formData.adminOverrideCode !== 'admin123') {
++      // Kod serverda tekshiriladi — brauzer kodida saqlanmaydi
++      let overrideOk = false;
++      if (formData.adminOverrideCode?.trim()) {
++        try {
++          const vr = await axios.post('/api/auth/verify-override', { code: formData.adminOverrideCode });
++          overrideOk = !!vr.data?.valid;
++        } catch {
++          overrideOk = false;
++        }
++      }
++      if (!overrideOk) {
+         alert(
+-          `Ushbu mijozda ${formatMoney(customerDebtAlert.totalDebt)} qoldiq qarz mavjud! Tovar chiqarish uchun maxsus administrator kodini (admin123) kiriting.`
++          `Ushbu mijozda ${formatMoney(customerDebtAlert.totalDebt)} qoldiq qarz mavjud! Tovar chiqarish uchun to'g'ri administrator kodini kiriting.`
+         );
+         return;
+       }
+@@ -1400,7 +1414,7 @@
+                   </p>
+                   <input
+                     type="password"
+-                    placeholder="Administrator kodi (admin123)"
++                    placeholder="Administrator kodi"
+                     value={formData.adminOverrideCode}
+                     onChange={(e) => setFormData({ ...formData, adminOverrideCode: e.target.value })}
+                     className="w-full px-3 py-2 bg-slate-800 border border-amber-500/50 rounded-xl text-white font-mono text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+diff -ru orig/client/src/pages/DebtorsPage.tsx fm/client/src/pages/DebtorsPage.tsx
+--- orig/client/src/pages/DebtorsPage.tsx	2026-11-12 01:53:17.956915416 +0500
++++ fm/client/src/pages/DebtorsPage.tsx	2026-11-12 01:55:35.780323721 +0500
+@@ -190,7 +190,7 @@
+             Qarzdorlarga tovar chiqarish taqiqlangan!
+           </div>
+           <div className="mt-1 text-[11px] text-slate-600 dark:text-indigo-200">
+-            Faqat maxsus kod (<b className="font-mono text-cyan-600 dark:text-cyan-300">admin123</b>) orqali ruxsat etiladi.
++            Faqat administrator kodi orqali ruxsat etiladi.
+           </div>
+         </div>
+       </div>
+diff -ru orig/client/src/pages/InventoryPage.tsx fm/client/src/pages/InventoryPage.tsx
+--- orig/client/src/pages/InventoryPage.tsx	2026-11-12 01:53:17.956979836 +0500
++++ fm/client/src/pages/InventoryPage.tsx	2026-11-12 01:55:25.604260335 +0500
+@@ -626,7 +626,7 @@
+                 </p>
+                 <input
+                   type="password"
+-                  placeholder="Administrator kodi (admin123)"
++                  placeholder="Administrator kodi"
+                   value={saleForm.adminOverrideCode}
+                   onChange={(e) => setSaleForm({ ...saleForm, adminOverrideCode: e.target.value })}
+                   className="w-full px-3 py-2 bg-slate-800 border border-amber-500/50 rounded-xl text-white font-mono text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+diff -ru orig/client/src/pages/SalesPage.tsx fm/client/src/pages/SalesPage.tsx
+--- orig/client/src/pages/SalesPage.tsx	2026-11-12 01:53:17.957127164 +0500
++++ fm/client/src/pages/SalesPage.tsx	2026-11-12 01:55:25.604558122 +0500
+@@ -794,7 +794,7 @@
+                   </p>
+                   <input
+                     type="password"
+-                    placeholder="Admin paroli (admin123)"
++                    placeholder="Administrator kodi"
+                     value={saleForm.adminOverrideCode}
+                     onChange={(e) => setSaleForm({ ...saleForm, adminOverrideCode: e.target.value })}
+                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 rounded-xl text-rose-600 font-bold"
+Only in fm/server/src/lib: security.ts
+diff -ru orig/server/src/middleware/auth.middleware.ts fm/server/src/middleware/auth.middleware.ts
+--- orig/server/src/middleware/auth.middleware.ts	2026-11-12 01:53:17.957426447 +0500
++++ fm/server/src/middleware/auth.middleware.ts	2026-11-12 01:54:50.101687032 +0500
+@@ -1,6 +1,7 @@
+ import { Request, Response, NextFunction } from 'express';
+ import jwt from 'jsonwebtoken';
+ import { Role } from '@prisma/client';
++import { getJwtSecret } from '../lib/security';
+ 
+ export interface AuthRequest extends Request {
+   user?: {
+@@ -24,10 +25,11 @@
+     return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi (Token yo\'q)' });
+   }
+ 
+-  const secret = process.env.JWT_SECRET || 'finmodel-secret';
++  const secret = getJwtSecret();
+   jwt.verify(token, secret, (err: any, decoded: any) => {
+     if (err) {
+-      return res.status(403).json({ error: 'Token yaroqsiz yoki muddati o\'tgan' });
++      // 401 — klient avtomatik ravishda qayta kirish sahifasiga yo'naltiradi
++      return res.status(401).json({ error: 'Token yaroqsiz yoki muddati o\'tgan' });
+     }
+     req.user = decoded;
+     next();
+diff -ru orig/server/src/routes/ai.routes.ts fm/server/src/routes/ai.routes.ts
+--- orig/server/src/routes/ai.routes.ts	2026-11-12 01:53:17.957497923 +0500
++++ fm/server/src/routes/ai.routes.ts	2026-11-12 01:55:08.325483163 +0500
+@@ -1,5 +1,9 @@
+ import { Router, Request, Response } from 'express';
+ import { prisma } from '../lib/prisma';
++import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
++
++// Gemini modeli muhit o'zgaruvchisi orqali almashtiriladi (gemini-1.5-flash Google tomonidan o'chirilgan)
++const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+ 
+ const router = Router();
+ 
+@@ -9,9 +13,11 @@
+ }
+ 
+ // POST /api/ai/chat
+-router.post('/chat', async (req: Request, res: Response) => {
++router.post('/chat', authenticateToken, async (req: AuthRequest, res: Response) => {
+   try {
+-    const { message, history = [], userRole = 'ADMIN', apiKey, language = 'uz' } = req.body;
++    const { message, history = [], apiKey, language = 'uz' } = req.body;
++    // Rol endi tokendan olinadi — klient o'zini ADMIN deb ko'rsata olmaydi
++    const userRole = req.user?.role || 'OPERATOR';
+ 
+     if (!message || typeof message !== 'string') {
+       return res.status(400).json({ error: 'Xabar matni kiritilishi shart (message required)' });
+@@ -106,7 +112,7 @@
+ - Tovar to'liq tannarxi = Xarid narxi + bevosita xarajatlar (yetkazish, komissiya).
+ - Sotuvdan yalpi foyda = Sotuv narxi - Tovar tannarxi.
+ - Marja foizi = (Yalpi foyda / Sotuv narxi) * 100.
+-- Qarzdorlik blokirovkasi: muddati o'tgan qarzdorga tovar sotish taqiqlangan, uni faqat 'admin123' paroli bilan ochish mumkin.
++- Qarzdorlik blokirovkasi: muddati o'tgan qarzdorga tovar sotish taqiqlangan, uni faqat administrator kodi bilan ochish mumkin.
+ 
+ Foydalanuvchi hozirgi roli: ${userRole}.
+ Javoblarni aniq, chiroyli, Markdown formatida (sarlavhalar, ro'yxatlar, qalin shrift va emojilar bilan) bering.
+@@ -137,8 +143,8 @@
+           parts: [{ text: message }]
+         });
+ 
+-        // Call Gemini 1.5 Flash API
+-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeApiKey}`;
++        // Call Gemini API
++        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${activeApiKey}`;
+         const geminiRes = await fetch(geminiUrl, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+@@ -161,7 +167,7 @@
+           return res.json({
+             reply: aiReply,
+             source: 'gemini',
+-            model: 'gemini-1.5-flash'
++            model: GEMINI_MODEL
+           });
+         } else {
+           console.warn('Gemini API call returned non-200 or no candidates:', geminiData);
+@@ -394,7 +400,7 @@
+   res.json({
+     active: true,
+     geminiConfigured: hasKey,
+-    model: hasKey ? 'gemini-1.5-flash' : 'FinModel AI Engine'
++    model: hasKey ? GEMINI_MODEL : 'FinModel AI Engine'
+   });
+ });
+ 
+diff -ru orig/server/src/routes/auth.routes.ts fm/server/src/routes/auth.routes.ts
+--- orig/server/src/routes/auth.routes.ts	2026-11-12 01:53:17.957486452 +0500
++++ fm/server/src/routes/auth.routes.ts	2026-11-12 01:54:50.103632242 +0500
+@@ -4,6 +4,7 @@
+ import { prisma } from '../lib/prisma';
+ import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
+ import { Role } from '@prisma/client';
++import { getJwtSecret, verifyAdminOverride } from '../lib/security';
+ 
+ const router = Router();
+ 
+@@ -19,16 +20,12 @@
+       where: { username: username.trim() },
+     });
+ 
+-    if (!user || !user.isActive) {
+-      return res.status(401).json({ error: 'Foydalanuvchi topilmadi yoki bloklangan' });
++    // Bir xil xabar: login mavjudligini tashqaridan aniqlab bo'lmasin
++    if (!user || !user.isActive || !(await bcrypt.compare(String(password), user.passwordHash))) {
++      return res.status(401).json({ error: 'Login yoki parol noto\'g\'ri (yoki foydalanuvchi bloklangan)' });
+     }
+ 
+-    const isValid = await bcrypt.compare(password, user.passwordHash);
+-    if (!isValid) {
+-      return res.status(401).json({ error: 'Parol noto\'g\'ri' });
+-    }
+-
+-    const secret = process.env.JWT_SECRET || 'finmodel-secret';
++    const secret = getJwtSecret();
+     const token = jwt.sign(
+       {
+         id: user.id,
+@@ -94,6 +91,17 @@
+   } catch (error: any) {
+     return res.status(500).json({ error: 'Server xatoligi' });
+   }
++});
++
++// Verify administrator override code (debt block, bulk delete, etc.)
++router.post('/verify-override', authenticateToken, async (req: AuthRequest, res: Response) => {
++  try {
++    const ok = await verifyAdminOverride(req.body?.code);
++    if (!ok) return res.status(403).json({ valid: false, error: 'Administrator kodi noto\'g\'ri' });
++    return res.json({ valid: true });
++  } catch (error: any) {
++    return res.status(500).json({ error: 'Server xatoligi' });
++  }
+ });
+ 
+ // List Users (Admin only)
+diff -ru orig/server/src/routes/bot.routes.ts fm/server/src/routes/bot.routes.ts
+--- orig/server/src/routes/bot.routes.ts	2026-11-12 01:53:17.957527512 +0500
++++ fm/server/src/routes/bot.routes.ts	2026-11-12 01:55:08.324808485 +0500
+@@ -1,6 +1,8 @@
+ import { Router, Response } from 'express';
+ import { prisma } from '../lib/prisma';
+-import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
++import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
++import { requireAdminConfirm } from '../lib/security';
++import { Role } from '@prisma/client';
+ import { CalculationService } from '../services/calculation.service';
+ import { DealStatus } from '@prisma/client';
+ import { webhookCallback } from 'grammy';
+@@ -15,9 +17,9 @@
+ });
+ 
+ // Setup webhook helper
+-router.get('/setup-webhook', async (req, res) => {
++router.get('/setup-webhook', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
+   try {
+-    const webhookUrl = 'https://server-ecru-three-97.vercel.app/api/bot/webhook';
++    const webhookUrl = (process.env.PUBLIC_SERVER_URL || 'https://server-ecru-three-97.vercel.app') + '/api/bot/webhook';
+     await bot.api.setWebhook(webhookUrl);
+     const info = await bot.api.getWebhookInfo();
+     return res.json({ status: 'ok', webhookUrl, info });
+@@ -310,7 +312,7 @@
+ });
+ 
+ // DELETE /api/bot/operator-reports/all (Clear all check reports)
+-router.delete('/operator-reports/all', authenticateToken, async (req: AuthRequest, res: Response) => {
++router.delete('/operator-reports/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdminConfirm, async (req: AuthRequest, res: Response) => {
+   try {
+     const result = await prisma.botOperatorReport.deleteMany({});
+     return res.json({
+@@ -335,7 +337,7 @@
+ });
+ 
+ // DELETE /api/bot/payments/all (Clear all bot payments)
+-router.delete('/payments/all', authenticateToken, async (req: AuthRequest, res: Response) => {
++router.delete('/payments/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdminConfirm, async (req: AuthRequest, res: Response) => {
+   try {
+     const result = await prisma.botPayment.deleteMany({});
+     return res.json({
+diff -ru orig/server/src/routes/daily.routes.ts fm/server/src/routes/daily.routes.ts
+--- orig/server/src/routes/daily.routes.ts	2026-11-12 01:53:17.957541167 +0500
++++ fm/server/src/routes/daily.routes.ts	2026-11-12 01:54:50.105045900 +0500
+@@ -1,6 +1,8 @@
+ import { Router, Response } from 'express';
+ import { prisma } from '../lib/prisma';
+-import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
++import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
++import { requireAdminConfirm } from '../lib/security';
++import { Role } from '@prisma/client';
+ 
+ const router = Router();
+ 
+@@ -204,7 +206,7 @@
+ });
+ 
+ // DELETE /api/daily/all (Clear all entries)
+-router.delete('/all', authenticateToken, async (req: AuthRequest, res: Response) => {
++router.delete('/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdminConfirm, async (req: AuthRequest, res: Response) => {
+   try {
+     const resDel = await prisma.dailyAccountingEntry.deleteMany({});
+     return res.json({ success: true, deletedCount: resDel.count });
+diff -ru orig/server/src/routes/dds.routes.ts fm/server/src/routes/dds.routes.ts
+--- orig/server/src/routes/dds.routes.ts	2026-11-12 01:53:17.957552752 +0500
++++ fm/server/src/routes/dds.routes.ts	2026-11-12 01:54:50.104869019 +0500
+@@ -1,6 +1,8 @@
+ import { Router, Response } from 'express';
+ import { prisma } from '../lib/prisma';
+-import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
++import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
++import { requireAdminConfirm } from '../lib/security';
++import { Role } from '@prisma/client';
+ import { TransactionType, AccountType, ExpenseCategoryType } from '@prisma/client';
+ 
+ const router = Router();
+@@ -245,7 +247,7 @@
+ });
+ 
+ // DELETE /api/dds/all (Clear all transactions -> Balance = 0)
+-router.delete('/all', authenticateToken, async (req: AuthRequest, res: Response) => {
++router.delete('/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdminConfirm, async (req: AuthRequest, res: Response) => {
+   try {
+     const result = await prisma.ddsTransaction.deleteMany({});
+     return res.json({
+diff -ru orig/server/src/routes/deals.routes.ts fm/server/src/routes/deals.routes.ts
+--- orig/server/src/routes/deals.routes.ts	2026-11-12 01:53:17.957565438 +0500
++++ fm/server/src/routes/deals.routes.ts	2026-11-12 01:54:50.104565244 +0500
+@@ -1,6 +1,8 @@
+ import { Router, Response } from 'express';
+ import { prisma } from '../lib/prisma';
+-import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
++import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
++import { requireAdminConfirm } from '../lib/security';
++import { Role } from '@prisma/client';
+ import { CalculationService } from '../services/calculation.service';
+ import { pushDealToGoogleSheets } from '../services/sheetsSync.service';
+ import { DealStatus, PaymentStatus } from '@prisma/client';
+@@ -1000,7 +1002,7 @@
+ });
+ 
+ // DELETE /api/deals/all (Clear all deals -> Dashboard, Warehouse, Agents all 0)
+-router.delete('/all', authenticateToken, async (req: AuthRequest, res: Response) => {
++router.delete('/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdminConfirm, async (req: AuthRequest, res: Response) => {
+   try {
+     const result = await prisma.deal.deleteMany({});
+     return res.json({
+diff -ru orig/server/src/routes/inventory.routes.ts fm/server/src/routes/inventory.routes.ts
+--- orig/server/src/routes/inventory.routes.ts	2026-11-12 01:53:17.957647425 +0500
++++ fm/server/src/routes/inventory.routes.ts	2026-11-12 01:55:08.325182289 +0500
+@@ -1,6 +1,7 @@
+ import { Router, Response } from 'express';
+ import { prisma } from '../lib/prisma';
+ import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
++import { verifyAdminOverride } from '../lib/security';
+ import { DealStatus, PaymentStatus, AccountType, TransactionType, ExpenseCategoryType } from '@prisma/client';
+ 
+ const router = Router();
+@@ -321,9 +322,9 @@
+     const isDebtSale = paymentType === 'DEBT' || paymentType === 'INSTALLMENT' || pAmount < sPrice;
+ 
+     if (totalExistingDebt > 0 && isDebtSale) {
+-      if (adminOverrideCode !== 'admin123') {
++      if (!(await verifyAdminOverride(adminOverrideCode))) {
+         return res.status(403).json({
+-          error: `Diqqat! "${bName}" da ${totalExistingDebt.toLocaleString('uz-UZ')} UZS qoldiq qarzdorlik mavjud! Tovar chiqarish bloklangan. Davom etish uchun maxsus administrator parolini (admin123) kiriting.`,
++          error: `Diqqat! "${bName}" da ${totalExistingDebt.toLocaleString('uz-UZ')} UZS qoldiq qarzdorlik mavjud! Tovar chiqarish bloklangan. Davom etish uchun administrator kodini kiriting.`,
+           requiresOverride: true,
+           totalExistingDebt,
+         });
+diff -ru orig/server/src/routes/sync.routes.ts fm/server/src/routes/sync.routes.ts
+--- orig/server/src/routes/sync.routes.ts	2026-11-12 01:53:17.957692435 +0500
++++ fm/server/src/routes/sync.routes.ts	2026-11-12 01:55:08.324585085 +0500
+@@ -1,10 +1,12 @@
+ import { Router, Request, Response } from 'express';
+-import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
++import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
++import { Role } from '@prisma/client';
+ import { syncDealsFromGoogleSheets, syncDdsFromGoogleSheets, DEFAULT_SHEETS_URL } from '../services/sheetsSync.service';
+ import { prisma } from '../lib/prisma';
+ 
+ const router = Router();
+-export const SYNC_WEBHOOK_SECRET = 'finmodel_secret_sync_2026';
++// Webhook kaliti endi muhit o'zgaruvchisidan olinadi (eski qiymat moslik uchun qoldirildi)
++export const SYNC_WEBHOOK_SECRET = process.env.SYNC_WEBHOOK_SECRET || 'finmodel_secret_sync_2026';
+ 
+ // 1. POST /api/sync/webhook - Public webhook called by Google Sheets onEdit or trigger
+ router.post('/webhook', async (req: Request, res: Response) => {
+@@ -32,6 +34,11 @@
+ // 2. GET /api/sync/cron - Periodic cron job (Vercel Cron)
+ router.get('/cron', async (req: Request, res: Response) => {
+   try {
++    // Vercel Cron CRON_SECRET o'rnatilgan bo'lsa "Authorization: Bearer <CRON_SECRET>" yuboradi
++    const cronSecret = process.env.CRON_SECRET;
++    if (cronSecret && req.headers.authorization !== `Bearer ${cronSecret}`) {
++      return res.status(401).json({ error: 'Ruxsat yo\'q' });
++    }
+     console.log('[Cron] Davriy sinxronizatsiya boshlandi...');
+     const result = await syncDealsFromGoogleSheets();
+     const ddsResult = await syncDdsFromGoogleSheets().catch((e) => ({ error: e.message }));
+@@ -82,7 +89,7 @@
+ });
+ 
+ // 4. GET /api/sync/status - Current status & URLs
+-router.get('/status', authenticateToken, async (req: AuthRequest, res: Response) => {
++router.get('/status', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
+   try {
+     const [urlSetting, lastSyncSetting, scriptSetting] = await Promise.all([
+       prisma.appSetting.findUnique({ where: { key: 'google_sheets_url' } }),
+@@ -97,7 +104,7 @@
+       appsScriptUrl: scriptSetting?.value || '',
+       lastSync: lastSyncSetting?.value || null,
+       dealsCount,
+-      webhookUrl: 'https://server-ecru-three-97.vercel.app/api/sync/webhook?token=' + SYNC_WEBHOOK_SECRET,
++      webhookUrl: (process.env.PUBLIC_SERVER_URL || 'https://server-ecru-three-97.vercel.app') + '/api/sync/webhook?token=' + SYNC_WEBHOOK_SECRET,
+     });
+   } catch (error: any) {
+     return res.status(500).json({ error: error.message });
+@@ -105,7 +112,7 @@
+ });
+ 
+ // 5. POST /api/sync/configure - Save Apps Script Web App URL
+-router.post('/configure', authenticateToken, async (req: AuthRequest, res: Response) => {
++router.post('/configure', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
+   try {
+     const { appsScriptUrl, sheetsUrl } = req.body;
+ 
