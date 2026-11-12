@@ -27,6 +27,11 @@ import { notifyDealDecision } from './notification.service';
 
 type Tx = Prisma.TransactionClient;
 
+/** Bildirishnomani kutadi, lekin ko'pi bilan ms millisekund; xato yoki kechikish asosiy amalni buzmaydi */
+async function settleWithin(p: Promise<unknown>, ms = 5000): Promise<void> {
+  await Promise.race([p.catch(() => undefined), new Promise((r) => setTimeout(r, ms))]);
+}
+
 export class LedgerError extends Error {
   status: number;
   constructor(message: string, status = 400) {
@@ -303,7 +308,8 @@ export async function approveDeal(
   if (result.check.created) emitRealtime('dds:updated', {});
   if (result.trustDebt > 0) emitRealtime('trust:updated', {});
 
-  void notifyDealDecision({
+  // Serverless muhitda javobdan keyin jarayon muzlashi mumkin — shuning uchun qisqa muddat kutamiz
+  await settleWithin(notifyDealDecision({
     dealId,
     dealNumber: result.deal.dealNumber,
     decision: 'APPROVED',
@@ -311,7 +317,7 @@ export async function approveDeal(
     customerName: result.deal.customerName,
     amount: Number(result.deal.withdrawnLimit),
     decidedByName: admin.fullName,
-  }).catch(() => undefined);
+  }));
 
   return result;
 }
@@ -338,7 +344,8 @@ export async function rejectDeal(dealId: string, admin: { id: string; fullName?:
 
   emitRealtime('deals:updated', { id: dealId, approvalStatus: 'REJECTED' });
 
-  void notifyDealDecision({
+  // Serverless muhitda javobdan keyin jarayon muzlashi mumkin — shuning uchun qisqa muddat kutamiz
+  await settleWithin(notifyDealDecision({
     dealId,
     dealNumber: updated.dealNumber,
     decision: 'REJECTED',
@@ -347,7 +354,7 @@ export async function rejectDeal(dealId: string, admin: { id: string; fullName?:
     customerName: updated.customerName,
     amount: Number(updated.withdrawnLimit),
     decidedByName: admin.fullName,
-  }).catch(() => undefined);
+  }));
 
   return updated;
 }
