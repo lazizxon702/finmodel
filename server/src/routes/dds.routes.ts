@@ -162,7 +162,7 @@ router.get('/', authenticateToken, denyScopedRoles, async (req: AuthRequest, res
       search,
       page = '1',
       limit = '500',
-      sortOrder = 'asc',
+      sortOrder = 'desc',
     } = req.query as any;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -199,7 +199,7 @@ router.get('/', authenticateToken, denyScopedRoles, async (req: AuthRequest, res
       ];
     }
 
-    const orderDir = sortOrder === 'desc' ? 'desc' : 'asc';
+    const orderDir = sortOrder === 'asc' ? 'asc' : 'desc';
 
     const [totalCount, transactions] = await Promise.all([
       prisma.ddsTransaction.count({ where }),

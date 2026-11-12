@@ -150,7 +150,7 @@ export const DdsPage: React.FC = () => {
               source: sourceFilter || undefined,
               search: search || undefined,
               limit: 500,
-              sortOrder: 'asc',
+              sortOrder: 'desc',
             },
           }),
           axios.get('/api/dds/summary'),

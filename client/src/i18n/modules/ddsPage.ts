@@ -5,7 +5,7 @@ import { defineModule } from '../types';
 export default defineModule({
   uz: {
     'ddsPage.title': 'Pul harakati — DDS',
-    'ddsPage.subtitle': "Kassa, karta va hisob-raqamdagi barcha kirim-chiqimlar, sana bo'yicha o'sish tartibida",
+    'ddsPage.subtitle': "Kassa, karta va hisob-raqamdagi barcha kirim-chiqimlar, eng yangisi yuqorida",
     'ddsPage.add': 'Yangi operatsiya',
     'ddsPage.sync': 'Sheets’dan yuklash',
     'ddsPage.sync_hint': "Google Sheets’dagi DDS jadvalidan kirim va chiqimlarni yuklab olish",
@@ -55,7 +55,7 @@ export default defineModule({
     'ddsPage.empty_hint': '«Yangi operatsiya» tugmasi orqali birinchi kirim yoki chiqimni kiriting.',
     'ddsPage.empty_filtered': "Filtrga mos operatsiya topilmadi",
     'ddsPage.rows': '{count} ta operatsiya',
-    'ddsPage.rows_partial': "{total} ta operatsiyadan eng eski {shown} tasi ko'rsatilmoqda. Qolganini ko'rish uchun filtr yoki qidiruvdan foydalaning.",
+    'ddsPage.rows_partial': "{total} ta operatsiyadan eng yangi {shown} tasi ko'rsatilmoqda. Qolganini ko'rish uchun filtr yoki qidiruvdan foydalaning.",
 
     'ddsPage.saved': '{tx} operatsiyasi saqlandi, qoldiqlar yangilandi',
     'ddsPage.saved_trust': "{tx} saqlandi. Bu kirim Trust qarzini kamaytirdi, Trust'ning joriy qoldig'i: {balance}",
@@ -91,7 +91,7 @@ export default defineModule({
   },
   ru: {
     'ddsPage.title': 'Движение денег — ДДС',
-    'ddsPage.subtitle': 'Все приходы и расходы по кассе, карте и расчетному счету, по возрастанию даты',
+    'ddsPage.subtitle': 'Все приходы и расходы по кассе, карте и расчетному счету, сначала новые',
     'ddsPage.add': 'Новая операция',
     'ddsPage.sync': 'Загрузить из Sheets',
     'ddsPage.sync_hint': 'Загрузить приходы и расходы из таблицы ДДС в Google Sheets',
@@ -141,7 +141,7 @@ export default defineModule({
     'ddsPage.empty_hint': 'Внесите первый приход или расход кнопкой «Новая операция».',
     'ddsPage.empty_filtered': 'По фильтру операций не найдено',
     'ddsPage.rows': 'Операций: {count}',
-    'ddsPage.rows_partial': 'Показаны самые ранние {shown} из {total} операций. Чтобы увидеть остальные, используйте фильтр или поиск.',
+    'ddsPage.rows_partial': 'Показаны самые последние {shown} из {total} операций. Чтобы увидеть остальные, используйте фильтр или поиск.',
 
     'ddsPage.saved': 'Операция {tx} сохранена, остатки обновлены',
     'ddsPage.saved_trust': '{tx} сохранена. Этот приход уменьшил долг Trust, текущий остаток Trust: {balance}',
@@ -177,7 +177,7 @@ export default defineModule({
   },
   en: {
     'ddsPage.title': 'Cash flow',
-    'ddsPage.subtitle': 'Every income and expense across cash, card and settlement account, oldest first',
+    'ddsPage.subtitle': 'Every income and expense across cash, card and settlement account, newest first',
     'ddsPage.add': 'New transaction',
     'ddsPage.sync': 'Import from Sheets',
     'ddsPage.sync_hint': 'Import income and expenses from the cash flow sheet in Google Sheets',
@@ -227,7 +227,7 @@ export default defineModule({
     'ddsPage.empty_hint': 'Record the first income or expense with “New transaction”.',
     'ddsPage.empty_filtered': 'No transactions match the filter',
     'ddsPage.rows': '{count} transactions',
-    'ddsPage.rows_partial': 'Showing the earliest {shown} of {total} transactions. Use a filter or search to see the rest.',
+    'ddsPage.rows_partial': 'Showing the latest {shown} of {total} transactions. Use a filter or search to see the rest.',
 
     'ddsPage.saved': 'Transaction {tx} saved, balances updated',
     'ddsPage.saved_trust': '{tx} saved. This income reduced the Trust debt, current Trust balance: {balance}',
