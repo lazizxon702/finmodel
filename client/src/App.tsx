@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { LanguageProvider, useTranslation } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { Sidebar, ROLE_PERMISSIONS, ROLE_DEFAULT_HOME } from './components/Sidebar';
+import { Sidebar, ROLE_DEFAULT_HOME, isPathAllowed } from './components/Sidebar';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { ExportModal } from './components/ExportModal';
@@ -31,6 +31,9 @@ import { LeadsPage } from './pages/LeadsPage';
 import { HrManagementPage } from './pages/HrManagementPage';
 import { UsersPage } from './pages/UsersPage';
 import { LoginPage } from './pages/LoginPage';
+import { TrustPage } from './pages/TrustPage';
+import { TeamPage } from './pages/TeamPage';
+import { LoadingBlock } from './components/ui';
 
 // Layout wrapper for authenticated pages
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -40,60 +43,41 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { t } = useTranslation();
 
-  const getPageTitle = (pathname: string): string => {
-    switch (pathname) {
-      case '/':
-        return t('title.dashboard', 'SWOT Boshqaruv Paneli');
-      case '/deals':
-        return t('title.deals', 'Bitimlar va Ombor');
-      case '/warehouse':
-        return t('title.warehouse', 'Ombor (Sklad) Nazorati');
-      case '/sales':
-        return t('title.sales', 'Sotuvlar va Marja');
-      case '/inventory':
-        return t('title.warehouse', 'Ombor (Sklad) Nazorati');
-      case '/debtors':
-        return t('title.debtors', 'Qarzdorlar Ro\'yxati');
-      case '/agents':
-        return t('title.agents', 'Agentlar komissiyasi');
-      case '/agents-swot':
-        return t('title.agents_swot', 'Agentliklar SWOT tahlili');
-      case '/dds':
-        return t('title.dds', 'Pul harakati — DDS');
-      case '/balance':
-        return t('title.balance', 'Sheriklar Balansi va Depozitlar');
-      case '/daily':
-        return t('title.daily', 'Kunlik hisob va Kassa tahlili');
-      case '/finmodel':
-        return t('title.finmodel', '12 oylik Moliyaviy Model va P&L');
-      case '/finances':
-        return t('title.finances', 'Boshqaruv Balansi va Moliya');
-      case '/bot-deals':
-        return t('title.bot_deals', 'Telegram Bot Bitimlari');
-      case '/bot-payments':
-        return t('title.bot_payments', 'Bot To\'lovlari va Cheklar');
-      case '/references':
-        return t('title.references', 'Spravochniklar va Qoidalar');
-      case '/leads':
-        return t('title.leads', 'Lidlar va Koll-markaz (CRM)');
-      case '/hr':
-        return t('title.hr', 'HR, Davomat va Vazifalar');
-      case '/users':
-        return t('title.users', 'Foydalanuvchilar va Rollar Boshqaruvi');
-      case '/handover':
-        return t('title.handover', 'Topshirish-qabul, KPI va FOT');
-      default:
-        return t('title.default', 'Pul va tovar hisobi tizimi');
-    }
+  // Marshrut → sarlavha kaliti (i18n/modules/nav.ts dagi title.*)
+  const TITLE_KEYS: Record<string, string> = {
+    '/': 'title.dashboard',
+    '/deals': 'title.deals',
+    '/warehouse': 'title.warehouse',
+    '/sales': 'title.sales',
+    '/inventory': 'title.warehouse',
+    '/debtors': 'title.debtors',
+    '/agents': 'title.agents',
+    '/agents-swot': 'title.agents_swot',
+    '/dds': 'title.dds',
+    '/trust': 'title.trust',
+    '/team': 'title.team',
+    '/balance': 'title.balance',
+    '/daily': 'title.daily',
+    '/finmodel': 'title.finmodel',
+    '/finances': 'title.finances',
+    '/bot-deals': 'title.bot_deals',
+    '/bot-payments': 'title.bot_payments',
+    '/references': 'title.references',
+    '/leads': 'title.leads',
+    '/hr': 'title.hr',
+    '/users': 'title.users',
+    '/handover': 'title.handover',
   };
+  const getPageTitle = (pathname: string): string => t(TITLE_KEYS[pathname] || 'title.default');
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-100 flex transition-colors duration-200">
+    <div className="flex min-h-screen bg-app text-fg">
       {/* Sidebar navigation */}
       <Sidebar 
         isOpen={sidebarOpen} 
         onClose={() => setSidebarOpen(false)} 
         onOpenInstall={() => setInstallOpen(true)}
+        onOpenExport={() => setExportOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -105,7 +89,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           title={getPageTitle(location.pathname)}
         />
 
-        <main className="flex-1 px-3 sm:px-6 lg:px-8 py-4 sm:py-6 w-full max-w-[1920px] mx-auto min-w-0 pb-24 lg:pb-6">
+        <main className="mx-auto w-full min-w-0 max-w-[1920px] flex-1 px-3 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:px-8 lg:pb-6">
           {children}
         </main>
       </div>
@@ -130,13 +114,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const { user, isLoading } = useAuth();
   const location = useLocation();
 
+  const { t } = useTranslation();
+
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm font-medium text-slate-300">Tizim yuklanmoqda...</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-app">
+        <LoadingBlock label={t('common.system_loading')} />
       </div>
     );
   }
@@ -146,14 +129,10 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   }
 
   const userRole = user.role || 'OPERATOR';
-  const allowed = ROLE_PERMISSIONS[userRole] || ['/deals'];
   const defaultHome = ROLE_DEFAULT_HOME[userRole] || '/';
 
-  // Strict RBAC: If path is not allowed, redirect directly to role's home workspace
-  const currentPath = location.pathname;
-  const isAllowed = allowed.some((p) => p === currentPath || (p !== '/' && currentPath.startsWith(p)));
-
-  if (!isAllowed) {
+  // Qat'iy RBAC: ruxsat etilmagan yo'l — rolning bosh sahifasiga qaytariladi
+  if (!isPathAllowed(userRole, location.pathname)) {
     return <Navigate to={defaultHome} replace />;
   }
 
@@ -179,6 +158,8 @@ export const App: React.FC = () => {
                 <Route path="/agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
                 <Route path="/agents-swot" element={<ProtectedRoute><AgentSwotPage /></ProtectedRoute>} />
                 <Route path="/dds" element={<ProtectedRoute><DdsPage /></ProtectedRoute>} />
+                <Route path="/trust" element={<ProtectedRoute><TrustPage /></ProtectedRoute>} />
+                <Route path="/team" element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
                 <Route path="/balance" element={<ProtectedRoute><BalancePage /></ProtectedRoute>} />
                 <Route path="/daily" element={<ProtectedRoute><DailyAccountingPage /></ProtectedRoute>} />
                 <Route path="/finmodel" element={<ProtectedRoute><FinModelPage /></ProtectedRoute>} />

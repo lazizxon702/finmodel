@@ -1,8 +1,8 @@
 import React from 'react';
-import { Menu, FileSpreadsheet, LogOut, UserCheck, Languages, Sun, Moon, Smartphone, Bot, Sparkles } from 'lucide-react';
+import { Menu, FileSpreadsheet, LogOut, Smartphone, Bot } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
-import { useTheme } from '../context/ThemeContext';
+import { LanguageSwitcher, ThemeToggle } from './ui/Switchers';
 
 interface HeaderProps {
   onOpenSidebar: () => void;
@@ -11,144 +11,90 @@ interface HeaderProps {
   title: string;
 }
 
+// Yuqori paneldagi ikonka-tugmalar uchun umumiy klass (44px mobil, 40px desktop)
+const iconButton =
+  'inline-flex h-11 min-w-touch shrink-0 items-center justify-center gap-2 rounded-control border border-line bg-surface px-2.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg sm:h-10';
+
 export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, onOpenExport, onOpenInstall, title }) => {
   const { user, logout } = useAuth();
-  const { language, setLanguage, t } = useTranslation();
-  const { theme, toggleTheme } = useTheme();
+  const { t } = useTranslation();
+
+  const fullName = user?.fullName || t('header.user');
+  const initials = fullName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
 
   return (
-    <header className="h-16 bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-slate-200/90 dark:border-slate-800/90 sticky top-0 z-30 px-2.5 sm:px-4 lg:px-8 flex items-center justify-between shadow-sm dark:shadow-[0_4px_24px_-4px_rgba(0,0,0,0.5)] transition-colors duration-200">
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 mr-2">
+    <header className="no-print sticky top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-line bg-surface/95 px-3 backdrop-blur sm:px-4 lg:px-8">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <button
+          type="button"
           onClick={onOpenSidebar}
-          aria-label="Open Navigation Menu"
-          className="lg:hidden p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all active:scale-95 border border-slate-200 dark:border-slate-800 shadow-sm shrink-0"
+          aria-label={t('layout.open_menu')}
+          className={`${iconButton} lg:hidden`}
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="h-5 w-5" />
         </button>
-        <h2 className="text-xs sm:text-base lg:text-lg font-black text-slate-800 dark:text-white tracking-tight truncate">
-          {title}
-        </h2>
+        <h2 className="truncate text-sm font-semibold tracking-tight text-fg sm:text-base">{title}</h2>
       </div>
 
-      <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-3.5 shrink-0">
-        {/* Light / Dark Mode Toggle */}
-        <button
-          onClick={toggleTheme}
-          title={theme === 'dark' ? "Yorug' rejimga o'tish (Light mode)" : "Qorong'u rejimga o'tish (Dark mode)"}
-          className="btn-3d flex items-center justify-center p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-amber-400 shadow-inner transition-all duration-200 active:scale-95"
-        >
-          {theme === 'dark' ? (
-            <>
-              <Sun className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span className="hidden sm:inline text-amber-300 ml-1.5">Light</span>
-            </>
-          ) : (
-            <>
-              <Moon className="w-4 h-4 text-indigo-600" />
-              <span className="hidden sm:inline text-slate-700 ml-1.5">Dark</span>
-            </>
-          )}
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+        {/* Til: mobilda bitta ixcham tugma, sm+ da uch segment */}
+        <LanguageSwitcher variant="cycle" className="sm:hidden" />
+        <LanguageSwitcher className="hidden sm:inline-flex" />
+
+        <ThemeToggle />
+
+        {/* Eksport — mobilda yon menyuda */}
+        <button type="button" onClick={onOpenExport} title={t('header.export_full')} className={`${iconButton} hidden md:inline-flex`}>
+          <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden xl:inline">{t('header.export_short')}</span>
         </button>
 
-        {/* Mobile Single Tap Language Switcher */}
+        {/* AI yordamchi — mobilda yon menyuda */}
         <button
-          onClick={() => setLanguage(language === 'uz' ? 'ru' : 'uz')}
-          className="sm:hidden btn-3d flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-200 shadow-inner active:scale-95"
-          title="Tilni almashtirish / Сменить язык"
-        >
-          <span className="text-sm">{language === 'uz' ? '🇺🇿' : '🇷🇺'}</span>
-          <span>{language === 'uz' ? 'UZ' : 'RU'}</span>
-        </button>
-
-        {/* Desktop 3D Dual Language Switcher (UZ / RU) */}
-        <div className="hidden sm:flex items-center p-1 bg-slate-100 dark:bg-slate-900 border border-slate-300/80 dark:border-slate-800 rounded-xl shadow-inner">
-          <button
-            onClick={() => setLanguage('uz')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all duration-200 ${
-              language === 'uz'
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_2px_8px_rgba(6,182,212,0.3)] scale-[1.02]'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span className="text-sm">🇺🇿</span>
-            <span>UZ</span>
-          </button>
-          <button
-            onClick={() => setLanguage('ru')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all duration-200 ${
-              language === 'ru'
-                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_2px_8px_rgba(6,182,212,0.3)] scale-[1.02]'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span className="text-sm">🇷🇺</span>
-            <span>RU</span>
-          </button>
-        </div>
-
-        {/* 3D Export Button */}
-        <button
-          onClick={onOpenExport}
-          title={t('header.export_full', 'Google Sheets / Excel\'ga yuklash')}
-          className="btn-3d inline-flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_2px_0_0_#065f46,0_4px_12px_rgba(16,185,129,0.25)] hover:from-emerald-500 hover:to-teal-500 transition-all active:scale-95"
-        >
-          <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
-          <span className="hidden md:inline">{t('header.export_full', 'Google Sheets / Excel')}</span>
-        </button>
-
-        {/* Macmobi AI Agent Button */}
-        <button
+          type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('open-ai-assistant'))}
-          title="Macmobi AI Agent (Gemini AI)"
-          className="btn-3d inline-flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-[0_2px_0_0_#4338ca,0_4px_12px_rgba(99,102,241,0.3)] hover:brightness-110 transition-all active:scale-95"
+          title={t('layout.ai_agent')}
+          className={`${iconButton} hidden md:inline-flex`}
         >
-          <Bot className="w-4 h-4 text-white" />
-          <span className="hidden xl:inline">Macmobi AI Agent</span>
-          <span className="xl:hidden hidden sm:inline">AI Agent</span>
-          <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+          <Bot className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden xl:inline">{t('layout.ai_agent_short')}</span>
         </button>
 
-        {/* Install Mobile App / APK Button */}
+        {/* Ilovani o'rnatish — mobilda yon menyuda */}
         {onOpenInstall && (
-          <button
-            onClick={onOpenInstall}
-            title="Telefonga o'rnatish (APK / App)"
-            className="btn-3d flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-teal-500/10 to-emerald-500/10 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-300/80 dark:border-emerald-800/80 hover:bg-emerald-500/20 transition-all active:scale-95"
-          >
-            <Smartphone className="w-4 h-4 text-emerald-500 animate-pulse" />
-            <span className="hidden xl:inline">Ilovani o'rnatish (APK)</span>
-            <span className="xl:hidden hidden sm:inline">APK</span>
+          <button type="button" onClick={onOpenInstall} title={t('layout.install_app')} className={`${iconButton} hidden lg:inline-flex`}>
+            <Smartphone className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden 2xl:inline">{t('layout.install_app_short')}</span>
           </button>
         )}
 
-        {/* User Profile Badge */}
-        <div className="flex items-center gap-1.5 sm:gap-2 pl-1.5 sm:pl-2 border-l border-slate-200 dark:border-slate-800 text-xs">
-          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 flex items-center justify-center text-cyan-600 dark:text-cyan-400 font-bold shadow-inner">
-            <UserCheck className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+        {/* Foydalanuvchi */}
+        <div className="flex items-center gap-2 border-l border-line pl-2 sm:pl-3">
+          <div
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-accent sm:flex"
+            aria-hidden="true"
+          >
+            {initials || '?'}
           </div>
-          <div className="hidden lg:block leading-tight text-left">
-            <p className="font-bold text-slate-800 dark:text-white truncate max-w-[140px]">{user?.fullName || t('header.user', 'Foydalanuvchi')}</p>
-            <p className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold tracking-wider uppercase truncate max-w-[140px]">
-              {user?.role === 'ADMIN' ? 'Super Admin' :
-               user?.role === 'CFO' ? 'Moliya Direktori' :
-               user?.role === 'COO' ? 'Operatsion Rahbar' :
-               user?.role === 'CALL_CENTER_HEAD' ? 'Koll-markaz Rahbari' :
-               user?.role === 'CALL_CENTER_AGENT' ? 'Koll-markaz Xodimi' :
-               user?.role === 'OPERATOR' ? 'Katta Operator' :
-               user?.role === 'STOREKEEPER' ? 'Bosh Omborchi' :
-               user?.role === 'SELLER' ? 'Katta Sotuvchi' :
-               user?.role === 'HR_MANAGER' ? 'HR Mas\'uli' :
-               user?.role === 'VIEWER' ? 'Kuzatuvchi' :
-               user?.role || 'OPERATOR'}
+          <div className="hidden min-w-0 leading-tight lg:block">
+            <p className="max-w-[160px] truncate text-sm font-medium text-fg">{fullName}</p>
+            <p className="max-w-[160px] truncate text-xs text-fg-muted">
+              {t(`roles.${user?.role || 'OPERATOR'}`, t('roles.unknown'))}
             </p>
           </div>
           <button
+            type="button"
             onClick={logout}
-            title={t('header.logout', 'Chiqish')}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors"
+            aria-label={t('header.logout')}
+            title={t('header.logout')}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-fg-muted transition-colors hover:bg-danger-soft hover:text-danger sm:h-10 sm:w-10"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="h-[18px] w-[18px]" />
           </button>
         </div>
       </div>

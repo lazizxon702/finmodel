@@ -3,7 +3,6 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Layers,
-  Package,
   Warehouse,
   BadgeDollarSign,
   CreditCard,
@@ -18,17 +17,26 @@ import {
   PieChart,
   Settings2,
   X,
-  Sparkles,
   Smartphone,
-  Download,
   PhoneCall,
   UserCheck,
-  ShieldCheck
+  ShieldCheck,
+  Handshake,
+  UsersRound,
+  FileSpreadsheet,
+  type LucideIcon,
 } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import { useTranslation } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { cn } from '../lib/cn';
+import { LanguageSwitcher, ThemeToggle } from './ui/Switchers';
 
+// ---------------------------------------------------------------------------
+// RBAC: rolning bosh sahifasi va ruxsat etilgan marshrutlari.
+// Yangi marshrut qo'shilsa: (1) shu yerda rollarga bering, (2) pastdagi MENU ga yozing,
+// (3) App.tsx da <Route> va sarlavha kalitini qo'shing, (4) nav.ts ga menu.*/title.* tarjimasini yozing.
+// ---------------------------------------------------------------------------
 export const ROLE_DEFAULT_HOME: Record<string, string> = {
   ADMIN: '/',
   CFO: '/dds',
@@ -36,6 +44,7 @@ export const ROLE_DEFAULT_HOME: Record<string, string> = {
   CALL_CENTER_HEAD: '/leads',
   CALL_CENTER_AGENT: '/leads',
   OPERATOR: '/deals',
+  AGENT: '/deals',
   STOREKEEPER: '/warehouse',
   SELLER: '/sales',
   HR_MANAGER: '/hr',
@@ -47,14 +56,14 @@ export const ROLE_DEFAULT_HOME: Record<string, string> = {
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
   ADMIN: [
     '/', '/leads', '/deals', '/warehouse', '/sales', '/debtors', '/agents',
-    '/agents-swot', '/hr', '/dds', '/balance', '/daily', '/finmodel',
-    '/bot-deals', '/bot-payments', '/finances', '/references', '/users'
+    '/agents-swot', '/hr', '/dds', '/trust', '/balance', '/daily', '/finmodel',
+    '/bot-deals', '/bot-payments', '/finances', '/references', '/users', '/team'
   ],
   CFO: [
-    '/dds', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references'
+    '/dds', '/trust', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references'
   ],
   COO: [
-    '/deals', '/warehouse', '/sales', '/leads', '/debtors', '/agents', '/agents-swot', '/daily'
+    '/deals', '/warehouse', '/sales', '/leads', '/debtors', '/agents', '/agents-swot', '/daily', '/trust'
   ],
   CALL_CENTER_HEAD: [
     '/leads', '/hr', '/deals', '/agents', '/agents-swot'
@@ -62,8 +71,13 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
   CALL_CENTER_AGENT: [
     '/leads', '/deals', '/hr'
   ],
+  // Operator faqat bitim kiritadi
   OPERATOR: [
-    '/deals', '/warehouse', '/debtors', '/bot-deals'
+    '/deals'
+  ],
+  // Agent: bitimlar, o'z kabineti (/agents) va operatorlarini boshqarish (/team)
+  AGENT: [
+    '/deals', '/agents', '/team'
   ],
   STOREKEEPER: [
     '/warehouse', '/deals'
@@ -75,206 +89,199 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     '/hr', '/daily'
   ],
   VIEWER: [
-    '/', '/finances', '/finmodel', '/agents-swot'
+    '/', '/finances', '/finmodel', '/agents-swot', '/trust'
   ],
-  MANAGER: ['/deals', '/warehouse', '/sales', '/debtors', '/agents', '/daily'],
-  CASHIER: ['/dds', '/daily', '/balance', '/bot-payments']
+  MANAGER: ['/deals', '/warehouse', '/sales', '/debtors', '/agents', '/daily', '/trust'],
+  CASHIER: ['/dds', '/daily', '/balance', '/bot-payments', '/trust']
 };
+
+/** Berilgan yo'l rol uchun ochiqmi. `/agents` ruxsati `/agents-swot` ni OCHMAYDI (aniq yoki ichki yo'l). */
+export function isPathAllowed(role: string | undefined, pathname: string): boolean {
+  const allowed = ROLE_PERMISSIONS[role || 'OPERATOR'] || ROLE_PERMISSIONS.OPERATOR;
+  return allowed.some((p) => p === pathname || (p !== '/' && pathname.startsWith(p + '/')));
+}
+
+interface MenuItem {
+  to: string;
+  /** nav.ts dagi kalit: menu.<key> va menu.<key>_sub */
+  key: string;
+  icon: LucideIcon;
+}
+
+const MENU: MenuItem[] = [
+  { to: '/', key: 'dashboard', icon: LayoutDashboard },
+  { to: '/leads', key: 'leads', icon: PhoneCall },
+  { to: '/deals', key: 'deals', icon: Layers },
+  { to: '/team', key: 'team', icon: UsersRound },
+  { to: '/warehouse', key: 'warehouse', icon: Warehouse },
+  { to: '/sales', key: 'sales', icon: BadgeDollarSign },
+  { to: '/debtors', key: 'debtors', icon: CreditCard },
+  { to: '/agents', key: 'agents', icon: Users },
+  { to: '/agents-swot', key: 'agents_swot', icon: TrendingUp },
+  { to: '/hr', key: 'hr', icon: UserCheck },
+  { to: '/dds', key: 'dds', icon: ArrowDownUp },
+  { to: '/trust', key: 'trust', icon: Handshake },
+  { to: '/balance', key: 'balance', icon: Wallet },
+  { to: '/daily', key: 'daily', icon: CalendarCheck },
+  { to: '/finmodel', key: 'finmodel', icon: Calculator },
+  { to: '/bot-deals', key: 'bot_deals', icon: Bot },
+  { to: '/bot-payments', key: 'bot_payments', icon: Receipt },
+  { to: '/finances', key: 'finances', icon: PieChart },
+  { to: '/references', key: 'references', icon: Settings2 },
+  { to: '/users', key: 'users', icon: ShieldCheck },
+];
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenInstall?: () => void;
+  onOpenExport?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall, onOpenExport }) => {
   const { user } = useAuth();
   const { notifications } = useSocket();
   const { t } = useTranslation();
 
-  const menuItems = [
-    { to: '/', label: t('menu.dashboard', 'Dashboard'), sub: t('menu.dashboard_sub', 'SWOT дате'), icon: LayoutDashboard },
-    { to: '/leads', label: t('menu.leads', 'Lidlar (CRM)'), sub: t('menu.leads_sub', 'Koll-markaz & Jamoalar'), icon: PhoneCall, highlight: true },
-    { to: '/deals', label: t('menu.deals', 'Bitimlar'), sub: t('menu.deals_sub', 'Bitimlar va ombor'), icon: Layers, highlight: true },
-    { to: '/warehouse', label: t('menu.warehouse', 'Ombor'), sub: t('menu.warehouse_sub', 'Qurilmalar va prixod'), icon: Warehouse },
-    { to: '/sales', label: t('menu.sales', 'Sotuvlar'), sub: t('menu.sales_sub', 'Sotuvlar va marja'), icon: BadgeDollarSign },
-    { to: '/debtors', label: t('menu.debtors', 'Qarzdorlar'), sub: t('menu.debtors_sub', 'Qarz hisobi va muddatlar'), icon: CreditCard },
-    { to: '/agents', label: t('menu.agents', 'Agentlar'), sub: t('menu.agents_sub', 'Агент'), icon: Users },
-    { to: '/agents-swot', label: t('menu.agents_swot', 'Agentliklar tahlili'), sub: t('menu.agents_swot_sub', 'SWOT Агентства'), icon: TrendingUp },
-    { to: '/hr', label: t('menu.hr', 'HR va Davomat'), sub: t('menu.hr_sub', 'Xodimlar, Tabel & Maosh'), icon: UserCheck, highlight: true },
-    { to: '/dds', label: t('menu.dds', 'Pul harakati — DDS'), sub: t('menu.dds_sub', 'Транзакции ДДС'), icon: ArrowDownUp },
-    { to: '/balance', label: t('menu.balance', 'Balans / Depozitlar'), sub: t('menu.balance_sub', 'Баланс'), icon: Wallet },
-    { to: '/daily', label: t('menu.daily', 'Kunlik hisob'), sub: t('menu.daily_sub', 'Ежедневный Учет'), icon: CalendarCheck },
-    { to: '/finmodel', label: t('menu.finmodel', 'Moliyaviy model'), sub: t('menu.finmodel_sub', 'Фин Модель'), icon: Calculator },
-    { to: '/bot-deals', label: t('menu.bot_deals', 'Bot bitimlari'), sub: t('menu.bot_deals_sub', 'Сделки Бот'), icon: Bot },
-    { to: '/bot-payments', label: t('menu.bot_payments', 'Telegram cheklar'), sub: t('menu.bot_payments_sub', 'Платежи Бота / БОТ ТР'), icon: Receipt, badge: notifications.length },
-    { to: '/finances', label: t('menu.finances', 'P&L, Kassa va Balans'), sub: t('menu.finances_sub', 'Финансы Свод'), icon: PieChart },
-    { to: '/references', label: t('menu.references', 'Spravochniklar'), sub: t('menu.references_sub', 'Sozlamalar & Stavkalar'), icon: Settings2 },
-    { to: '/users', label: t('menu.users', 'Foydalanuvchilar va Rollar'), sub: t('menu.users_sub', 'Login, parol & boshqaruv'), icon: ShieldCheck, highlight: true },
-  ];
-
   const userRole = user?.role || 'OPERATOR';
   const allowedPaths = ROLE_PERMISSIONS[userRole] || ROLE_PERMISSIONS['OPERATOR'];
-  const visibleMenuItems = userRole === 'ADMIN'
-    ? menuItems
-    : menuItems.filter((item) => allowedPaths.includes(item.to));
+  const visibleMenuItems = userRole === 'ADMIN' ? MENU : MENU.filter((item) => allowedPaths.includes(item.to));
+
+  const utilityButton =
+    'flex min-h-touch w-full items-center gap-3 rounded-control px-3 text-left text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg';
 
   return (
     <>
-      {/* Mobile backdrop */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-md lg:hidden transition-opacity"
-          onClick={onClose}
-        />
-      )}
+      {/* Mobil: orqa fon */}
+      {isOpen && <div className="fixed inset-0 z-40 bg-overlay/60 lg:hidden" onClick={onClose} aria-hidden="true" />}
 
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-72 max-w-[85vw] bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col border-r border-slate-200/90 dark:border-slate-800/80 shadow-[10px_0_30px_rgba(0,0,0,0.06)] dark:shadow-[10px_0_30px_rgba(0,0,0,0.35)] transition-all duration-300 ease-in-out lg:translate-x-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={cn(
+          'no-print fixed bottom-0 left-0 top-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-line bg-surface text-fg',
+          'pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] transition-transform duration-200 ease-out lg:translate-x-0',
+          isOpen ? 'translate-x-0 shadow-pop lg:shadow-none' : '-translate-x-full'
+        )}
       >
-        {/* Brand header with 3D Depth */}
-        <div className="h-16 px-5 flex items-center justify-between border-b border-slate-200/90 dark:border-slate-800/90 bg-white/90 dark:bg-slate-950/80 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <img 
-              src="/macmobi-icon.png" 
-              alt="Macmobi ERP" 
-              className="w-10 h-10 rounded-2xl object-contain shadow-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-0.5 transform hover:scale-105 transition-transform" 
+        {/* Brend */}
+        <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-line px-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <img
+              src="/macmobi-icon.png"
+              alt=""
+              className="h-9 w-9 shrink-0 rounded-control border border-line bg-surface-2 object-contain p-0.5"
             />
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h1 className="font-extrabold text-sm leading-tight text-slate-900 dark:text-white tracking-wide">
-                  Macmobi ERP
-                </h1>
-                <Sparkles className="w-3 h-3 text-amber-500 dark:text-amber-400 animate-pulse" />
-              </div>
-              <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold tracking-wide">biznesni boshqarish tizimi</p>
-              <span className="inline-block mt-0.5 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-cyan-600 dark:text-cyan-400 border border-slate-200 dark:border-slate-700">
-                {user?.role === 'ADMIN' ? 'Super Admin (Barchasi)' :
-                 user?.role === 'CFO' ? 'Moliya Kabineti' :
-                 user?.role === 'COO' ? 'Operatsion Boshqaruv' :
-                 user?.role === 'CALL_CENTER_HEAD' ? 'Koll-markaz Rahbari' :
-                 user?.role === 'CALL_CENTER_AGENT' ? 'Koll-markaz Xodimi' :
-                 user?.role === 'OPERATOR' ? 'Operator Kabineti' :
-                 user?.role === 'STOREKEEPER' ? 'Omborchi Kabineti' :
-                 user?.role === 'SELLER' ? 'Sotuvchi Kabineti' :
-                 user?.role === 'HR_MANAGER' ? 'HR & Tabel Kabineti' :
-                 user?.role === 'VIEWER' ? 'Kuzatuvchi Kabineti' : user?.role || 'Foydalanuvchi'}
-              </span>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-sm font-semibold text-fg">Macmobi ERP</p>
+              <p className="truncate text-xs text-fg-muted">{t(`roles.${userRole}`, t('roles.unknown'))}</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="lg:hidden p-1.5 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-transparent hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+            aria-label={t('layout.close_menu')}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg lg:hidden"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Navigation list with 3D items */}
-        <nav className="flex-1 overflow-y-auto px-3.5 py-4 space-y-1.5 custom-scrollbar">
+        {/* Navigatsiya */}
+        <nav aria-label={t('layout.main_nav')} className="flex-1 space-y-0.5 overflow-y-auto px-3 py-3">
           {visibleMenuItems.map((item) => {
             const Icon = item.icon;
+            const badge = item.to === '/bot-payments' ? notifications.length : 0;
             return (
               <NavLink
                 key={item.to}
                 to={item.to}
+                end={item.to === '/'}
                 onClick={() => onClose()}
                 className={({ isActive }) =>
-                  `flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all duration-200 group ${
-                    isActive
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_4px_16px_rgba(16,185,129,0.3)] border-t border-white/20 transform scale-[1.02]'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white hover:translate-x-1 border border-transparent hover:border-slate-200 dark:hover:border-slate-800'
-                  }`
+                  cn(
+                    'group flex min-h-touch items-center gap-3 rounded-control px-3 py-1.5 transition-colors',
+                    isActive ? 'bg-brand text-brand-fg' : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'
+                  )
                 }
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/50 group-hover:bg-slate-200 dark:group-hover:bg-slate-700/50 text-slate-700 dark:text-slate-300 transition-colors">
-                    <Icon className="w-4 h-4 flex-shrink-0" />
-                  </div>
-                  <div className="truncate leading-tight">
-                    <p className="truncate font-bold">{item.label}</p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-400 font-medium truncate group-hover:text-slate-600 dark:group-hover:text-slate-300">
-                      {item.sub}
-                    </p>
-                  </div>
-                </div>
-
-                {item.badge !== undefined && item.badge > 0 && (
-                  <span className="pill-3d px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-emerald-500 text-slate-950 shadow-sm animate-pulse">
-                    {item.badge}
-                  </span>
+                {({ isActive }) => (
+                  <>
+                    <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 leading-tight">
+                      <span className="block truncate text-sm font-medium">{t(`menu.${item.key}`)}</span>
+                      <span className={cn('block truncate text-xs', isActive ? 'text-brand-fg/75' : 'text-fg-muted')}>
+                        {t(`menu.${item.key}_sub`)}
+                      </span>
+                    </span>
+                    {badge > 0 && (
+                      <span
+                        aria-label={t('layout.new_notifications', { count: badge })}
+                        className={cn(
+                          'rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums',
+                          isActive ? 'bg-brand-fg/20 text-brand-fg' : 'bg-danger-soft text-danger'
+                        )}
+                      >
+                        {badge}
+                      </span>
+                    )}
+                  </>
                 )}
               </NavLink>
             );
           })}
         </nav>
 
-        {/* Macmobi AI Agent Action */}
-        <div className="px-3.5 pb-2">
+        {/* Yordamchi amallar */}
+        <div className="shrink-0 space-y-0.5 border-t border-line px-3 py-2">
+          {onOpenExport && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenExport();
+              }}
+              className={cn(utilityButton, 'md:hidden')}
+            >
+              <FileSpreadsheet className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+              <span className="truncate">{t('header.export_full')}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
               onClose();
               window.dispatchEvent(new CustomEvent('open-ai-assistant'));
             }}
-            className="w-full flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 dark:from-indigo-950/40 dark:to-purple-950/40 border border-indigo-300/80 dark:border-indigo-800/80 hover:border-indigo-400 text-left transition-all group active:scale-98 shadow-sm"
+            className={utilityButton}
           >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/30 shrink-0">
-                <Bot className="w-4 h-4" />
-              </div>
-              <div className="truncate leading-tight">
-                <p className="text-xs font-black text-slate-900 dark:text-white group-hover:text-indigo-500 transition-colors truncate flex items-center gap-1">
-                  <span>Macmobi AI Agent</span>
-                  <Sparkles className="w-3 h-3 text-amber-500 animate-pulse" />
-                </p>
-                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold truncate">
-                  Aqlli AI maslahatchi
-                </p>
-              </div>
-            </div>
-            <Sparkles className="w-4 h-4 text-indigo-500 shrink-0 group-hover:rotate-12 transition-transform" />
+            <Bot className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate">{t('layout.ai_agent')}</span>
+              <span className="block truncate text-xs font-normal text-fg-muted">{t('layout.ai_agent_sub')}</span>
+            </span>
           </button>
-        </div>
-
-        {/* Install Mobile App Banner */}
-        <div className="px-3.5 pb-2">
           <button
             type="button"
             onClick={() => {
               onClose();
               onOpenInstall?.();
             }}
-            className="w-full flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-cyan-500/10 dark:from-emerald-950/40 dark:to-cyan-950/40 border border-emerald-300/80 dark:border-emerald-800/80 hover:border-emerald-400 text-left transition-all group active:scale-98 shadow-sm"
+            className={utilityButton}
           >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md shadow-emerald-500/30 shrink-0">
-                <Smartphone className="w-4 h-4" />
-              </div>
-              <div className="truncate leading-tight">
-                <p className="text-xs font-black text-slate-900 dark:text-white group-hover:text-emerald-500 transition-colors truncate">
-                  Telefonga O'rnatish
-                </p>
-                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold truncate">
-                  Android APK & iOS ilova
-                </p>
-              </div>
-            </div>
-            <Download className="w-4 h-4 text-emerald-500 shrink-0 group-hover:translate-y-0.5 transition-transform" />
+            <Smartphone className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate">{t('layout.install_app')}</span>
+              <span className="block truncate text-xs font-normal text-fg-muted">{t('layout.install_app_sub')}</span>
+            </span>
           </button>
         </div>
 
-        {/* 3D Footer Card */}
-        <div className="p-3.5 border-t border-slate-200/90 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-950/60">
-          <div className="p-3 rounded-2xl bg-white dark:bg-gradient-to-br dark:from-slate-900 dark:to-slate-950 border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] text-xs">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
-              <span className="font-medium text-[11px]">Toshkent vaqti</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
-            </div>
-            <p className="text-[11px] font-bold text-slate-900 dark:text-white mt-1">Asia/Tashkent (UTC+5)</p>
+        {/* Til, mavzu, vaqt zonasi */}
+        <div className="shrink-0 border-t border-line px-3 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <LanguageSwitcher />
+            <ThemeToggle withLabel />
           </div>
+          <p className="mt-2 text-xs text-fg-muted">{t('layout.tashkent_time')}: Asia/Tashkent (UTC+5)</p>
         </div>
       </aside>
     </>

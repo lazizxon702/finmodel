@@ -10,7 +10,8 @@ export type Role =
   | 'CALL_CENTER_AGENT'
   | 'STOREKEEPER'
   | 'SELLER'
-  | 'HR_MANAGER';
+  | 'HR_MANAGER'
+  | 'AGENT';
 
 export type DealStatus =
   | 'IN_WAREHOUSE'
@@ -23,6 +24,9 @@ export type DealStatus =
 
 export type PaymentStatus = 'PAID' | 'DEBT' | 'PARTIAL';
 
+// Bitimni tasdiqlash holati (operator kiritadi → agent/admin tasdiqlaydi)
+export type ApprovalStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+
 export interface User {
   id: string;
   username: string;
@@ -30,6 +34,13 @@ export interface User {
   role: Role;
   telegramId?: string;
   isActive: boolean;
+  // Agentlik bog'lanishi (AGENT va uning OPERATORlari uchun)
+  agencyId?: string | null;
+  agencyName?: string | null;
+  // Operator qaysi agentga tegishli
+  parentAgentId?: string | null;
+  // Telegram akkaunt ulanganmi
+  telegramLinked?: boolean;
 }
 
 export interface Store {
@@ -83,6 +94,19 @@ export interface CommissionRule {
   ratePercent: number;
   priority: number;
   isActive: boolean;
+}
+
+// Bitim ichidagi tovar qatori
+export interface DealItem {
+  id: string;
+  position: number;
+  productName: string;
+  color?: string | null;
+  storageGb?: number | null;
+  imei1?: string | null;
+  imei2?: string | null;
+  quantity: number;
+  price: number;
 }
 
 export interface Deal {
@@ -139,6 +163,16 @@ export interface Deal {
   debtRemainder: number;
   paymentStatus: PaymentStatus;
   note?: string;
+  // --- Tasdiqlash va Trust ---
+  approvalStatus?: ApprovalStatus;
+  approvedAt?: string | null;
+  rejectReason?: string | null;
+  trustDebtAmount?: number;
+  /** Server tayyorlab beradigan "DD.MM.YYYY HH:mm" (Asia/Tashkent) */
+  dateTimeLabel?: string;
+  imei2?: string | null;
+  items?: DealItem[];
+  createdBy?: { id: string; fullName: string; role: Role } | null;
 }
 
 export interface DdsTransaction {

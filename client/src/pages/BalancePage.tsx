@@ -1,16 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Wallet, Plus, Calendar, DollarSign } from 'lucide-react';
+import { Wallet, Plus, ArrowDownLeft, ArrowUpRight, Scale, Users } from 'lucide-react';
 import { formatMoney } from '../utils/format';
 import { AmountInput } from '../components/AmountInput';
+import { useTranslation } from '../context/LanguageContext';
+import {
+  Button, Card, CardHeader, EmptyState, Field, Input, LoadingBlock, Modal, PageHeader, Select, StatCard,
+  Tabs, cn, controlClass,
+} from '../components/ui';
+
+// Modal pastki panelidagi "Saqlash" tugmasi shu formani yuboradi
+const DEPOSIT_FORM_ID = 'balance-deposit-form';
 
 export const BalancePage: React.FC = () => {
+  const { t } = useTranslation();
   const [matrixData, setMatrixData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [yearMonth, setYearMonth] = useState('2026-11');
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>('');
 
-  // Deposit Modal
+  // Depozit modali
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [depForm, setDepForm] = useState({
     partnerId: '',
@@ -46,247 +55,191 @@ export const BalancePage: React.FC = () => {
       setIsModalOpen(false);
       fetchMatrix();
     } catch (err: any) {
-      alert('Xatolik: ' + (err.response?.data?.error || err.message));
+      alert(err.response?.data?.error || t('common.save_error'));
     }
   };
 
-  const selectedPartner = matrixData?.partners?.find((p: any) => p.partnerId === selectedPartnerId) || matrixData?.partners?.[0];
+  const partners: any[] = matrixData?.partners || [];
+  const selectedPartner = partners.find((p: any) => p.partnerId === selectedPartnerId) || partners[0];
+  const daysInMonth: number = matrixData?.daysInMonth || 31;
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  // Jadval katakchalari uchun umumiy klasslar
+  const stickyFirst = 'sticky left-0 z-10 border-r border-line';
+  const cell = 'border-b border-line px-2 py-1.5 text-right';
+
+  // Bitta kichik qator (daromad / xarajat / sof foyda)
+  const renderSubRow = (row: any, field: 'income' | 'expense' | 'netProfit', label: string, tone: string, strong?: boolean) => (
+    <tr className={cn(tone, strong && 'font-semibold')}>
+      <td className={cn(stickyFirst, 'border-b border-line py-1.5 pl-6 pr-3 text-left', strong ? 'bg-surface-2' : 'bg-surface')}>
+        {label}
+      </td>
+      <td className={cn(cell, 'bg-surface-2 px-3 font-semibold')}>{formatMoney(row.monthlyTotals[field])}</td>
+      {days.map((d) => (
+        <td key={d} className={cn(cell, strong && 'bg-surface-2')}>
+          {row.days[d]?.[field] ? formatMoney(row.days[d][field], '') : '-'}
+        </td>
+      ))}
+    </tr>
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base sm:text-lg font-bold text-slate-800">
-            Sheriklar depoziti va daromad-xarajat balansi (Баланс)
-          </h1>
-          <p className="text-xs text-slate-500">
-            Hasan, Qodir va barcha sheriklar bo'yicha kunlik depozitlar, DDS daromad va xarajatlari
-          </p>
-        </div>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        icon={<Wallet />}
+        title={t('balance.title')}
+        description={t('balance.subtitle')}
+        actions={
+          <>
+            <input
+              type="month"
+              aria-label={t('common.month')}
+              value={yearMonth}
+              onChange={(e) => setYearMonth(e.target.value)}
+              className={cn(controlClass, 'w-auto tabular-nums')}
+            />
+            <Button onClick={() => setIsModalOpen(true)} leftIcon={<Plus className="h-4 w-4" />}>
+              {t('balance.add_deposit')}
+            </Button>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-2">
-          <input
-            type="month"
-            value={yearMonth}
-            onChange={(e) => setYearMonth(e.target.value)}
-            className="px-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none"
-          />
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Depozit kiritish</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Partner Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto pb-1">
-        {matrixData?.partners?.map((p: any) => (
-          <button
-            key={p.partnerId}
-            onClick={() => {
-              setSelectedPartnerId(p.partnerId);
-              setDepForm((prev) => ({ ...prev, partnerId: p.partnerId }));
+      {loading && !matrixData ? (
+        <Card>
+          <LoadingBlock label={t('balance.loading')} />
+        </Card>
+      ) : partners.length === 0 ? (
+        <Card>
+          <EmptyState icon={<Users />} title={t('balance.no_partners')} description={t('balance.no_partners_hint')} />
+        </Card>
+      ) : (
+        <>
+          {/* Sheriklar */}
+          <Tabs
+            ariaLabel={t('balance.partners')}
+            value={selectedPartner?.partnerId || ''}
+            onChange={(partnerId) => {
+              setSelectedPartnerId(partnerId);
+              setDepForm((prev) => ({ ...prev, partnerId }));
             }}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-              selectedPartnerId === p.partnerId
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            {p.partnerName}
-          </button>
-        ))}
-      </div>
+            items={partners.map((p: any) => ({ value: p.partnerId as string, label: p.partnerName }))}
+          />
 
-      {/* Partner Monthly Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Oylik depozit</p>
-          <h3 className="text-lg font-bold text-slate-900 mt-2">
-            {formatMoney(selectedPartner?.monthlyTotals?.deposit)}
-          </h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Oylik tushum (Доход)</p>
-          <h3 className="text-lg font-bold text-emerald-600 mt-2">
-            {formatMoney(selectedPartner?.monthlyTotals?.income)}
-          </h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Oylik xarajat (Расход)</p>
-          <h3 className="text-lg font-bold text-rose-600 mt-2">
-            {formatMoney(selectedPartner?.monthlyTotals?.expense)}
-          </h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Sof foyda (Сальдо)</p>
-          <h3 className="text-lg font-bold text-blue-700 mt-2">
-            {formatMoney(selectedPartner?.monthlyTotals?.netProfit)}
-          </h3>
-        </div>
-      </div>
-
-      {/* Detailed Days Matrix Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="text-sm font-bold text-slate-800 dark:text-white">
-            {selectedPartner?.partnerName} bo'yicha 31 kunlik to'liq balans jadvali
-          </h3>
-        </div>
-        <div className="lg:hidden px-3.5 py-2 bg-slate-100 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-          <span className="flex items-center gap-1 font-medium">👉 Jadvalni ko'rish uchun o'ngga suring</span>
-          <span className="font-bold text-blue-600 dark:text-blue-400">31 kun</span>
-        </div>
-
-        <div className="table-scroll-container custom-scrollbar">
-          <table className="w-full text-xs text-left">
-            <thead className="table-sticky-head bg-slate-900 text-white font-semibold shadow-md">
-              <tr>
-                <th className="px-3 py-3 sticky top-0 left-0 bg-slate-900 z-30 min-w-[140px] shadow-sm">Hisob turi</th>
-                <th className="px-3 py-3 text-right min-w-[100px] bg-slate-800 sticky top-0 z-20">Oylik jami</th>
-                {Array.from({ length: matrixData?.daysInMonth || 31 }, (_, i) => i + 1).map((d) => (
-                  <th key={d} className="px-2 py-3 text-center min-w-[70px] bg-slate-900 sticky top-0 z-20 whitespace-nowrap">
-                    Kun {d}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {selectedPartner?.accountRows?.map((row: any, rIdx: number) => (
-                <React.Fragment key={rIdx}>
-                  {/* Deposit row */}
-                  <tr className="hover:bg-slate-50">
-                    <td className="px-3 py-2 font-semibold text-slate-800 sticky left-0 bg-white">
-                      {row.accountLabel} (Depozit)
-                    </td>
-                    <td className="px-3 py-2 text-right font-bold text-slate-900 bg-slate-50">
-                      {formatMoney(row.monthlyTotals.deposit)}
-                    </td>
-                    {Array.from({ length: matrixData?.daysInMonth || 31 }, (_, i) => i + 1).map((d) => (
-                      <td key={d} className="px-2 py-2 text-right text-slate-700">
-                        {row.days[d]?.deposit ? formatMoney(row.days[d].deposit, '') : '-'}
-                      </td>
-                    ))}
-                  </tr>
-                  {/* Income row */}
-                  <tr className="hover:bg-slate-50 text-[11px] text-emerald-700">
-                    <td className="px-3 py-1.5 pl-6 sticky left-0 bg-white">└ Daromad (DDS)</td>
-                    <td className="px-3 py-1.5 text-right font-semibold bg-slate-50">
-                      {formatMoney(row.monthlyTotals.income)}
-                    </td>
-                    {Array.from({ length: matrixData?.daysInMonth || 31 }, (_, i) => i + 1).map((d) => (
-                      <td key={d} className="px-2 py-1.5 text-right">
-                        {row.days[d]?.income ? formatMoney(row.days[d].income, '') : '-'}
-                      </td>
-                    ))}
-                  </tr>
-                  {/* Expense row */}
-                  <tr className="hover:bg-slate-50 text-[11px] text-rose-700">
-                    <td className="px-3 py-1.5 pl-6 sticky left-0 bg-white">└ Xarajat (DDS)</td>
-                    <td className="px-3 py-1.5 text-right font-semibold bg-slate-50">
-                      {formatMoney(row.monthlyTotals.expense)}
-                    </td>
-                    {Array.from({ length: matrixData?.daysInMonth || 31 }, (_, i) => i + 1).map((d) => (
-                      <td key={d} className="px-2 py-1.5 text-right">
-                        {row.days[d]?.expense ? formatMoney(row.days[d].expense, '') : '-'}
-                      </td>
-                    ))}
-                  </tr>
-                  {/* Net profit row */}
-                  <tr className="bg-slate-50/80 font-bold border-b text-blue-900">
-                    <td className="px-3 py-1.5 pl-6 sticky left-0 bg-slate-50">└ Sof foyda</td>
-                    <td className="px-3 py-1.5 text-right font-extrabold bg-slate-100">
-                      {formatMoney(row.monthlyTotals.netProfit)}
-                    </td>
-                    {Array.from({ length: matrixData?.daysInMonth || 31 }, (_, i) => i + 1).map((d) => (
-                      <td key={d} className="px-2 py-1.5 text-right">
-                        {row.days[d]?.netProfit ? formatMoney(row.days[d].netProfit, '') : '-'}
-                      </td>
-                    ))}
-                  </tr>
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Add Deposit Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border p-6 space-y-4 text-xs">
-            <h3 className="text-sm font-bold text-slate-800">Depozit kiritish</h3>
-            <form onSubmit={handleDepositSubmit} className="space-y-3">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Sherik / Investor</label>
-                <select
-                  value={depForm.partnerId}
-                  onChange={(e) => setDepForm({ ...depForm, partnerId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-xl"
-                >
-                  {matrixData?.partners?.map((p: any) => (
-                    <option key={p.partnerId} value={p.partnerId}>{p.partnerName}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Sana</label>
-                <input
-                  type="date"
-                  required
-                  value={depForm.date}
-                  onChange={(e) => setDepForm({ ...depForm, date: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-xl"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Hisob turi</label>
-                <select
-                  value={depForm.accountType}
-                  onChange={(e) => setDepForm({ ...depForm, accountType: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-xl"
-                >
-                  <option value="CASH">Naqd so'm (Нахт пул сум)</option>
-                  <option value="BANK_CARD">Karta (Карта)</option>
-                  <option value="SETTLEMENT_ACCOUNT">Hisob-raqam (Счет)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-200 mb-1">Depozit summasi (UZS)</label>
-                <AmountInput
-                  required
-                  placeholder="Summani kiriting..."
-                  value={depForm.depositAmount}
-                  onChange={(val) => setDepForm({ ...depForm, depositAmount: val })}
-                  className="w-full px-3 py-2 border dark:border-slate-700 bg-white dark:bg-slate-800 rounded-xl font-bold text-slate-900 dark:text-white"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 border rounded-xl text-slate-600 hover:bg-slate-50"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700"
-                >
-                  Saqlash
-                </button>
-              </div>
-            </form>
+          {/* Oylik yakunlar */}
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            <StatCard title={t('balance.month_deposit')} value={formatMoney(selectedPartner?.monthlyTotals?.deposit)} icon={<Wallet />} />
+            <StatCard title={t('balance.month_income')} value={formatMoney(selectedPartner?.monthlyTotals?.income)} icon={<ArrowDownLeft />} tone="success" />
+            <StatCard title={t('balance.month_expense')} value={formatMoney(selectedPartner?.monthlyTotals?.expense)} icon={<ArrowUpRight />} tone="danger" />
+            <StatCard title={t('balance.net_profit')} value={formatMoney(selectedPartner?.monthlyTotals?.netProfit)} icon={<Scale />} tone="brand" />
           </div>
-        </div>
+
+          {/* Kunlar bo'yicha to'liq jadval */}
+          <Card padding="none" className="overflow-hidden">
+            <CardHeader
+              bordered
+              title={t('balance.matrix_title', { name: selectedPartner?.partnerName ?? '', days: daysInMonth })}
+            />
+            <div className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2 text-xs text-fg-muted lg:hidden">
+              <span>{t('balance.swipe_hint')}</span>
+              <span className="font-semibold tabular-nums text-fg-secondary">{t('balance.days_count', { count: daysInMonth })}</span>
+            </div>
+
+            <div className="table-scroll-container">
+              <table className="w-full text-left text-xs tabular-nums text-fg">
+                <thead className="table-sticky-head">
+                  <tr>
+                    <th className={cn(stickyFirst, 'z-30 min-w-[150px] border-b border-line bg-surface-2 px-3 py-2.5 font-semibold text-fg-secondary')}>
+                      {t('balance.col_account')}
+                    </th>
+                    <th className="min-w-[110px] border-b border-line bg-surface-2 px-3 py-2.5 text-right font-semibold text-fg-secondary">
+                      {t('balance.col_month_total')}
+                    </th>
+                    {days.map((d) => (
+                      <th key={d} className="min-w-[76px] whitespace-nowrap border-b border-line bg-surface-2 px-2 py-2.5 text-center font-semibold text-fg-secondary">
+                        {t('balance.day_n', { n: d })}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedPartner?.accountRows?.map((row: any, rIdx: number) => (
+                    <React.Fragment key={rIdx}>
+                      {/* Depozit qatori */}
+                      <tr>
+                        <td className={cn(stickyFirst, 'border-b border-line bg-surface px-3 py-2 font-semibold')}>
+                          {t('balance.row_deposit', { account: row.accountLabel })}
+                        </td>
+                        <td className={cn(cell, 'bg-surface-2 px-3 py-2 font-semibold')}>{formatMoney(row.monthlyTotals.deposit)}</td>
+                        {days.map((d) => (
+                          <td key={d} className={cn(cell, 'py-2 text-fg-secondary')}>
+                            {row.days[d]?.deposit ? formatMoney(row.days[d].deposit, '') : '-'}
+                          </td>
+                        ))}
+                      </tr>
+                      {renderSubRow(row, 'income', t('balance.row_income'), 'text-success')}
+                      {renderSubRow(row, 'expense', t('balance.row_expense'), 'text-danger')}
+                      {renderSubRow(row, 'netProfit', t('balance.row_net'), 'text-fg', true)}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
       )}
+
+      {/* Depozit kiritish */}
+      <Modal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={t('balance.add_deposit')}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form={DEPOSIT_FORM_ID}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <form id={DEPOSIT_FORM_ID} onSubmit={handleDepositSubmit} className="space-y-4">
+          <Field label={t('balance.partner')}>
+            <Select value={depForm.partnerId} onChange={(e) => setDepForm({ ...depForm, partnerId: e.target.value })}>
+              {partners.map((p: any) => (
+                <option key={p.partnerId} value={p.partnerId}>
+                  {p.partnerName}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label={t('common.date')} required>
+            <Input type="date" required value={depForm.date} onChange={(e) => setDepForm({ ...depForm, date: e.target.value })} />
+          </Field>
+
+          <Field label={t('balance.col_account')}>
+            <Select value={depForm.accountType} onChange={(e) => setDepForm({ ...depForm, accountType: e.target.value })}>
+              <option value="CASH">{t('accounts.CASH')}</option>
+              <option value="BANK_CARD">{t('accounts.BANK_CARD')}</option>
+              <option value="SETTLEMENT_ACCOUNT">{t('accounts.SETTLEMENT_ACCOUNT')}</option>
+            </Select>
+          </Field>
+
+          <Field label={t('balance.deposit_amount')} required>
+            <AmountInput
+              required
+              placeholder={t('balance.amount_placeholder')}
+              value={depForm.depositAmount}
+              onChange={(val) => setDepForm({ ...depForm, depositAmount: val })}
+              className={cn(controlClass, 'font-semibold tabular-nums')}
+            />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 };

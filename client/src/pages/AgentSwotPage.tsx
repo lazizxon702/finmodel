@@ -1,11 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { TrendingUp, Save, ShieldAlert, Sparkles, Target, Zap } from 'lucide-react';
+import { TrendingUp, Save, ShieldAlert, Sparkles, Target, Zap, Wallet, Building2, HandCoins } from 'lucide-react';
 import { formatMoney, formatPercent } from '../utils/format';
+import { useTranslation } from '../context/LanguageContext';
+import {
+  PageHeader, Card, CardHeader, StatCard, Button, Badge, Textarea,
+  TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, LoadingBlock, cn,
+} from '../components/ui';
 
 export const AgentSwotPage: React.FC = () => {
+  const { t } = useTranslation();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // Boshlang'ich agentlik nomi — ma'lumot kaliti (API'dagi nom), tarjima qilinmaydi
   const [selectedAgency, setSelectedAgency] = useState<string>('Асадбек');
   const [swotForm, setSwotForm] = useState({
     strengths: '',
@@ -28,10 +35,10 @@ export const AgentSwotPage: React.FC = () => {
         const first = res.data.agencies[0];
         setSelectedAgency(first.agencyName);
         setSwotForm({
-          strengths: first.swot?.strengths || 'Mijozlar oqimi katta, yaxshi provayderlar bilan ishlaydi',
-          weaknesses: first.swot?.weaknesses || 'Kechikishlar, hujjatlarni to\'liq yuklamaslik',
-          opportunities: first.swot?.opportunities || 'Viloyat do\'konlari orqali aylanmani 2 barobar oshirish',
-          threats: first.swot?.threats || 'Limitlar foizi pasayishi yoki kechiktirilgan to\'lovlar',
+          strengths: first.swot?.strengths || t('agentSwot.default_strengths'),
+          weaknesses: first.swot?.weaknesses || t('agentSwot.default_weaknesses'),
+          opportunities: first.swot?.opportunities || t('agentSwot.default_opportunities'),
+          threats: first.swot?.threats || t('agentSwot.default_threats'),
         });
       }
     } catch (err) {
@@ -58,185 +65,127 @@ export const AgentSwotPage: React.FC = () => {
     try {
       setSaving(true);
       await axios.post(`/api/agents/swot/${selectedAgency}`, swotForm);
-      alert('SWOT tahlili muvaffaqiyatli saqlandi!');
+      alert(t('agentSwot.saved'));
       fetchSwotData();
     } catch (err: any) {
-      alert('Saqlashda xatolik: ' + err.message);
+      alert(err.response?.data?.error || t('common.save_error'));
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) {
-    return <div className="p-8 text-center text-xs text-slate-500">SWOT yuklanmoqda...</div>;
+    return <LoadingBlock label={t('agentSwot.loading')} />;
   }
 
+  // SWOT kvadrantlari: maydon nomi, ikonka va ma'no rangi
+  const quadrants = [
+    { key: 'strengths' as const, icon: <Zap className="h-4 w-4" />, tone: 'bg-success-soft text-success' },
+    { key: 'weaknesses' as const, icon: <ShieldAlert className="h-4 w-4" />, tone: 'bg-danger-soft text-danger' },
+    { key: 'opportunities' as const, icon: <Sparkles className="h-4 w-4" />, tone: 'bg-info-soft text-info' },
+    { key: 'threats' as const, icon: <Target className="h-4 w-4" />, tone: 'bg-warning-soft text-warning' },
+  ];
+
+  const agencies: any[] = data?.agencies || [];
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-base sm:text-lg font-bold text-slate-800">
-          Agentliklar samaradorligi va SWOT tahlili (SWOT_Агентства)
-        </h1>
-        <p className="text-xs text-slate-500">
-          Hamkor agentliklar aylanmasi, kompaniya marjinalligi, komissiya ulushi va strategik SWOT tahlili
-        </p>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader className="mb-0 sm:mb-0" title={t('agentSwot.title')} description={t('agentSwot.subtitle')} />
+
+      {/* Asosiy ko'rsatkichlar */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+        <StatCard title={t('agentSwot.kpi_total_limit')} value={formatMoney(data?.totals?.totalLimit)} icon={<Wallet />} />
+        <StatCard title={t('agentSwot.kpi_company_revenue')} value={formatMoney(data?.totals?.companyRevenue)} icon={<Building2 />} tone="info" />
+        <StatCard title={t('agentSwot.kpi_agency_payout')} value={formatMoney(data?.totals?.agencyPayout)} icon={<HandCoins />} tone="brand" />
+        <StatCard title={t('agentSwot.kpi_net_profit')} value={formatMoney(data?.totals?.netProfit)} icon={<TrendingUp />} tone="success" />
       </div>
 
-      {/* Top 4 KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Umumiy limit hajmi</p>
-          <h3 className="text-lg font-bold text-slate-900 mt-2">{formatMoney(data?.totals?.totalLimit)}</h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Kompaniya daromadi</p>
-          <h3 className="text-lg font-bold text-blue-700 mt-2">{formatMoney(data?.totals?.companyRevenue)}</h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Agentliklarga to'lov</p>
-          <h3 className="text-lg font-bold text-purple-700 mt-2">{formatMoney(data?.totals?.agencyPayout)}</h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Sof foyda</p>
-          <h3 className="text-lg font-bold text-emerald-700 mt-2">{formatMoney(data?.totals?.netProfit)}</h3>
-        </div>
-      </div>
+      {/* Agentliklar solishtirma jadvali */}
+      <Card padding="none" className="overflow-hidden">
+        <CardHeader
+          bordered
+          title={t('agentSwot.ranking_title')}
+          actions={<Badge tone="brand" className="tabular-nums">{t('agentSwot.agencies_count', { count: agencies.length })}</Badge>}
+        />
+        <TableContainer bare>
+          <Table>
+            <Thead>
+              <Tr>
+                <Th>{t('agentSwot.col_agency')}</Th>
+                <Th align="right">{t('agentSwot.col_deal_count')}</Th>
+                <Th align="right">{t('agentSwot.col_total_limit')}</Th>
+                <Th align="right">{t('agentSwot.col_calculated_sum')}</Th>
+                <Th align="right">{t('agentSwot.col_company_revenue')}</Th>
+                <Th align="right">{t('agentSwot.col_agency_payout')}</Th>
+                <Th align="right">{t('agentSwot.col_net_profit')}</Th>
+                <Th align="right">{t('agentSwot.col_commission_share')}</Th>
+                <Th align="right">{t('agentSwot.col_turnover_share')}</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {agencies.length === 0 && <TableEmpty colSpan={9} title={t('common.noData')} />}
+              {agencies.map((a: any) => {
+                const selected = selectedAgency === a.agencyName;
+                return (
+                  <Tr
+                    key={a.id}
+                    clickable
+                    onClick={() => handleSelectAgency(a.agencyName)}
+                    aria-selected={selected}
+                    className={cn(selected && 'bg-brand-soft hover:bg-brand-soft')}
+                  >
+                    <Td className="whitespace-nowrap font-medium text-fg">
+                      <span className="flex items-center gap-2">
+                        <span className={cn('h-2 w-2 shrink-0 rounded-full', selected ? 'bg-brand' : 'bg-line-strong')} aria-hidden="true" />
+                        {a.agencyName}
+                      </span>
+                    </Td>
+                    <Td align="right" numeric>{a.dealCount}</Td>
+                    <Td align="right" numeric className="font-medium">{formatMoney(a.totalLimit)}</Td>
+                    <Td align="right" numeric className="text-fg-secondary">{formatMoney(a.calculatedSum)}</Td>
+                    <Td align="right" numeric>{formatMoney(a.companyRevenue)}</Td>
+                    <Td align="right" numeric className="text-fg-secondary">{formatMoney(a.agencyPayout)}</Td>
+                    <Td align="right" numeric className="font-semibold text-success">{formatMoney(a.netProfit)}</Td>
+                    <Td align="right" numeric className="text-fg-secondary">{formatPercent(a.commissionSharePct)}</Td>
+                    <Td align="right" numeric className="font-medium">{formatPercent(a.turnoverSharePct)}</Td>
+                  </Tr>
+                );
+              })}
+            </Tbody>
+          </Table>
+        </TableContainer>
+      </Card>
 
-      {/* Agency efficiency comparison table */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-800 dark:text-white">Agentliklar solishtirma reytingi</h3>
-        </div>
-        <div className="lg:hidden px-3.5 py-2 bg-slate-100 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-          <span className="flex items-center gap-1 font-medium">👉 Jadvalni ko'rish uchun o'ngga suring</span>
-          <span className="font-bold text-emerald-600 dark:text-emerald-400">{data?.agencies?.length || 0} ta agentlik</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-slate-900 text-white font-semibold">
-              <tr>
-                <th className="px-4 py-3">Agentlik (Агентство)</th>
-                <th className="px-4 py-3 text-right">Bitimlar soni</th>
-                <th className="px-4 py-3 text-right">Umumiy limit</th>
-                <th className="px-4 py-3 text-right">Hisoblangan summa</th>
-                <th className="px-4 py-3 text-right">Kompaniya daromadi</th>
-                <th className="px-4 py-3 text-right">Agentlikka to'lov</th>
-                <th className="px-4 py-3 text-right">Kompaniya sof foydasi</th>
-                <th className="px-4 py-3 text-right">Komissiya ulushi %</th>
-                <th className="px-4 py-3 text-right">Aylanmadagi ulush %</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {data?.agencies?.map((a: any) => (
-                <tr
-                  key={a.id}
-                  onClick={() => handleSelectAgency(a.agencyName)}
-                  className={`cursor-pointer transition-colors ${
-                    selectedAgency === a.agencyName ? 'bg-emerald-50/70 font-semibold' : 'hover:bg-slate-50'
-                  }`}
-                >
-                  <td className="px-4 py-2.5 font-bold text-slate-800 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    {a.agencyName}
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-bold text-blue-600">{a.dealCount} ta</td>
-                  <td className="px-4 py-2.5 text-right font-semibold text-slate-900">{formatMoney(a.totalLimit)}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-700">{formatMoney(a.calculatedSum)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-blue-700">{formatMoney(a.companyRevenue)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-purple-700">{formatMoney(a.agencyPayout)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-emerald-700">{formatMoney(a.netProfit)}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-600">{formatPercent(a.commissionSharePct)}</td>
-                  <td className="px-4 py-2.5 text-right font-bold text-slate-800">{formatPercent(a.turnoverSharePct)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* SWOT Quadrant Matrix (Editable) */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
-          <div>
-            <h3 className="text-sm font-bold text-slate-800">
-              Agentlik SWOT tahlili: <span className="text-emerald-700 font-extrabold">{selectedAgency}</span>
-            </h3>
-            <p className="text-xs text-slate-500">
-              Quyidagi matn maydonlarini tahrirlab "Saqlash" tugmasini bosing
-            </p>
-          </div>
-          <button
-            onClick={handleSaveSwot}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors shadow-sm self-start sm:self-auto"
-          >
-            <Save className="w-4 h-4" />
-            <span>{saving ? 'Saqlanmoqda...' : 'SWOT ni saqlash'}</span>
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-          {/* Strengths */}
-          <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-2">
-            <div className="flex items-center gap-2 text-emerald-800 font-bold">
-              <Zap className="w-4 h-4 text-emerald-600" />
-              <span>Kuchli tomonlari (Strengths)</span>
+      {/* SWOT matritsasi (tahrirlanadi) */}
+      <Card padding="none">
+        <CardHeader
+          bordered
+          title={t('agentSwot.matrix_title', { agency: selectedAgency })}
+          description={t('agentSwot.matrix_hint')}
+          actions={
+            <Button onClick={handleSaveSwot} loading={saving} leftIcon={<Save className="h-4 w-4" />}>
+              {saving ? t('common.saving') : t('agentSwot.save')}
+            </Button>
+          }
+        />
+        <div className="grid grid-cols-1 gap-3 p-4 sm:gap-4 sm:p-5 md:grid-cols-2">
+          {quadrants.map((q) => (
+            <div key={q.key} className="space-y-2 rounded-card border border-line bg-surface-2 p-4">
+              <label htmlFor={`swot-${q.key}`} className="flex items-center gap-2 text-sm font-semibold text-fg">
+                <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-control', q.tone)}>{q.icon}</span>
+                {t(`agentSwot.${q.key}`)}
+              </label>
+              <Textarea
+                id={`swot-${q.key}`}
+                rows={3}
+                value={swotForm[q.key]}
+                onChange={(e) => setSwotForm({ ...swotForm, [q.key]: e.target.value })}
+                placeholder={t(`agentSwot.${q.key}_placeholder`)}
+              />
             </div>
-            <textarea
-              rows={3}
-              value={swotForm.strengths}
-              onChange={(e) => setSwotForm({ ...swotForm, strengths: e.target.value })}
-              className="w-full p-2.5 bg-white border border-emerald-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              placeholder="Masalan: Yirik mijozlar bazasi, operatsion tezlik..."
-            />
-          </div>
-
-          {/* Weaknesses */}
-          <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/40 space-y-2">
-            <div className="flex items-center gap-2 text-rose-800 font-bold">
-              <ShieldAlert className="w-4 h-4 text-rose-600" />
-              <span>Zaif tomonlari (Weaknesses)</span>
-            </div>
-            <textarea
-              rows={3}
-              value={swotForm.weaknesses}
-              onChange={(e) => setSwotForm({ ...swotForm, weaknesses: e.target.value })}
-              className="w-full p-2.5 bg-white border border-rose-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20"
-              placeholder="Masalan: Hujjatlarni to'liq topshirmaslik, cheklar kechikishi..."
-            />
-          </div>
-
-          {/* Opportunities */}
-          <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-2">
-            <div className="flex items-center gap-2 text-blue-800 font-bold">
-              <Sparkles className="w-4 h-4 text-blue-600" />
-              <span>Imkoniyatlar (Opportunities)</span>
-            </div>
-            <textarea
-              rows={3}
-              value={swotForm.opportunities}
-              onChange={(e) => setSwotForm({ ...swotForm, opportunities: e.target.value })}
-              className="w-full p-2.5 bg-white border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              placeholder="Masalan: Viloyatlarda yangi do'konlar bilan limitlarni kengaytirish..."
-            />
-          </div>
-
-          {/* Threats */}
-          <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
-            <div className="flex items-center gap-2 text-amber-800 font-bold">
-              <Target className="w-4 h-4 text-amber-600" />
-              <span>Xavflar va Xatarlar (Threats)</span>
-            </div>
-            <textarea
-              rows={3}
-              value={swotForm.threats}
-              onChange={(e) => setSwotForm({ ...swotForm, threats: e.target.value })}
-              className="w-full p-2.5 bg-white border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-              placeholder="Masalan: Banklar komissiya stavkalarini o'zgartirishi..."
-            />
-          </div>
+          ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 };

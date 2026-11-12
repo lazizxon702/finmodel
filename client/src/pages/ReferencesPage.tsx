@@ -1,17 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Settings, Store, Building2, Users, Percent, ShoppingBag, 
-  Plus, Edit, Save, CheckCircle, RefreshCw, Sliders, Shield
+import {
+  Settings, Store, Building2, Users, Percent, ShoppingBag,
+  Plus, Edit, CheckCircle, RefreshCw, Sliders
 } from 'lucide-react';
 import { formatPercent } from '../utils/format';
+import { useTranslation } from '../context/LanguageContext';
+import {
+  Button, Card, Modal, PageHeader, Badge, Field, Input, Select,
+  TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, EmptyState, Tabs, cn,
+} from '../components/ui';
+
+type RefTab = 'RULES' | 'PROVIDERS' | 'STORES' | 'AGENCIES' | 'BUYERS' | 'SETTINGS';
+
+// Tab ichidagi yuqori qator: izoh matni + "qo'shish" tugmasi (mobilda ustma-ust)
+const SectionBar: React.FC<{ hint: React.ReactNode; action?: React.ReactNode }> = ({ hint, action }) => (
+  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <p className="text-xs text-fg-muted">{hint}</p>
+    {action && <div className="shrink-0">{action}</div>}
+  </div>
+);
+
+// Belgilash katagi (checkbox) uchun umumiy klass
+const checkboxClass = 'h-4 w-4 shrink-0 rounded border-line-strong accent-brand';
 
 export const ReferencesPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'RULES' | 'PROVIDERS' | 'STORES' | 'AGENCIES' | 'BUYERS' | 'SETTINGS'>('RULES');
+  const { t } = useTranslation();
+  const [activeTab, setActiveTab] = useState<RefTab>('RULES');
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Data states
+  // Ma'lumot holatlari
   const [rules, setRules] = useState<any[]>([]);
   const [providers, setProviders] = useState<any[]>([]);
   const [stores, setStores] = useState<any[]>([]);
@@ -19,7 +38,7 @@ export const ReferencesPage: React.FC = () => {
   const [buyers, setBuyers] = useState<any[]>([]);
   const [settings, setSettings] = useState<any[]>([]);
 
-  // Modals & form state
+  // Modallar va forma holatlari
   const [showAddRuleModal, setShowAddRuleModal] = useState(false);
   const [editingRule, setEditingRule] = useState<any | null>(null);
   const [ruleForm, setRuleForm] = useState({
@@ -78,7 +97,7 @@ export const ReferencesPage: React.FC = () => {
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
-  // Rule actions
+  // Qoida amallari
   const handleSaveRule = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -88,62 +107,62 @@ export const ReferencesPage: React.FC = () => {
           storeId: ruleForm.storeId || null,
           providerId: ruleForm.providerId || null,
         });
-        notify('Qoida yangilandi');
+        notify(t('references.rules.updated'));
       } else {
         await axios.post('/api/references/rules', {
           ...ruleForm,
           storeId: ruleForm.storeId || null,
           providerId: ruleForm.providerId || null,
         });
-        notify('Yangi qoida saqlandi');
+        notify(t('references.rules.saved'));
       }
       setShowAddRuleModal(false);
       setEditingRule(null);
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Xatolik yuz berdi');
+      alert(err.response?.data?.error || t('common.save_error'));
     }
   };
 
-  // Store actions
+  // Do'kon amallari
   const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await axios.post('/api/references/stores', storeForm);
       setShowAddStore(false);
       setStoreForm({ name: '', contactPhone: '', address: '' });
-      notify('Do\'kon qo\'shildi');
+      notify(t('references.stores.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Xatolik');
+      alert(err.response?.data?.error || t('common.save_error'));
     }
   };
 
-  // Provider actions
+  // Provayder amallari
   const handleSaveProvider = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await axios.post('/api/references/providers', providerForm);
       setShowAddProvider(false);
       setProviderForm({ name: '', defaultDiscount: 0.25, isDaftarDefault: false });
-      notify('Provayder qo\'shildi');
+      notify(t('references.providers.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Xatolik');
+      alert(err.response?.data?.error || t('common.save_error'));
     }
   };
 
-  // Agency actions
+  // Agentlik amallari
   const handleSaveAgency = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await axios.post('/api/references/agencies', agencyForm);
       setShowAddAgency(false);
       setAgencyForm({ name: '', phone: '' });
-      notify('Agentlik qo\'shildi');
+      notify(t('references.agencies.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Xatolik');
+      alert(err.response?.data?.error || t('common.save_error'));
     }
   };
 
@@ -153,201 +172,124 @@ export const ReferencesPage: React.FC = () => {
       await axios.post(`/api/references/agencies/${agencyId}/agents`, agentForm);
       setShowAddAgent(null);
       setAgentForm({ name: '', phone: '' });
-      notify('Agent qo\'shildi');
+      notify(t('references.agents.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Xatolik');
+      alert(err.response?.data?.error || t('common.save_error'));
     }
   };
 
-  // Buyer actions
+  // Xaridor amallari
   const handleSaveBuyer = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await axios.post('/api/references/buyers', buyerForm);
       setShowAddBuyer(false);
       setBuyerForm({ name: '', phone: '', isWholesale: true });
-      notify('Xaridor qo\'shildi');
+      notify(t('references.buyers.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Xatolik');
+      alert(err.response?.data?.error || t('common.save_error'));
     }
   };
 
+  const plusIcon = <Plus className="h-4 w-4" />;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Sliders className="w-7 h-7 text-indigo-600" />
-            Spravochniklar va Sozlamalar (Справочники)
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Agent komissiyalari stavkalari, provayderlar, hamkor do'konlar va tizim koeffitsiyentlari
-          </p>
-        </div>
-        <button
-          onClick={fetchAll}
-          className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 shadow-sm"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Yangilash
-        </button>
-      </div>
+    <div className="space-y-4 sm:space-y-5">
+      {/* Sarlavha */}
+      <PageHeader
+        icon={<Sliders />}
+        title={t('references.title')}
+        description={t('references.subtitle')}
+        actions={
+          <Button
+            variant="secondary"
+            onClick={fetchAll}
+            leftIcon={<RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />}
+          >
+            {t('common.refresh')}
+          </Button>
+        }
+      />
 
       {successMsg && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg flex items-center gap-2 text-sm">
-          <CheckCircle className="w-5 h-5 text-emerald-600" />
+        <div role="status" className="flex items-center gap-2 rounded-card bg-success-soft px-4 py-3 text-sm text-success">
+          <CheckCircle className="h-5 w-5 shrink-0" />
           {successMsg}
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="flex space-x-6 overflow-x-auto pb-1">
-          <button
-            onClick={() => setActiveTab('RULES')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-1.5 whitespace-nowrap transition ${
-              activeTab === 'RULES'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <Percent className="w-4 h-4" />
-            Agent Komissiya Qoidalari
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-indigo-100 text-indigo-800">
-              {rules.length}
-            </span>
-          </button>
+      {/* Tablar */}
+      <Tabs<RefTab>
+        ariaLabel={t('references.tabsLabel')}
+        value={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { value: 'RULES', label: t('references.tab.rules'), icon: <Percent />, count: rules.length },
+          { value: 'PROVIDERS', label: t('references.tab.providers'), icon: <Building2 />, count: providers.length },
+          { value: 'STORES', label: t('references.tab.stores'), icon: <Store />, count: stores.length },
+          { value: 'AGENCIES', label: t('references.tab.agencies'), icon: <Users />, count: agencies.length },
+          { value: 'BUYERS', label: t('references.tab.buyers'), icon: <ShoppingBag />, count: buyers.length },
+          { value: 'SETTINGS', label: t('references.tab.settings'), icon: <Settings /> },
+        ]}
+      />
 
-          <button
-            onClick={() => setActiveTab('PROVIDERS')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-1.5 whitespace-nowrap transition ${
-              activeTab === 'PROVIDERS'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            Banklar va Ilovalar
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-800">
-              {providers.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('STORES')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-1.5 whitespace-nowrap transition ${
-              activeTab === 'STORES'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <Store className="w-4 h-4" />
-            Do'konlar va Hamkorlar
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-800">
-              {stores.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('AGENCIES')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-1.5 whitespace-nowrap transition ${
-              activeTab === 'AGENCIES'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Agentliklar va Agentlar
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-800">
-              {agencies.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('BUYERS')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-1.5 whitespace-nowrap transition ${
-              activeTab === 'BUYERS'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-            Xaridorlar (Ulgurji)
-            <span className="ml-1 px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800">
-              {buyers.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('SETTINGS')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-1.5 whitespace-nowrap transition ${
-              activeTab === 'SETTINGS'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            Tizim Parametrlari
-          </button>
-        </nav>
-      </div>
-
-      {/* TAB 1: Commission Rules */}
+      {/* 1-TAB: Komissiya qoidalari */}
       {activeTab === 'RULES' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center bg-indigo-50 border border-indigo-100 p-4 rounded-xl">
-            <div className="text-xs text-indigo-900 leading-relaxed max-w-2xl">
-              <span className="font-semibold">Dinamik hisoblash formulasi:</span> Agent summasi = P × (S − X).
-              Bunda X — ushbu jadvaldagi ustuvorlik bo'yicha mos kelgan foiz. Istalgan vaqtda foizlarni o'zgartirishingiz mumkin va bu barcha yangi bitimlarda avtomatik qo'llaniladi.
-            </div>
-            <button
+          <div className="flex flex-col gap-3 rounded-card border border-line bg-info-soft p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-2xl text-xs leading-relaxed text-fg-secondary">
+              <span className="font-semibold text-fg">{t('references.rules.formulaTitle')}</span>{' '}
+              {t('references.rules.formulaText')}
+            </p>
+            <Button
+              className="shrink-0"
+              leftIcon={plusIcon}
               onClick={() => {
                 setEditingRule(null);
                 setRuleForm({ name: '', storeId: '', providerId: '', ratePercent: 0.22, priority: 1 });
                 setShowAddRuleModal(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition"
             >
-              <Plus className="w-4 h-4" />
-              Yangi qoida qo'shish
-            </button>
+              {t('references.rules.add')}
+            </Button>
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase">
-                <tr>
-                  <th className="py-3 px-4">Qoida nomi</th>
-                  <th className="py-3 px-4">Do'kon / Hamkor</th>
-                  <th className="py-3 px-4">Bank / Provayder</th>
-                  <th className="py-3 px-4 text-right">Stavka % (X)</th>
-                  <th className="py-3 px-4 text-center">Ustuvorlik</th>
-                  <th className="py-3 px-4 text-center">Holat</th>
-                  <th className="py-3 px-4 text-center">Amal</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <TableContainer>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('references.rules.col.name')}</Th>
+                  <Th>{t('common.store')}</Th>
+                  <Th>{t('common.provider')}</Th>
+                  <Th align="right">{t('references.rules.col.rate')}</Th>
+                  <Th align="center">{t('references.rules.col.priority')}</Th>
+                  <Th align="center">{t('common.status')}</Th>
+                  <Th align="center">{t('common.actions')}</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {rules.length === 0 && <TableEmpty colSpan={7} title={t('references.rules.empty')} />}
                 {rules.map((rule) => (
-                  <tr key={rule.id} className="hover:bg-indigo-50/20">
-                    <td className="py-3 px-4 font-semibold text-gray-900">{rule.name}</td>
-                    <td className="py-3 px-4 text-gray-700">{rule.store?.name || 'Har qanday do\'kon'}</td>
-                    <td className="py-3 px-4 text-gray-700">{rule.provider?.name || 'Har qanday bank'}</td>
-                    <td className="py-3 px-4 text-right font-bold text-indigo-600 text-sm">
+                  <Tr key={rule.id}>
+                    <Td className="font-semibold text-fg">{rule.name}</Td>
+                    <Td className="text-fg-secondary">{rule.store?.name || t('references.rules.anyStore')}</Td>
+                    <Td className="text-fg-secondary">{rule.provider?.name || t('references.rules.anyProvider')}</Td>
+                    <Td align="right" numeric className="font-semibold text-accent">
                       {formatPercent(rule.ratePercent)}
-                    </td>
-                    <td className="py-3 px-4 text-center font-medium text-gray-600">{rule.priority}</td>
-                    <td className="py-3 px-4 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                        rule.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {rule.isActive ? 'Faol' : 'Faol emas'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
+                    </Td>
+                    <Td align="center" numeric className="text-fg-secondary">{rule.priority}</Td>
+                    <Td align="center">
+                      <Badge tone={rule.isActive ? 'success' : 'neutral'}>
+                        {rule.isActive ? t('common.active') : t('common.inactive')}
+                      </Badge>
+                    </Td>
+                    <Td align="center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        leftIcon={<Edit className="h-3.5 w-3.5" />}
                         onClick={() => {
                           setEditingRule(rule);
                           setRuleForm({
@@ -359,532 +301,518 @@ export const ReferencesPage: React.FC = () => {
                           });
                           setShowAddRuleModal(true);
                         }}
-                        className="text-indigo-600 hover:text-indigo-800 font-medium inline-flex items-center gap-1"
                       >
-                        <Edit className="w-3.5 h-3.5" />
-                        Tahrirlash
-                      </button>
-                    </td>
-                  </tr>
+                        {t('common.edit')}
+                      </Button>
+                    </Td>
+                  </Tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </Tbody>
+            </Table>
+          </TableContainer>
         </div>
       )}
 
-      {/* TAB 2: Providers */}
+      {/* 2-TAB: Banklar va ilovalar */}
       {activeTab === 'PROVIDERS' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-gray-500">Mijozlar limiti yechiladigan banklar va ilovalar ro'yxati</p>
-            <button
-              onClick={() => setShowAddProvider(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Yangi bank qo'shish
-            </button>
-          </div>
+          <SectionBar
+            hint={t('references.providers.hint')}
+            action={
+              <Button leftIcon={plusIcon} onClick={() => setShowAddProvider(true)}>
+                {t('references.providers.add')}
+              </Button>
+            }
+          />
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase">
-                <tr>
-                  <th className="py-3 px-4">Bank / Ilova nomi</th>
-                  <th className="py-3 px-4 text-right">Standart diskont %</th>
-                  <th className="py-3 px-4 text-center">Daftar hisobi</th>
-                  <th className="py-3 px-4 text-center">ID</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <TableContainer>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('references.providers.col.name')}</Th>
+                  <Th align="right">{t('references.providers.col.discount')}</Th>
+                  <Th align="center">{t('references.providers.col.daftar')}</Th>
+                  <Th align="center">{t('references.providers.col.id')}</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {providers.length === 0 && <TableEmpty colSpan={4} title={t('references.providers.empty')} />}
                 {providers.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 font-semibold text-gray-900">{p.name}</td>
-                    <td className="py-3 px-4 text-right font-medium text-gray-700">{formatPercent(p.defaultDiscount)}</td>
-                    <td className="py-3 px-4 text-center">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                        p.isDaftarDefault ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {p.isDaftarDefault ? 'Ha (Daftar)' : 'Yo\'q'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center text-gray-400 font-mono text-[10px]">{p.id.slice(0, 8)}...</td>
-                  </tr>
+                  <Tr key={p.id}>
+                    <Td className="font-semibold text-fg">{p.name}</Td>
+                    <Td align="right" numeric className="text-fg-secondary">{formatPercent(p.defaultDiscount)}</Td>
+                    <Td align="center">
+                      <Badge tone={p.isDaftarDefault ? 'danger' : 'neutral'}>
+                        {p.isDaftarDefault ? t('references.providers.daftarYes') : t('common.no')}
+                      </Badge>
+                    </Td>
+                    <Td align="center" numeric className="font-mono text-[11px] text-fg-muted">{p.id.slice(0, 8)}...</Td>
+                  </Tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </Tbody>
+            </Table>
+          </TableContainer>
         </div>
       )}
 
-      {/* TAB 3: Stores */}
+      {/* 3-TAB: Do'konlar */}
       {activeTab === 'STORES' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-gray-500">Hamkor savdo nuqtalari va do'konlar</p>
-            <button
-              onClick={() => setShowAddStore(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Yangi do'kon qo'shish
-            </button>
-          </div>
+          <SectionBar
+            hint={t('references.stores.hint')}
+            action={
+              <Button leftIcon={plusIcon} onClick={() => setShowAddStore(true)}>
+                {t('references.stores.add')}
+              </Button>
+            }
+          />
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase">
-                <tr>
-                  <th className="py-3 px-4">Do'kon nomi</th>
-                  <th className="py-3 px-4">Aloqa telefoni</th>
-                  <th className="py-3 px-4">Manzil</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <TableContainer>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('references.stores.col.name')}</Th>
+                  <Th>{t('references.stores.col.phone')}</Th>
+                  <Th>{t('common.address')}</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {stores.length === 0 && <TableEmpty colSpan={3} title={t('references.stores.empty')} />}
                 {stores.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 font-semibold text-gray-900">{s.name}</td>
-                    <td className="py-3 px-4 text-gray-600">{s.contactPhone || '-'}</td>
-                    <td className="py-3 px-4 text-gray-500">{s.address || '-'}</td>
-                  </tr>
+                  <Tr key={s.id}>
+                    <Td className="font-semibold text-fg">{s.name}</Td>
+                    <Td numeric className="text-fg-secondary">{s.contactPhone || '-'}</Td>
+                    <Td className="text-fg-muted">{s.address || '-'}</Td>
+                  </Tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </Tbody>
+            </Table>
+          </TableContainer>
         </div>
       )}
 
-      {/* TAB 4: Agencies & Agents */}
+      {/* 4-TAB: Agentliklar va agentlar */}
       {activeTab === 'AGENCIES' && (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-gray-500">Biz bilan ishlaydigan agentliklar va ularga biriktirilgan agentlar</p>
-            <button
-              onClick={() => setShowAddAgency(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Yangi agentlik qo'shish
-            </button>
-          </div>
+        <div className="space-y-4">
+          <SectionBar
+            hint={t('references.agencies.hint')}
+            action={
+              <Button leftIcon={plusIcon} onClick={() => setShowAddAgency(true)}>
+                {t('references.agencies.add')}
+              </Button>
+            }
+          />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {agencies.length === 0 && (
+            <Card>
+              <EmptyState icon={<Users />} title={t('references.agencies.empty')} />
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
             {agencies.map((agency) => (
-              <div key={agency.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-indigo-600" />
-                      {agency.name}
+              <Card key={agency.id} className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="flex items-center gap-1.5 text-sm font-semibold text-fg">
+                      <Users className="h-4 w-4 shrink-0 text-accent" />
+                      <span className="truncate">{agency.name}</span>
                     </h3>
-                    <p className="text-xs text-gray-500 mt-0.5">{agency.phone || 'Telefon yo\'q'}</p>
+                    <p className="mt-0.5 text-xs tabular-nums text-fg-muted">{agency.phone || t('references.agencies.noPhone')}</p>
                   </div>
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="shrink-0"
+                    leftIcon={<Plus className="h-3.5 w-3.5" />}
                     onClick={() => {
                       setShowAddAgent(agency.id);
                       setAgentForm({ name: '', phone: '' });
                     }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    Agent qo'shish
-                  </button>
+                    {t('references.agencies.addAgent')}
+                  </Button>
                 </div>
 
-                <div className="border-t border-gray-100 pt-2">
-                  <span className="text-[11px] font-semibold text-gray-500 uppercase">Agentlar ro'yxati:</span>
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                <div className="border-t border-line pt-3">
+                  <span className="text-xs font-medium text-fg-muted">{t('references.agencies.agentsList')}</span>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     {agency.agents?.length > 0 ? (
                       agency.agents.map((agt: any) => (
-                        <span key={agt.id} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-800">
+                        <Badge key={agt.id}>
                           {agt.name}
-                          {agt.phone && <span className="text-gray-400 ml-1 text-[10px]">({agt.phone})</span>}
-                        </span>
+                          {agt.phone && <span className="tabular-nums text-fg-muted">({agt.phone})</span>}
+                        </Badge>
                       ))
                     ) : (
-                      <span className="text-xs text-gray-400 italic">Hali agentlar kiritilmagan</span>
+                      <span className="text-xs text-fg-muted">{t('references.agencies.noAgents')}</span>
                     )}
                   </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         </div>
       )}
 
-      {/* TAB 5: Buyers */}
+      {/* 5-TAB: Xaridorlar */}
       {activeTab === 'BUYERS' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-gray-500">Texnika sotib oluvchi ulgurji va chakana mijozlar</p>
-            <button
-              onClick={() => setShowAddBuyer(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Yangi xaridor qo'shish
-            </button>
-          </div>
+          <SectionBar
+            hint={t('references.buyers.hint')}
+            action={
+              <Button leftIcon={plusIcon} onClick={() => setShowAddBuyer(true)}>
+                {t('references.buyers.add')}
+              </Button>
+            }
+          />
 
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase">
-                <tr>
-                  <th className="py-3 px-4">Xaridor F.I.O. / Nomi</th>
-                  <th className="py-3 px-4">Telefon</th>
-                  <th className="py-3 px-4 text-center">Mijoz turi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <TableContainer>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('references.buyers.col.name')}</Th>
+                  <Th>{t('common.phone')}</Th>
+                  <Th align="center">{t('references.buyers.col.type')}</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {buyers.length === 0 && <TableEmpty colSpan={3} title={t('references.buyers.empty')} />}
                 {buyers.map((b) => (
-                  <tr key={b.id} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 font-semibold text-gray-900">{b.name}</td>
-                    <td className="py-3 px-4 text-gray-600">{b.phone || '-'}</td>
-                    <td className="py-3 px-4 text-center">
-                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                        b.isWholesale ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-100 text-gray-700'
-                      }`}>
-                        {b.isWholesale ? 'Ulgurji (Опт)' : 'Chakana'}
-                      </span>
-                    </td>
-                  </tr>
+                  <Tr key={b.id}>
+                    <Td className="font-semibold text-fg">{b.name}</Td>
+                    <Td numeric className="text-fg-secondary">{b.phone || '-'}</Td>
+                    <Td align="center">
+                      <Badge tone={b.isWholesale ? 'brand' : 'neutral'}>
+                        {b.isWholesale ? t('references.buyers.wholesale') : t('references.buyers.retail')}
+                      </Badge>
+                    </Td>
+                  </Tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </Tbody>
+            </Table>
+          </TableContainer>
         </div>
       )}
 
-      {/* TAB 6: Settings */}
+      {/* 6-TAB: Tizim parametrlari */}
       {activeTab === 'SETTINGS' && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-500">Tizim bo'yicha global sozlamalar va koeffitsiyentlar</p>
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase">
-                <tr>
-                  <th className="py-3 px-4">Kalit (Key)</th>
-                  <th className="py-3 px-4">Qiymat</th>
-                  <th className="py-3 px-4">Tavsif</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
+          <SectionBar hint={t('references.settings.hint')} />
+          <TableContainer>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('references.settings.col.key')}</Th>
+                  <Th>{t('references.settings.col.value')}</Th>
+                  <Th>{t('common.description')}</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {settings.length === 0 && <TableEmpty colSpan={3} title={t('references.settings.empty')} />}
                 {settings.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 font-mono font-semibold text-gray-800">{s.key}</td>
-                    <td className="py-3 px-4 font-bold text-indigo-700">{s.value}</td>
-                    <td className="py-3 px-4 text-gray-600">{s.description || '-'}</td>
-                  </tr>
+                  <Tr key={s.id}>
+                    <Td className="font-mono text-xs font-semibold text-fg">{s.key}</Td>
+                    <Td numeric className="font-semibold text-accent">{s.value}</Td>
+                    <Td className="text-fg-secondary">{s.description || '-'}</Td>
+                  </Tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </Tbody>
+            </Table>
+          </TableContainer>
         </div>
       )}
 
-      {/* MODAL: Rule */}
-      {showAddRuleModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-3 border-b border-gray-100">
-              <h3 className="font-bold text-gray-900 text-base">
-                {editingRule ? 'Qoidani Tahrirlash' : 'Yangi Komissiya Qoidasi'}
-              </h3>
-              <button onClick={() => setShowAddRuleModal(false)} className="text-gray-400 font-bold">&times;</button>
-            </div>
-            <form onSubmit={handleSaveRule} className="mt-4 space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Qoida nomi</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Masalan: Alif Online stavkasi"
-                  value={ruleForm.name}
-                  onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+      {/* MODAL: Qoida */}
+      <Modal
+        open={showAddRuleModal}
+        onClose={() => setShowAddRuleModal(false)}
+        title={editingRule ? t('references.rules.modal.editTitle') : t('references.rules.modal.addTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowAddRuleModal(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" form="ref-rule-form">{t('common.save')}</Button>
+          </>
+        }
+      >
+        <form id="ref-rule-form" onSubmit={handleSaveRule} className="space-y-4">
+          <Field label={t('references.rules.col.name')} required htmlFor="ref-rule-name">
+            <Input
+              id="ref-rule-name"
+              type="text"
+              required
+              placeholder={t('references.rules.field.name_placeholder')}
+              value={ruleForm.name}
+              onChange={(e) => setRuleForm({ ...ruleForm, name: e.target.value })}
+            />
+          </Field>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Hamkor Do'kon (ixtiyoriy)</label>
-                <select
-                  value={ruleForm.storeId}
-                  onChange={(e) => setRuleForm({ ...ruleForm, storeId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                >
-                  <option value="">-- Barcha do'konlar uchun --</option>
-                  {stores.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
+          <Field label={t('references.rules.field.store')} htmlFor="ref-rule-store">
+            <Select
+              id="ref-rule-store"
+              value={ruleForm.storeId}
+              onChange={(e) => setRuleForm({ ...ruleForm, storeId: e.target.value })}
+            >
+              <option value="">{t('references.rules.field.allStores')}</option>
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </Select>
+          </Field>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Bank / Provayder (ixtiyoriy)</label>
-                <select
-                  value={ruleForm.providerId}
-                  onChange={(e) => setRuleForm({ ...ruleForm, providerId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                >
-                  <option value="">-- Barcha banklar uchun --</option>
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
+          <Field label={t('references.rules.field.provider')} htmlFor="ref-rule-provider">
+            <Select
+              id="ref-rule-provider"
+              value={ruleForm.providerId}
+              onChange={(e) => setRuleForm({ ...ruleForm, providerId: e.target.value })}
+            >
+              <option value="">{t('references.rules.field.allProviders')}</option>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+          </Field>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Agent foizi X (0.22 = 22%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    onFocus={(e) => e.target.select()}
-                    value={ruleForm.ratePercent}
-                    onChange={(e) => setRuleForm({ ...ruleForm, ratePercent: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Ustuvorlik (Priority)</label>
-                  <input
-                    type="number"
-                    required
-                    onFocus={(e) => e.target.select()}
-                    value={ruleForm.priority}
-                    onChange={(e) => setRuleForm({ ...ruleForm, priority: parseInt(e.target.value) || 1 })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddRuleModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm"
-                >
-                  Saqlash
-                </button>
-              </div>
-            </form>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field
+              label={t('references.rules.field.rate')}
+              hint={t('references.rules.field.rate_hint')}
+              required
+              htmlFor="ref-rule-rate"
+            >
+              <Input
+                id="ref-rule-rate"
+                type="number"
+                step="0.01"
+                required
+                className="tabular-nums"
+                onFocus={(e) => e.target.select()}
+                value={ruleForm.ratePercent}
+                onChange={(e) => setRuleForm({ ...ruleForm, ratePercent: parseFloat(e.target.value) || 0 })}
+              />
+            </Field>
+            <Field label={t('references.rules.col.priority')} required htmlFor="ref-rule-priority">
+              <Input
+                id="ref-rule-priority"
+                type="number"
+                required
+                className="tabular-nums"
+                onFocus={(e) => e.target.select()}
+                value={ruleForm.priority}
+                onChange={(e) => setRuleForm({ ...ruleForm, priority: parseInt(e.target.value) || 1 })}
+              />
+            </Field>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
 
-      {/* MODAL: Store */}
-      {showAddStore && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
-            <h3 className="font-bold text-gray-900 text-base pb-3 border-b border-gray-100">Yangi Do'kon Qo'shish</h3>
-            <form onSubmit={handleSaveStore} className="mt-4 space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Do'kon nomi</label>
-                <input
-                  type="text"
-                  required
-                  value={storeForm.name}
-                  onChange={(e) => setStoreForm({ ...storeForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Telefon raqam</label>
-                <input
-                  type="text"
-                  value={storeForm.contactPhone}
-                  onChange={(e) => setStoreForm({ ...storeForm, contactPhone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Manzil</label>
-                <input
-                  type="text"
-                  value={storeForm.address}
-                  onChange={(e) => setStoreForm({ ...storeForm, address: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-3">
-                <button type="button" onClick={() => setShowAddStore(false)} className="px-4 py-2 border rounded-lg text-xs">Bekor qilish</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold">Qo'shish</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* MODAL: Do'kon */}
+      <Modal
+        open={showAddStore}
+        onClose={() => setShowAddStore(false)}
+        title={t('references.stores.modal.title')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowAddStore(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" form="ref-store-form">{t('common.add')}</Button>
+          </>
+        }
+      >
+        <form id="ref-store-form" onSubmit={handleSaveStore} className="space-y-4">
+          <Field label={t('references.stores.col.name')} required htmlFor="ref-store-name">
+            <Input
+              id="ref-store-name"
+              type="text"
+              required
+              value={storeForm.name}
+              onChange={(e) => setStoreForm({ ...storeForm, name: e.target.value })}
+            />
+          </Field>
+          <Field label={t('references.stores.field.phone')} htmlFor="ref-store-phone">
+            <Input
+              id="ref-store-phone"
+              type="text"
+              value={storeForm.contactPhone}
+              onChange={(e) => setStoreForm({ ...storeForm, contactPhone: e.target.value })}
+            />
+          </Field>
+          <Field label={t('common.address')} htmlFor="ref-store-address">
+            <Input
+              id="ref-store-address"
+              type="text"
+              value={storeForm.address}
+              onChange={(e) => setStoreForm({ ...storeForm, address: e.target.value })}
+            />
+          </Field>
+        </form>
+      </Modal>
 
-      {/* MODAL: Provider */}
-      {showAddProvider && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
-            <h3 className="font-bold text-gray-900 text-base pb-3 border-b border-gray-100">Yangi Bank / Provayder Qo'shish</h3>
-            <form onSubmit={handleSaveProvider} className="mt-4 space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Bank yoki Ilova nomi</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Masalan: Anor Bank"
-                  value={providerForm.name}
-                  onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Standart diskont foizi (0.25 = 25%)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  onFocus={(e) => e.target.select()}
-                  value={providerForm.defaultDiscount}
-                  onChange={(e) => setProviderForm({ ...providerForm, defaultDiscount: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="daftarCheck"
-                  checked={providerForm.isDaftarDefault}
-                  onChange={(e) => setProviderForm({ ...providerForm, isDaftarDefault: e.target.checked })}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <label htmlFor="daftarCheck" className="text-xs font-medium text-gray-700">Daftar hisobiga kiradimi?</label>
-              </div>
-              <div className="flex justify-end gap-2 pt-3">
-                <button type="button" onClick={() => setShowAddProvider(false)} className="px-4 py-2 border rounded-lg text-xs">Bekor qilish</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold">Qo'shish</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* MODAL: Provayder */}
+      <Modal
+        open={showAddProvider}
+        onClose={() => setShowAddProvider(false)}
+        title={t('references.providers.modal.title')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowAddProvider(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" form="ref-provider-form">{t('common.add')}</Button>
+          </>
+        }
+      >
+        <form id="ref-provider-form" onSubmit={handleSaveProvider} className="space-y-4">
+          <Field label={t('references.providers.field.name')} required htmlFor="ref-provider-name">
+            <Input
+              id="ref-provider-name"
+              type="text"
+              required
+              placeholder={t('references.providers.field.name_placeholder')}
+              value={providerForm.name}
+              onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
+            />
+          </Field>
+          <Field
+            label={t('references.providers.field.discount')}
+            hint={t('references.providers.field.discount_hint')}
+            required
+            htmlFor="ref-provider-discount"
+          >
+            <Input
+              id="ref-provider-discount"
+              type="number"
+              step="0.01"
+              required
+              className="tabular-nums"
+              onFocus={(e) => e.target.select()}
+              value={providerForm.defaultDiscount}
+              onChange={(e) => setProviderForm({ ...providerForm, defaultDiscount: parseFloat(e.target.value) || 0 })}
+            />
+          </Field>
+          <label htmlFor="daftarCheck" className="flex min-h-touch cursor-pointer items-center gap-2 text-sm text-fg-secondary">
+            <input
+              type="checkbox"
+              id="daftarCheck"
+              checked={providerForm.isDaftarDefault}
+              onChange={(e) => setProviderForm({ ...providerForm, isDaftarDefault: e.target.checked })}
+              className={checkboxClass}
+            />
+            {t('references.providers.field.daftar')}
+          </label>
+        </form>
+      </Modal>
 
-      {/* MODAL: Agency */}
-      {showAddAgency && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
-            <h3 className="font-bold text-gray-900 text-base pb-3 border-b border-gray-100">Yangi Agentlik Qo'shish</h3>
-            <form onSubmit={handleSaveAgency} className="mt-4 space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Agentlik nomi</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Masalan: Asadbek team"
-                  value={agencyForm.name}
-                  onChange={(e) => setAgencyForm({ ...agencyForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Telefon</label>
-                <input
-                  type="text"
-                  value={agencyForm.phone}
-                  onChange={(e) => setAgencyForm({ ...agencyForm, phone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-3">
-                <button type="button" onClick={() => setShowAddAgency(false)} className="px-4 py-2 border rounded-lg text-xs">Bekor qilish</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold">Qo'shish</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* MODAL: Agentlik */}
+      <Modal
+        open={showAddAgency}
+        onClose={() => setShowAddAgency(false)}
+        title={t('references.agencies.modal.title')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowAddAgency(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" form="ref-agency-form">{t('common.add')}</Button>
+          </>
+        }
+      >
+        <form id="ref-agency-form" onSubmit={handleSaveAgency} className="space-y-4">
+          <Field label={t('references.agencies.field.name')} required htmlFor="ref-agency-name">
+            <Input
+              id="ref-agency-name"
+              type="text"
+              required
+              placeholder={t('references.agencies.field.name_placeholder')}
+              value={agencyForm.name}
+              onChange={(e) => setAgencyForm({ ...agencyForm, name: e.target.value })}
+            />
+          </Field>
+          <Field label={t('common.phone')} htmlFor="ref-agency-phone">
+            <Input
+              id="ref-agency-phone"
+              type="text"
+              value={agencyForm.phone}
+              onChange={(e) => setAgencyForm({ ...agencyForm, phone: e.target.value })}
+            />
+          </Field>
+        </form>
+      </Modal>
 
-      {/* MODAL: Agent */}
+      {/* MODAL: Agent (agentlik id'si tanlangan bo'lsagina ochiladi) */}
       {showAddAgent && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
-            <h3 className="font-bold text-gray-900 text-base pb-3 border-b border-gray-100">Agent Qo'shish</h3>
-            <form onSubmit={(e) => handleSaveAgent(showAddAgent, e)} className="mt-4 space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Agent ismi</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Masalan: Sardor"
-                  value={agentForm.name}
-                  onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Telefon</label>
-                <input
-                  type="text"
-                  value={agentForm.phone}
-                  onChange={(e) => setAgentForm({ ...agentForm, phone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-3">
-                <button type="button" onClick={() => setShowAddAgent(null)} className="px-4 py-2 border rounded-lg text-xs">Bekor qilish</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold">Qo'shish</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <Modal
+          open
+          onClose={() => setShowAddAgent(null)}
+          title={t('references.agents.modal.title')}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowAddAgent(null)}>{t('common.cancel')}</Button>
+              <Button type="submit" form="ref-agent-form">{t('common.add')}</Button>
+            </>
+          }
+        >
+          <form id="ref-agent-form" onSubmit={(e) => handleSaveAgent(showAddAgent, e)} className="space-y-4">
+            <Field label={t('references.agents.field.name')} required htmlFor="ref-agent-name">
+              <Input
+                id="ref-agent-name"
+                type="text"
+                required
+                placeholder={t('references.agents.field.name_placeholder')}
+                value={agentForm.name}
+                onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })}
+              />
+            </Field>
+            <Field label={t('common.phone')} htmlFor="ref-agent-phone">
+              <Input
+                id="ref-agent-phone"
+                type="text"
+                value={agentForm.phone}
+                onChange={(e) => setAgentForm({ ...agentForm, phone: e.target.value })}
+              />
+            </Field>
+          </form>
+        </Modal>
       )}
 
-      {/* MODAL: Buyer */}
-      {showAddBuyer && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
-            <h3 className="font-bold text-gray-900 text-base pb-3 border-b border-gray-100">Yangi Xaridor Qo'shish</h3>
-            <form onSubmit={handleSaveBuyer} className="mt-4 space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Xaridor nomi / F.I.O.</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Masalan: Malika Optom"
-                  value={buyerForm.name}
-                  onChange={(e) => setBuyerForm({ ...buyerForm, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Telefon</label>
-                <input
-                  type="text"
-                  value={buyerForm.phone}
-                  onChange={(e) => setBuyerForm({ ...buyerForm, phone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="optCheck"
-                  checked={buyerForm.isWholesale}
-                  onChange={(e) => setBuyerForm({ ...buyerForm, isWholesale: e.target.checked })}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <label htmlFor="optCheck" className="text-xs font-medium text-gray-700">Ulgurji xaridormi (Optom)?</label>
-              </div>
-              <div className="flex justify-end gap-2 pt-3">
-                <button type="button" onClick={() => setShowAddBuyer(false)} className="px-4 py-2 border rounded-lg text-xs">Bekor qilish</button>
-                <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold">Qo'shish</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* MODAL: Xaridor */}
+      <Modal
+        open={showAddBuyer}
+        onClose={() => setShowAddBuyer(false)}
+        title={t('references.buyers.modal.title')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowAddBuyer(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" form="ref-buyer-form">{t('common.add')}</Button>
+          </>
+        }
+      >
+        <form id="ref-buyer-form" onSubmit={handleSaveBuyer} className="space-y-4">
+          <Field label={t('references.buyers.col.name')} required htmlFor="ref-buyer-name">
+            <Input
+              id="ref-buyer-name"
+              type="text"
+              required
+              placeholder={t('references.buyers.field.name_placeholder')}
+              value={buyerForm.name}
+              onChange={(e) => setBuyerForm({ ...buyerForm, name: e.target.value })}
+            />
+          </Field>
+          <Field label={t('common.phone')} htmlFor="ref-buyer-phone">
+            <Input
+              id="ref-buyer-phone"
+              type="text"
+              value={buyerForm.phone}
+              onChange={(e) => setBuyerForm({ ...buyerForm, phone: e.target.value })}
+            />
+          </Field>
+          <label htmlFor="optCheck" className="flex min-h-touch cursor-pointer items-center gap-2 text-sm text-fg-secondary">
+            <input
+              type="checkbox"
+              id="optCheck"
+              checked={buyerForm.isWholesale}
+              onChange={(e) => setBuyerForm({ ...buyerForm, isWholesale: e.target.checked })}
+              className={checkboxClass}
+            />
+            {t('references.buyers.field.wholesale')}
+          </label>
+        </form>
+      </Modal>
     </div>
   );
 };

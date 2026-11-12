@@ -8,42 +8,57 @@ interface ThemeContextType {
   toggleTheme: () => void;
 }
 
+const STORAGE_KEY = 'finmodel_theme';
+
 const ThemeContext = createContext<ThemeContextType>({
   theme: 'dark',
   setTheme: () => {},
   toggleTheme: () => {},
 });
 
+// Mavzuni <html> va <body> ga qo'llaydi. Ranglar index.css dagi :root / .dark tokenlaridan keladi.
+function applyTheme(theme: Theme) {
+  const root = document.documentElement;
+  const other: Theme = theme === 'dark' ? 'light' : 'dark';
+  root.classList.add(theme);
+  root.classList.remove(other);
+  document.body.classList.add(theme);
+  document.body.classList.remove(other);
+
+  // Mobil brauzer / PWA yuqori paneli rangi ham mavzuga mos bo'lsin
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0d1218' : '#f3f5f7');
+}
+
+function readSavedTheme(): Theme {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch {
+    // localStorage yopiq bo'lishi mumkin — standart qiymatga qaytamiz
+  }
+  return 'dark'; // Standart rejim — dark
+}
+
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<Theme>(() => {
-    const saved = localStorage.getItem('finmodel_theme') as Theme;
-    if (saved === 'light' || saved === 'dark') return saved;
-    return 'dark'; // Default to dark 3D
+    const initial = readSavedTheme();
+    // Birinchi chizishdan oldin qo'llaymiz — rejim "miltillab" almashmasin
+    if (typeof document !== 'undefined') applyTheme(initial);
+    return initial;
   });
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-      root.classList.remove('light');
-      document.body.classList.add('dark');
-      document.body.classList.remove('light');
-    } else {
-      root.classList.remove('dark');
-      root.classList.add('light');
-      document.body.classList.remove('dark');
-      document.body.classList.add('light');
+    applyTheme(theme);
+    try {
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      // e'tiborsiz
     }
-    localStorage.setItem('finmodel_theme', theme);
   }, [theme]);
 
-  const setTheme = (newTheme: Theme) => {
-    setThemeState(newTheme);
-  };
-
-  const toggleTheme = () => {
-    setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  };
+  const setTheme = (newTheme: Theme) => setThemeState(newTheme);
+  const toggleTheme = () => setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>

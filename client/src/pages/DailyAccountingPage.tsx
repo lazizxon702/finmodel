@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { CalendarCheck, AlertTriangle, CheckCircle, Save } from 'lucide-react';
-import { formatMoney, formatPercent } from '../utils/format';
+import { CalendarCheck, AlertTriangle, CheckCircle, ShoppingBag, ArrowDownLeft, TrendingUp } from 'lucide-react';
+import { formatMoney } from '../utils/format';
+import { useTranslation } from '../context/LanguageContext';
+import { Card, CardHeader, LoadingBlock, PageHeader, StatCard, cn, controlClass } from '../components/ui';
 
 export const DailyAccountingPage: React.FC = () => {
+  const { t } = useTranslation();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [yearMonth, setYearMonth] = useState('2026-11');
@@ -36,126 +39,123 @@ export const DailyAccountingPage: React.FC = () => {
       setActiveCell(null);
       fetchDailyData();
     } catch (err: any) {
-      alert('Xatolik: ' + err.message);
+      alert(err.response?.data?.error || t('common.save_error'));
     }
   };
 
   if (loading) {
-    return <div className="p-8 text-center text-xs text-slate-500">Kunlik hisob yuklanmoqda...</div>;
+    return (
+      <Card>
+        <LoadingBlock label={t('daily.loading')} />
+      </Card>
+    );
   }
 
   const summary = data?.summary;
+  // Server holatni matn ko'rinishida qaytaradi — shu matn bo'yicha kamomadni aniqlaymiz
   const isDeficit = summary?.overallLiquidityStatus?.includes('дефицита') || summary?.overallLiquidityStatus?.includes('UZILISHI');
+  const dayList: any[] = data?.days || [];
+  const colCount = dayList.length + 2;
+
+  // Jadval katakchalari uchun umumiy klasslar
+  const stickyFirst = 'sticky left-0 z-10 border-r border-line';
+  const labelCell = cn(stickyFirst, 'border-b border-line bg-surface px-3 py-2 text-left');
+  const totalCell = 'border-b border-line bg-surface-2 px-3 py-2 text-right font-semibold';
+  const dayCell = 'border-b border-line px-2 py-2 text-right';
+
+  const sectionRow = (label: string) => (
+    <tr>
+      <td colSpan={colCount} className="border-b border-line bg-surface-2 p-0">
+        <div className="sticky left-0 inline-block px-3 py-2 text-xs font-semibold text-fg-secondary">{label}</div>
+      </td>
+    </tr>
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base sm:text-lg font-bold text-slate-800">
-            Kunlik moliyaviy hisob va pul oqimi (Ежедневный_Учет)
-          </h1>
-          <p className="text-xs text-slate-500">
-            31 kunlik operatsion ko'rsatkichlar, xaridlar, tushum, OPEX va kassa uzilishi monitoringi
-          </p>
-        </div>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        icon={<CalendarCheck />}
+        title={t('daily.title')}
+        description={t('daily.subtitle')}
+        actions={
+          <input
+            type="month"
+            aria-label={t('common.month')}
+            value={yearMonth}
+            onChange={(e) => setYearMonth(e.target.value)}
+            className={cn(controlClass, 'w-auto tabular-nums')}
+          />
+        }
+      />
 
-        <input
-          type="month"
-          value={yearMonth}
-          onChange={(e) => setYearMonth(e.target.value)}
-          className="px-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none self-start sm:self-auto"
+      {/* Oylik yakunlar */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+        <StatCard
+          title={t('daily.devices_bought')}
+          value={t('daily.deals_count', { count: summary?.totalDevicesBought ?? 0 })}
+          icon={<ShoppingBag />}
+        />
+        <StatCard title={t('daily.revenue')} value={formatMoney(summary?.totalRevenue)} icon={<ArrowDownLeft />} tone="success" />
+        <StatCard title={t('daily.net_profit_ebitda')} value={formatMoney(summary?.netProfit)} icon={<TrendingUp />} tone="brand" />
+        <StatCard
+          title={t('daily.liquidity')}
+          value={isDeficit ? t('daily.liq_risk') : t('daily.liq_ok')}
+          hint={t('daily.ending_cash', { amount: formatMoney(summary?.endingCash) })}
+          icon={isDeficit ? <AlertTriangle /> : <CheckCircle />}
+          tone={isDeficit ? 'danger' : 'success'}
+          className={isDeficit ? 'border-danger/40 bg-danger-soft' : undefined}
         />
       </div>
 
-      {/* Top Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Jami xarid qilingan qurilmalar</p>
-          <h3 className="text-xl font-bold text-slate-900 mt-2">{summary?.totalDevicesBought} ta bitim</h3>
+      {/* Kunlar bo'yicha hisob matritsasi */}
+      <Card padding="none" className="overflow-hidden">
+        <CardHeader bordered title={t('daily.matrix_title')} description={t('daily.matrix_hint')} />
+        <div className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2 text-xs text-fg-muted lg:hidden">
+          <span>{t('daily.swipe_hint')}</span>
+          <span className="font-semibold tabular-nums text-fg-secondary">{t('daily.days_count', { count: dayList.length })}</span>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Sotuv tushumi (Revenue)</p>
-          <h3 className="text-xl font-bold text-emerald-600 mt-2">{formatMoney(summary?.totalRevenue)}</h3>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Sof foyda (P&L EBITDA)</p>
-          <h3 className="text-xl font-bold text-blue-700 mt-2">{formatMoney(summary?.netProfit)}</h3>
-        </div>
-
-        <div className={`p-5 rounded-2xl border shadow-sm ${
-          isDeficit ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900'
-        }`}>
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase">Likvidlik holati</p>
-            {isDeficit ? <AlertTriangle className="w-4 h-4 text-rose-600" /> : <CheckCircle className="w-4 h-4 text-emerald-600" />}
-          </div>
-          <h3 className="text-lg font-extrabold mt-2">{summary?.overallLiquidityStatus}</h3>
-          <p className="text-[11px] opacity-75 mt-0.5">Kun oxiri kassa: {formatMoney(summary?.endingCash)}</p>
-        </div>
-      </div>
-
-      {/* Main 31-day accounting table */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-800 dark:text-white">
-            31 kunlik operatsion hisob matritsasi
-          </h3>
-          <span className="text-xs text-slate-400 hidden sm:inline">
-            Katakka bosib qiymatni o'zgartirishingiz mumkin
-          </span>
-        </div>
-        <div className="lg:hidden px-3.5 py-2 bg-slate-100 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-          <span className="flex items-center gap-1 font-medium">👉 Jadvalni ko'rish uchun o'ngga suring</span>
-          <span className="font-bold text-cyan-600 dark:text-cyan-400">31 kun</span>
-        </div>
-        <div className="table-scroll-container custom-scrollbar">
-          <table className="w-full text-xs text-left">
-            <thead className="table-sticky-head bg-slate-900 text-white font-semibold shadow-md">
+        <div className="table-scroll-container">
+          <table className="w-full text-left text-xs tabular-nums text-fg">
+            <thead className="table-sticky-head">
               <tr>
-                <th className="px-3 py-3 sticky top-0 left-0 bg-slate-900 z-30 min-w-[200px] shadow-sm">
-                  Modda / Provayder
+                <th className={cn(stickyFirst, 'z-30 min-w-[200px] border-b border-line bg-surface-2 px-3 py-2.5 font-semibold text-fg-secondary')}>
+                  {t('daily.col_item')}
                 </th>
-                <th className="px-3 py-3 text-right min-w-[100px] bg-slate-800 sticky top-0 z-20">OYLIK JAMI</th>
-                {data?.days?.map((d: any) => (
-                  <th key={d.dayNumber} className="px-2 py-3 text-center min-w-[65px] bg-slate-900 sticky top-0 z-20 whitespace-nowrap">
-                    Kun {d.dayNumber}
+                <th className="min-w-[110px] border-b border-line bg-surface-2 px-3 py-2.5 text-right font-semibold text-fg-secondary">
+                  {t('daily.col_month_total')}
+                </th>
+                {dayList.map((d: any) => (
+                  <th key={d.dayNumber} className="min-w-[70px] whitespace-nowrap border-b border-line bg-surface-2 px-2 py-2.5 text-center font-semibold text-fg-secondary">
+                    {t('daily.day_n', { n: d.dayNumber })}
                   </th>
                 ))}
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-100">
-              {/* Provider Counts Rows */}
-              <tr className="bg-slate-50 font-bold text-slate-800 text-[11px]">
-                <td className="px-3 py-2 sticky left-0 bg-slate-50" colSpan={33}>
-                  1. OPERATSION KO'RSATKICHLAR: PROVAYDERLAR KESIMIDA SOTIB OLINGAN (DONA)
-                </td>
-              </tr>
+            <tbody>
+              {/* 1. Provayderlar kesimida sotib olingan dona */}
+              {sectionRow(t('daily.section_ops'))}
               {data?.providers?.map((p: any) => {
-                const monthTotal = data?.days?.reduce((s: number, d: any) => s + (d.providerCounts[p.code] || 0), 0);
+                const monthTotal = dayList.reduce((s: number, d: any) => s + (d.providerCounts[p.code] || 0), 0);
                 return (
-                  <tr key={p.code} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-2 sticky left-0 bg-white font-medium text-slate-700">
-                      {p.name}
-                    </td>
-                    <td className="px-3 py-2 text-right font-bold text-blue-700 bg-slate-50">
-                      {monthTotal} ta
-                    </td>
-                    {data?.days?.map((d: any) => {
+                  <tr key={p.code}>
+                    <td className={cn(labelCell, 'font-medium text-fg-secondary')}>{p.name}</td>
+                    <td className={totalCell}>{t('common.items_count', { count: monthTotal })}</td>
+                    {dayList.map((d: any) => {
                       const count = d.providerCounts[p.code] || 0;
                       const isEditing = activeCell?.day === d.dayNumber && activeCell?.code === p.code;
                       return (
                         <td
                           key={d.dayNumber}
                           onClick={() => setActiveCell({ day: d.dayNumber, code: p.code, count })}
-                          className="px-2 py-2 text-center cursor-pointer hover:bg-emerald-50 transition-colors"
+                          className="cursor-pointer border-b border-line px-2 py-2 text-center transition-colors hover:bg-brand-soft"
                         >
                           {isEditing ? (
                             <input
                               type="number"
                               autoFocus
+                              aria-label={t('daily.cell_label', { provider: p.name, day: d.dayNumber })}
                               onFocus={(e) => e.target.select()}
                               defaultValue={count}
                               onBlur={(e) => handleCellSave(d.dayNumber, p.code, Number(e.target.value))}
@@ -164,12 +164,10 @@ export const DailyAccountingPage: React.FC = () => {
                                   handleCellSave(d.dayNumber, p.code, Number((e.target as any).value));
                                 }
                               }}
-                              className="w-12 text-center border border-emerald-500 rounded text-xs"
+                              className="w-12 rounded border border-accent bg-surface text-center text-xs text-fg outline-none"
                             />
                           ) : (
-                            <span className={count > 0 ? 'font-bold text-slate-900' : 'text-slate-300'}>
-                              {count}
-                            </span>
+                            <span className={count > 0 ? 'font-semibold text-fg' : 'text-fg-muted/60'}>{count}</span>
                           )}
                         </td>
                       );
@@ -178,124 +176,97 @@ export const DailyAccountingPage: React.FC = () => {
                 );
               })}
 
-              {/* Total devices bought */}
-              <tr className="bg-blue-50 font-bold text-blue-900 border-t">
-                <td className="px-3 py-2 sticky left-0 bg-blue-50">JAMI SOTIB OLINGAN (BITIM):</td>
-                <td className="px-3 py-2 text-right">{summary?.totalDevicesBought} ta</td>
-                {data?.days?.map((d: any) => (
-                  <td key={d.dayNumber} className="px-2 py-2 text-center font-extrabold">
+              <tr className="font-semibold">
+                <td className={cn(labelCell, 'bg-surface-2')}>{t('daily.total_bought')}</td>
+                <td className={totalCell}>{t('common.items_count', { count: summary?.totalDevicesBought ?? 0 })}</td>
+                {dayList.map((d: any) => (
+                  <td key={d.dayNumber} className="border-b border-line bg-surface-2 px-2 py-2 text-center">
                     {d.dayTotalCount}
                   </td>
                 ))}
               </tr>
 
-              {/* Revenue & Direct Costs */}
-              <tr className="bg-slate-50 font-bold text-slate-800 text-[11px]">
-                <td className="px-3 py-2 sticky left-0 bg-slate-50" colSpan={33}>
-                  2. SAVDO TUSHUMI VA TANNARX (UZS)
-                </td>
-              </tr>
+              {/* 2. Tushum va tannarx */}
+              {sectionRow(t('daily.section_revenue'))}
               <tr>
-                <td className="px-3 py-2 sticky left-0 bg-white">Jami tushum (Revenue)</td>
-                <td className="px-3 py-2 text-right font-bold text-emerald-700 bg-slate-50">
-                  {formatMoney(summary?.totalRevenue)}
-                </td>
-                {data?.days?.map((d: any) => (
-                  <td key={d.dayNumber} className="px-2 py-2 text-right text-emerald-700">
+                <td className={labelCell}>{t('daily.row_revenue')}</td>
+                <td className={cn(totalCell, 'text-success')}>{formatMoney(summary?.totalRevenue)}</td>
+                {dayList.map((d: any) => (
+                  <td key={d.dayNumber} className={cn(dayCell, 'text-success')}>
                     {d.totalRevenue > 0 ? formatMoney(d.totalRevenue, '') : '-'}
                   </td>
                 ))}
               </tr>
               <tr>
-                <td className="px-3 py-2 sticky left-0 bg-white">Xarid xarajati (Mijozga)</td>
-                <td className="px-3 py-2 text-right font-semibold text-slate-700 bg-slate-50">
-                  {formatMoney(summary?.purchaseCost)}
-                </td>
-                {data?.days?.map((d: any) => (
-                  <td key={d.dayNumber} className="px-2 py-2 text-right text-slate-600">
+                <td className={labelCell}>{t('daily.row_purchase')}</td>
+                <td className={totalCell}>{formatMoney(summary?.purchaseCost)}</td>
+                {dayList.map((d: any) => (
+                  <td key={d.dayNumber} className={cn(dayCell, 'text-fg-secondary')}>
                     {d.purchaseCost > 0 ? formatMoney(d.purchaseCost, '') : '-'}
                   </td>
                 ))}
               </tr>
-              <tr className="bg-emerald-50/60 font-semibold text-emerald-900">
-                <td className="px-3 py-2 sticky left-0 bg-emerald-50">Yalpi foyda (Gross Profit)</td>
-                <td className="px-3 py-2 text-right font-bold">{formatMoney(summary?.grossProfit)}</td>
-                {data?.days?.map((d: any) => (
-                  <td key={d.dayNumber} className="px-2 py-2 text-right font-bold">
+              <tr className="font-semibold text-success">
+                <td className={cn(labelCell, 'bg-success-soft')}>{t('daily.row_gross')}</td>
+                <td className="border-b border-line bg-success-soft px-3 py-2 text-right">{formatMoney(summary?.grossProfit)}</td>
+                {dayList.map((d: any) => (
+                  <td key={d.dayNumber} className={cn(dayCell, 'bg-success-soft')}>
                     {d.grossProfit > 0 ? formatMoney(d.grossProfit, '') : '-'}
                   </td>
                 ))}
               </tr>
 
-              {/* OPEX & Net Profit */}
-              <tr className="bg-slate-50 font-bold text-slate-800 text-[11px]">
-                <td className="px-3 py-2 sticky left-0 bg-slate-50" colSpan={33}>
-                  3. OPEX VA SOF FOYDA (UZS)
-                </td>
-              </tr>
+              {/* 3. OPEX va sof foyda */}
+              {sectionRow(t('daily.section_opex'))}
               <tr>
-                <td className="px-3 py-2 sticky left-0 bg-white">Jami OPEX (Reklama, FOT, Ijara)</td>
-                <td className="px-3 py-2 text-right font-semibold text-rose-700 bg-slate-50">
-                  {formatMoney(summary?.totalOpex)}
-                </td>
-                {data?.days?.map((d: any) => (
-                  <td key={d.dayNumber} className="px-2 py-2 text-right text-rose-600">
+                <td className={labelCell}>{t('daily.row_opex')}</td>
+                <td className={cn(totalCell, 'text-danger')}>{formatMoney(summary?.totalOpex)}</td>
+                {dayList.map((d: any) => (
+                  <td key={d.dayNumber} className={cn(dayCell, 'text-danger')}>
                     {formatMoney(d.totalOpex, '')}
                   </td>
                 ))}
               </tr>
-              <tr className="bg-indigo-50 font-bold text-indigo-900">
-                <td className="px-3 py-2 sticky left-0 bg-indigo-50">SOF FOYDA (NET PROFIT)</td>
-                <td className="px-3 py-2 text-right font-extrabold">{formatMoney(summary?.netProfit)}</td>
-                {data?.days?.map((d: any) => (
-                  <td key={d.dayNumber} className="px-2 py-2 text-right font-extrabold">
+              <tr className="font-semibold">
+                <td className={cn(labelCell, 'bg-brand-soft')}>{t('daily.row_net')}</td>
+                <td className="border-b border-line bg-brand-soft px-3 py-2 text-right">{formatMoney(summary?.netProfit)}</td>
+                {dayList.map((d: any) => (
+                  <td key={d.dayNumber} className={cn(dayCell, 'bg-brand-soft', d.netProfit < 0 && 'text-danger')}>
                     {formatMoney(d.netProfit, '')}
                   </td>
                 ))}
               </tr>
 
-              {/* Cash Flow & Liquidity */}
-              <tr className="bg-slate-50 font-bold text-slate-800 text-[11px]">
-                <td className="px-3 py-2 sticky left-0 bg-slate-50" colSpan={33}>
-                  4. KASSA HARAKATI VA LIKVIDLIK NAZORATI
-                </td>
-              </tr>
-              <tr className="font-semibold text-slate-800">
-                <td className="px-3 py-2 sticky left-0 bg-white">Kun oxiridagi kassa qoldig'i</td>
-                <td className="px-3 py-2 text-right font-extrabold bg-slate-100">
-                  {formatMoney(summary?.endingCash)}
-                </td>
-                {data?.days?.map((d: any) => (
-                  <td
-                    key={d.dayNumber}
-                    className={`px-2 py-2 text-right font-bold ${
-                      d.dayEndCash < 0 ? 'text-rose-600 bg-rose-50' : 'text-slate-800'
-                    }`}
-                  >
+              {/* 4. Kassa va likvidlik */}
+              {sectionRow(t('daily.section_cash'))}
+              <tr className="font-semibold">
+                <td className={labelCell}>{t('daily.row_day_end_cash')}</td>
+                <td className={totalCell}>{formatMoney(summary?.endingCash)}</td>
+                {dayList.map((d: any) => (
+                  <td key={d.dayNumber} className={cn(dayCell, d.dayEndCash < 0 && 'bg-danger-soft text-danger')}>
                     {formatMoney(d.dayEndCash, '')}
                   </td>
                 ))}
               </tr>
-              <tr className="font-bold text-[10px]">
-                <td className="px-3 py-1.5 sticky left-0 bg-white">Likvidlik holati</td>
-                <td className="px-3 py-1.5 text-right font-extrabold">
-                  {summary?.overallLiquidityStatus}
+              <tr className="text-[11px] font-semibold">
+                <td className={labelCell}>{t('daily.liquidity')}</td>
+                <td className={cn(totalCell, isDeficit ? 'text-danger' : 'text-success')}>
+                  {isDeficit ? t('daily.liq_risk') : t('daily.liq_ok')}
                 </td>
-                {data?.days?.map((d: any) => (
-                  <td
-                    key={d.dayNumber}
-                    className={`px-1 py-1.5 text-center ${
-                      d.liquidityStatus === 'В НОРМЕ' ? 'text-emerald-700' : 'text-rose-600 font-extrabold'
-                    }`}
-                  >
-                    {d.liquidityStatus}
-                  </td>
-                ))}
+                {dayList.map((d: any) => {
+                  // Server kun holatini ruscha matnda qaytaradi; "В НОРМЕ" — me'yorda
+                  const ok = d.liquidityStatus === 'В НОРМЕ';
+                  return (
+                    <td key={d.dayNumber} className={cn('border-b border-line px-1 py-2 text-center', ok ? 'text-success' : 'text-danger')}>
+                      {ok ? t('daily.liq_day_ok') : t('daily.liq_day_gap')}
+                    </td>
+                  );
+                })}
               </tr>
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
     </div>
   );
 };
