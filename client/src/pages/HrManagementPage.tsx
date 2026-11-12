@@ -1,24 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Users, 
-  CalendarCheck, 
-  Wallet, 
-  CheckSquare, 
-  UserPlus, 
-  Clock, 
-  DollarSign, 
-  AlertCircle, 
-  CheckCircle2, 
-  Search, 
-  X, 
-  Plus, 
-  Calendar,
-  Sparkles,
-  ArrowRight
+import {
+  Users,
+  CalendarCheck,
+  Wallet,
+  CheckSquare,
+  UserPlus,
+  DollarSign,
+  CheckCircle2,
+  Plus,
 } from 'lucide-react';
-import { useLanguage } from '../context/LanguageContext';
+import { useTranslation } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { formatNumber, formatDate, todayYmd } from '../utils/format';
+import {
+  Button, Card, Modal, PageHeader, StatCard, Badge, Field, Input, Select, Textarea,
+  TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, EmptyState, LoadingBlock, Tabs, cn,
+} from '../components/ui';
+import type { Tone } from '../components/ui/StatCard';
 
 interface Employee {
   id: string;
@@ -71,24 +70,36 @@ interface Task {
   resultNote?: string;
 }
 
+// Server kodlari (API qiymatlari) — tarjima qilinmaydi, faqat yorliqlari tarjima qilinadi
+const DEPARTMENTS = ['Operatsiyalar', 'Koll-markaz', 'Logistika va Ombor', 'Sotuv', 'Buxgalteriya', 'Boshqaruv'];
+const PRIORITIES = ['YUQORI', 'ORTA', 'PAST'];
+const ATTENDANCE_STATUSES = ['KELDI', 'KECHIKDI', 'SABABLI', 'KELMADI'];
+const TASK_STATUSES = ['YANGI', 'JARAYONDA', 'BAJARILDI'];
+
+const ATTENDANCE_TONE: Record<string, Tone> = { KELDI: 'success', KECHIKDI: 'warning' };
+const PRIORITY_TONE: Record<string, Tone> = { YUQORI: 'danger', ORTA: 'warning', PAST: 'info' };
+
+type HrTab = 'employees' | 'attendance' | 'advances' | 'tasks';
+
 export const HrManagementPage: React.FC = () => {
-  const { t } = useLanguage();
+  const { t } = useTranslation();
   const { user } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'employees' | 'attendance' | 'advances' | 'tasks'>('employees');
+  const [activeTab, setActiveTab] = useState<HrTab>('employees');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendances, setAttendances] = useState<Attendance[]>([]);
   const [advances, setAdvances] = useState<SalaryAdvance[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
-  // Modals state
+  // Oynalar holati
   const [isEmpModalOpen, setIsEmpModalOpen] = useState(false);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isAttendModalOpen, setIsAttendModalOpen] = useState(false);
 
-  // Forms state
+  // Forma holatlari
   const [empForm, setEmpForm] = useState({
     fullName: '',
     phone: '',
@@ -104,7 +115,7 @@ export const HrManagementPage: React.FC = () => {
   const [advanceForm, setAdvanceForm] = useState({
     employeeId: '',
     amount: '',
-    reason: 'Oylik avansi',
+    reason: t('hr.advance.defaultReason'),
     accountType: 'CASH',
     createDdsExpense: true,
   });
@@ -119,7 +130,7 @@ export const HrManagementPage: React.FC = () => {
 
   const [attendForm, setAttendForm] = useState({
     employeeId: '',
-    date: new Date().toISOString().split('T')[0],
+    date: todayYmd(),
     checkInTime: '09:00',
     checkOutTime: '18:00',
     status: 'KELDI',
@@ -130,6 +141,7 @@ export const HrManagementPage: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const [empRes, attRes, advRes, taskRes] = await Promise.all([
         axios.get('/api/hr/employees'),
         axios.get('/api/hr/attendance'),
@@ -140,8 +152,9 @@ export const HrManagementPage: React.FC = () => {
       setAttendances(attRes.data);
       setAdvances(advRes.data);
       setTasks(taskRes.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching HR data:', err);
+      setLoadError(err.response?.data?.error || t('common.load_error'));
     } finally {
       setLoading(false);
     }
@@ -168,8 +181,8 @@ export const HrManagementPage: React.FC = () => {
         schedule: '09:00 - 18:00',
       });
       fetchData();
-    } catch (err) {
-      alert('Xodim saqlashda xatolik');
+    } catch (err: any) {
+      alert(err.response?.data?.error || t('hr.emp.saveError'));
     }
   };
 
@@ -181,13 +194,13 @@ export const HrManagementPage: React.FC = () => {
       setAdvanceForm({
         employeeId: '',
         amount: '',
-        reason: 'Oylik avansi',
+        reason: t('hr.advance.defaultReason'),
         accountType: 'CASH',
         createDdsExpense: true,
       });
       fetchData();
-    } catch (err) {
-      alert('Avans to\'lovida xatolik');
+    } catch (err: any) {
+      alert(err.response?.data?.error || t('hr.advance.error'));
     }
   };
 
@@ -204,8 +217,8 @@ export const HrManagementPage: React.FC = () => {
         dueDate: '',
       });
       fetchData();
-    } catch (err) {
-      alert('Vazifa yaratishda xatolik');
+    } catch (err: any) {
+      alert(err.response?.data?.error || t('hr.task.error'));
     }
   };
 
@@ -215,8 +228,8 @@ export const HrManagementPage: React.FC = () => {
       await axios.post('/api/hr/attendance', attendForm);
       setIsAttendModalOpen(false);
       fetchData();
-    } catch (err) {
-      alert('Davomat yozishda xatolik');
+    } catch (err: any) {
+      alert(err.response?.data?.error || t('hr.attend.error'));
     }
   };
 
@@ -224,768 +237,574 @@ export const HrManagementPage: React.FC = () => {
     try {
       await axios.put(`/api/hr/tasks/${taskId}`, { status: newStatus });
       fetchData();
-    } catch (err) {
-      alert('Vazifa statusini yangilashda xatolik');
+    } catch (err: any) {
+      alert(err.response?.data?.error || t('hr.task.statusError'));
     }
   };
 
-  const formatNumber = (num: number) => {
-    return new Intl.NumberFormat('uz-UZ').format(num);
-  };
+  // Ma'lum kodlar uchun tarjima, noma'lum kod bo'lsa o'zi
+  const labelOf = (prefix: string, codes: string[], code: string): string =>
+    codes.includes(code) ? t(`${prefix}.${code}`) : code;
 
-  // Stats
+  // Statistika
   const totalEmployees = employees.length;
   const totalBaseSalary = employees.reduce((acc, curr) => acc + Number(curr.baseSalary || 0), 0);
   const totalAdvancesPaid = advances.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
-  const pendingTasks = tasks.filter((t) => t.status !== 'BAJARILDI').length;
+  const pendingTasks = tasks.filter((task) => task.status !== 'BAJARILDI').length;
+
+  const headerAction = {
+    employees: (
+      <Button leftIcon={<UserPlus className="h-4 w-4" />} onClick={() => setIsEmpModalOpen(true)}>
+        {t('hr.action.newEmployee')}
+      </Button>
+    ),
+    attendance: (
+      <Button leftIcon={<CalendarCheck className="h-4 w-4" />} onClick={() => setIsAttendModalOpen(true)}>
+        {t('hr.action.markAttendance')}
+      </Button>
+    ),
+    advances: (
+      <Button leftIcon={<DollarSign className="h-4 w-4" />} onClick={() => setIsAdvanceModalOpen(true)}>
+        {t('hr.action.giveAdvance')}
+      </Button>
+    ),
+    tasks: (
+      <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setIsTaskModalOpen(true)}>
+        {t('hr.action.newTask')}
+      </Button>
+    ),
+  }[activeTab];
 
   return (
-    <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white tracking-tight">
-              HR, Davomat, Ish haqi va Vazifalar
-            </h1>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 uppercase">
-              TZ 12.0
-            </span>
-          </div>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Xodimlar tarkibi, tabel, avanslar, oylik maosh va vazifalar (KPI) boshqaruvi
-          </p>
-        </div>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader title={t('hr.title')} description={t('hr.subtitle')} actions={headerAction} />
 
-        {/* Action Buttons based on active tab */}
-        <div className="flex items-center gap-2">
-          {activeTab === 'employees' && (
-            <button
-              onClick={() => setIsEmpModalOpen(true)}
-              className="btn-3d py-2 px-3.5 rounded-xl font-bold text-xs bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 text-white shadow-md shadow-rose-600/30 flex items-center gap-1.5 active:scale-95"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>Yangi Xodim</span>
-            </button>
-          )}
-
-          {activeTab === 'attendance' && (
-            <button
-              onClick={() => setIsAttendModalOpen(true)}
-              className="btn-3d py-2 px-3.5 rounded-xl font-bold text-xs bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white shadow-md shadow-emerald-600/30 flex items-center gap-1.5 active:scale-95"
-            >
-              <CalendarCheck className="w-4 h-4" />
-              <span>Davomat Belgilash</span>
-            </button>
-          )}
-
-          {activeTab === 'advances' && (
-            <button
-              onClick={() => setIsAdvanceModalOpen(true)}
-              className="btn-3d py-2 px-3.5 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 text-white shadow-md shadow-amber-600/30 flex items-center gap-1.5 active:scale-95"
-            >
-              <DollarSign className="w-4 h-4" />
-              <span>Avans Berish</span>
-            </button>
-          )}
-
-          {activeTab === 'tasks' && (
-            <button
-              onClick={() => setIsTaskModalOpen(true)}
-              className="btn-3d py-2 px-3.5 rounded-xl font-bold text-xs bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white shadow-md shadow-indigo-600/30 flex items-center gap-1.5 active:scale-95"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Yangi Vazifa</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">Jami Xodimlar</p>
-          <p className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white mt-1">{totalEmployees} nafar</p>
-          <span className="text-[10px] text-emerald-600 font-semibold">Faol shtat</span>
-        </div>
-
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">Oylik FOT (Reja)</p>
-          <p className="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400 mt-1 truncate">
-            {formatNumber(totalBaseSalary)} <span className="text-xs font-normal">UZS</span>
-          </p>
-          <span className="text-[10px] text-slate-500 font-semibold">Baza maoshlar jamg'armasi</span>
-        </div>
-
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">To'langan Avanslar</p>
-          <p className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 truncate">
-            {formatNumber(totalAdvancesPaid)} <span className="text-xs font-normal">UZS</span>
-          </p>
-          <span className="text-[10px] text-slate-500 font-semibold">Joriy oyda berilgan</span>
-        </div>
-
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">Ochiq Vazifalar</p>
-          <p className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">{pendingTasks}</p>
-          <span className="text-[10px] text-indigo-500 font-semibold">Jarayonda / Kutilmoqda</span>
-        </div>
-      </div>
-
-      {/* Tabs Bar */}
-      <div className="p-1 bg-slate-200/70 dark:bg-slate-900 rounded-2xl flex items-center shadow-inner overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('employees')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
-            activeTab === 'employees'
-              ? 'bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>1. Xodimlar Kartochkasi</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('attendance')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
-            activeTab === 'attendance'
-              ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <CalendarCheck className="w-4 h-4" />
-          <span>2. Davomat va Tabel</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('advances')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
-            activeTab === 'advances'
-              ? 'bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <Wallet className="w-4 h-4" />
-          <span>3. Avans va Maosh</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('tasks')}
-          className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
-            activeTab === 'tasks'
-              ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <CheckSquare className="w-4 h-4" />
-          <span>4. Vazifalar & KPI</span>
-        </button>
-      </div>
-
-      {/* Tab 1: Employees List */}
-      {activeTab === 'employees' && (
-        <div className="card-3d rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="table-scroll-container custom-scrollbar">
-            <table className="w-full text-left text-xs">
-              <thead className="table-sticky-head bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold uppercase text-[10px] shadow-sm">
-                <tr>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">F.I.Sh</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Lavozim</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Bo'lim</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Oylik Baza (UZS)</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">KPI Bonus</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Ish Jadvali</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Holati</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium text-slate-700 dark:text-slate-200">
-                {employees.map((emp) => (
-                  <tr key={emp.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                    <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
-                      {emp.fullName}
-                      {emp.phone && <span className="block text-[10px] text-slate-400 font-mono">{emp.phone}</span>}
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-rose-600 dark:text-rose-400">
-                      {emp.position}
-                    </td>
-                    <td className="py-3 px-4">{emp.department}</td>
-                    <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
-                      {formatNumber(emp.baseSalary)} UZS
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-emerald-600">
-                      +{formatNumber(emp.kpiBonus)} UZS
-                    </td>
-                    <td className="py-3 px-4 text-slate-500">{emp.schedule || '09:00 - 18:00'}</td>
-                    <td className="py-3 px-4">
-                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
-                        Faol
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {loadError && (
+        <div role="alert" className="rounded-control border border-danger/30 bg-danger-soft p-3 text-sm text-danger">
+          {loadError}
         </div>
       )}
 
-      {/* Tab 2: Attendance (Davomat & Tabel) */}
-      {activeTab === 'attendance' && (
-        <div className="card-3d rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="table-scroll-container custom-scrollbar">
-            <table className="w-full text-left text-xs">
-              <thead className="table-sticky-head bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold uppercase text-[10px] shadow-sm">
-                <tr>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Sana</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Xodim</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Kelish / Ketish</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Holati</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Kechikish</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Tasdiqlovchi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium text-slate-700 dark:text-slate-200">
-                {attendances.length === 0 ? (
+      {/* KPI kartalar */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard
+          title={t('hr.kpi.employees')}
+          value={t('hr.kpi.employeesValue', { count: totalEmployees })}
+          hint={t('hr.kpi.employeesHint')}
+          tone="success"
+        />
+        <StatCard
+          title={t('hr.kpi.payroll')}
+          value={<span className="text-lg sm:text-xl">{formatNumber(totalBaseSalary)} <span className="text-xs font-normal">UZS</span></span>}
+          hint={t('hr.kpi.payrollHint')}
+          tone="danger"
+        />
+        <StatCard
+          title={t('hr.kpi.advances')}
+          value={<span className="text-lg sm:text-xl">{formatNumber(totalAdvancesPaid)} <span className="text-xs font-normal">UZS</span></span>}
+          hint={t('hr.kpi.advancesHint')}
+          tone="warning"
+        />
+        <StatCard title={t('hr.kpi.openTasks')} value={pendingTasks} hint={t('hr.kpi.openTasksHint')} tone="info" />
+      </div>
+
+      {/* Bo'limlar */}
+      <Tabs
+        value={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { value: 'employees', label: t('hr.tab.employees'), icon: <Users /> },
+          { value: 'attendance', label: t('hr.tab.attendance'), icon: <CalendarCheck /> },
+          { value: 'advances', label: t('hr.tab.advances'), icon: <Wallet /> },
+          { value: 'tasks', label: t('hr.tab.tasks'), icon: <CheckSquare /> },
+        ]}
+      />
+
+      {/* 1: Xodimlar */}
+      {activeTab === 'employees' && (
+        <Card padding="none">
+          <TableContainer bare>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('hr.col.fullName')}</Th>
+                  <Th>{t('hr.col.position')}</Th>
+                  <Th>{t('hr.col.department')}</Th>
+                  <Th align="right">{t('hr.col.baseSalary')}</Th>
+                  <Th align="right">{t('hr.col.kpiBonus')}</Th>
+                  <Th>{t('hr.col.schedule')}</Th>
+                  <Th>{t('common.status')}</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {loading ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
-                      Davomat yozuvlari hali kiritilmagan. Yuqoridagi "Davomat Belgilash" tugmasini bosing.
+                    <td colSpan={7}>
+                      <LoadingBlock label={t('common.loading')} />
                     </td>
                   </tr>
+                ) : employees.length === 0 ? (
+                  <TableEmpty colSpan={7} title={t('hr.employees.empty')} />
+                ) : (
+                  employees.map((emp) => (
+                    <Tr key={emp.id}>
+                      <Td className="font-semibold text-fg">
+                        {emp.fullName}
+                        {emp.phone && (
+                          <span className="block font-mono text-[11px] font-normal tabular-nums text-fg-muted">{emp.phone}</span>
+                        )}
+                      </Td>
+                      <Td className="font-medium text-accent">{emp.position}</Td>
+                      <Td className="text-fg-secondary">{labelOf('hr.dept', DEPARTMENTS, emp.department)}</Td>
+                      <Td align="right" numeric className="font-semibold text-fg">
+                        {formatNumber(emp.baseSalary)} UZS
+                      </Td>
+                      <Td align="right" numeric className="font-medium text-success">
+                        +{formatNumber(emp.kpiBonus)} UZS
+                      </Td>
+                      <Td numeric className="text-fg-muted">{emp.schedule || '09:00 - 18:00'}</Td>
+                      <Td>
+                        <Badge tone="success" size="sm">{t('common.active')}</Badge>
+                      </Td>
+                    </Tr>
+                  ))
+                )}
+              </Tbody>
+            </Table>
+          </TableContainer>
+        </Card>
+      )}
+
+      {/* 2: Davomat va tabel */}
+      {activeTab === 'attendance' && (
+        <Card padding="none">
+          <TableContainer bare>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('common.date')}</Th>
+                  <Th>{t('hr.col.employee')}</Th>
+                  <Th>{t('hr.col.checkInOut')}</Th>
+                  <Th>{t('common.status')}</Th>
+                  <Th>{t('hr.col.late')}</Th>
+                  <Th>{t('hr.col.approvedBy')}</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {attendances.length === 0 ? (
+                  <TableEmpty colSpan={6} title={t('hr.attendance.empty')} />
                 ) : (
                   attendances.map((att) => (
-                    <tr key={att.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                      <td className="py-3 px-4 font-mono">
-                        {new Date(att.date).toLocaleDateString('uz-UZ')}
-                      </td>
-                      <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
-                        {att.employee?.fullName}
-                      </td>
-                      <td className="py-3 px-4 font-mono">
-                        {att.checkInTime || '-'} — {att.checkOutTime || 'Hozir ishda'}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          att.status === 'KELDI'
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                            : att.status === 'KECHIKDI'
-                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-                            : 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300'
-                        }`}>
-                          {att.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
+                    <Tr key={att.id}>
+                      <Td numeric className="font-mono">{formatDate(att.date)}</Td>
+                      <Td className="font-semibold text-fg">{att.employee?.fullName}</Td>
+                      <Td numeric className="font-mono">
+                        {att.checkInTime || '-'} — {att.checkOutTime || t('hr.attendance.stillAtWork')}
+                      </Td>
+                      <Td>
+                        <Badge tone={ATTENDANCE_TONE[att.status] || 'danger'} size="sm">
+                          {labelOf('hr.attendance.status', ATTENDANCE_STATUSES, att.status)}
+                        </Badge>
+                      </Td>
+                      <Td numeric>
                         {att.lateMinutes > 0 ? (
-                          <span className="font-bold text-rose-500">+{att.lateMinutes} daqiqa</span>
+                          <span className="font-semibold text-danger">{t('hr.attendance.lateMinutes', { count: att.lateMinutes })}</span>
                         ) : (
-                          <span className="text-slate-400">O'z vaqtida</span>
+                          <span className="text-fg-muted">{t('hr.attendance.onTime')}</span>
                         )}
-                      </td>
-                      <td className="py-3 px-4 text-slate-500">{att.approvedBy || 'HR'}</td>
-                    </tr>
+                      </Td>
+                      <Td className="text-fg-muted">{att.approvedBy || t('hr.attendance.defaultApprover')}</Td>
+                    </Tr>
                   ))
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </Tbody>
+            </Table>
+          </TableContainer>
+        </Card>
       )}
 
-      {/* Tab 3: Salary & Advances */}
+      {/* 3: Avans va maosh */}
       {activeTab === 'advances' && (
-        <div className="card-3d rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="table-scroll-container custom-scrollbar">
-            <table className="w-full text-left text-xs">
-              <thead className="table-sticky-head bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold uppercase text-[10px] shadow-sm">
-                <tr>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Sana</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Xodim</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Avans Summasi</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">To'lov Manbasi</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Sabab</th>
-                  <th className="py-3 px-4 bg-slate-100 dark:bg-slate-800 sticky top-0 z-10 whitespace-nowrap">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium text-slate-700 dark:text-slate-200">
+        <Card padding="none">
+          <TableContainer bare>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('common.date')}</Th>
+                  <Th>{t('hr.col.employee')}</Th>
+                  <Th align="right">{t('hr.col.advanceAmount')}</Th>
+                  <Th>{t('hr.col.source')}</Th>
+                  <Th>{t('hr.col.reason')}</Th>
+                  <Th>{t('common.status')}</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
                 {advances.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
-                      Avanslar berilmagan. Yuqoridagi "Avans Berish" tugmasini bosing.
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={6} title={t('hr.advances.empty')} />
                 ) : (
                   advances.map((adv) => (
-                    <tr key={adv.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                      <td className="py-3 px-4 font-mono">
-                        {new Date(adv.date).toLocaleDateString('uz-UZ')}
-                      </td>
-                      <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
-                        {adv.employee?.fullName}
-                      </td>
-                      <td className="py-3 px-4 font-black text-rose-600 dark:text-rose-400">
+                    <Tr key={adv.id}>
+                      <Td numeric className="font-mono">{formatDate(adv.date)}</Td>
+                      <Td className="font-semibold text-fg">{adv.employee?.fullName}</Td>
+                      <Td align="right" numeric className="font-semibold text-danger">
                         {formatNumber(adv.amount)} UZS
-                      </td>
-                      <td className="py-3 px-4 font-semibold">
-                        {adv.accountType === 'BANK' ? 'Bank kartasi' : 'Naqd kassa'}
-                      </td>
-                      <td className="py-3 px-4 text-slate-500">{adv.reason || 'Avans'}</td>
-                      <td className="py-3 px-4">
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
-                          To'landi
-                        </span>
-                      </td>
-                    </tr>
+                      </Td>
+                      <Td className="font-medium">
+                        {adv.accountType === 'BANK' ? t('hr.account.BANK') : t('hr.account.CASH')}
+                      </Td>
+                      <Td className="text-fg-muted">{adv.reason || t('hr.advances.defaultReason')}</Td>
+                      <Td>
+                        <Badge tone="success" size="sm">{t('hr.advances.paid')}</Badge>
+                      </Td>
+                    </Tr>
                   ))
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </Tbody>
+            </Table>
+          </TableContainer>
+        </Card>
       )}
 
-      {/* Tab 4: Tasks & KPI */}
+      {/* 4: Vazifalar va KPI */}
       {activeTab === 'tasks' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tasks.map((task) => (
-            <div
-              key={task.id}
-              className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    task.priority === 'YUQORI'
-                      ? 'bg-rose-500/10 text-rose-600 border border-rose-500/20'
-                      : task.priority === 'ORTA'
-                      ? 'bg-amber-500/10 text-amber-600 border border-amber-500/20'
-                      : 'bg-blue-500/10 text-blue-600 border border-blue-500/20'
-                  }`}>
-                    {task.priority} USTUVORLIK
-                  </span>
+        tasks.length === 0 ? (
+          <Card>
+            <EmptyState title={t('hr.tasks.empty')} />
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {tasks.map((task) => (
+              <Card key={task.id} className="flex flex-col justify-between space-y-3">
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <Badge tone={PRIORITY_TONE[task.priority] || 'neutral'} size="sm">
+                      {t('hr.tasks.priority', { value: labelOf('hr.priority', PRIORITIES, task.priority) })}
+                    </Badge>
 
-                  <span className={`text-[10px] font-bold ${
-                    task.status === 'BAJARILDI' ? 'text-emerald-600' : 'text-slate-500'
-                  }`}>
-                    {task.status}
-                  </span>
-                </div>
-
-                <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                  {task.title}
-                </h4>
-                {task.description && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
-                    {task.description}
-                  </p>
-                )}
-              </div>
-
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-700 dark:text-slate-300">
-                  Mas'ul: {task.assigneeName || 'Umumiy'}
-                </span>
-
-                <div className="flex items-center gap-1.5">
-                  {task.status !== 'BAJARILDI' ? (
-                    <button
-                      onClick={() => handleTaskStatusChange(task.id, 'BAJARILDI')}
-                      className="py-1 px-2.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition active:scale-95"
+                    <span
+                      className={cn(
+                        'text-[11px] font-semibold',
+                        task.status === 'BAJARILDI' ? 'text-success' : 'text-fg-muted'
+                      )}
                     >
-                      Bajarildi
-                    </button>
-                  ) : (
-                    <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Yakunlangan</span>
+                      {labelOf('hr.taskStatus', TASK_STATUSES, task.status)}
                     </span>
+                  </div>
+
+                  <h4 className="text-sm font-semibold text-fg">{task.title}</h4>
+                  {task.description && (
+                    <p className="mt-1 line-clamp-2 text-xs text-fg-muted">{task.description}</p>
                   )}
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
-      {/* Modal: New Employee */}
-      {isEmpModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-5 bg-gradient-to-r from-rose-600 to-pink-600 text-white flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black tracking-tight">Yangi Xodim Qo'shish</h3>
-                <p className="text-xs text-rose-100">HR kartochkasi va maosh sozlamalari</p>
-              </div>
-              <button onClick={() => setIsEmpModalOpen(false)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+                <div className="flex items-center justify-between gap-2 border-t border-line pt-3 text-xs">
+                  <span className="font-medium text-fg-secondary">
+                    {t('hr.tasks.assignee', { name: task.assigneeName || t('hr.tasks.everyone') })}
+                  </span>
 
-            <form onSubmit={handleCreateEmployee} className="p-5 overflow-y-auto space-y-3.5 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Xodim F.I.Sh *</label>
-                <input
-                  type="text"
-                  required
-                  value={empForm.fullName}
-                  onChange={(e) => setEmpForm({ ...empForm, fullName: e.target.value })}
-                  placeholder="Misol: Karimov Jasur Baxtiyorovich"
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Lavozim *</label>
-                  <input
-                    type="text"
-                    required
-                    value={empForm.position}
-                    onChange={(e) => setEmpForm({ ...empForm, position: e.target.value })}
-                    placeholder="Masalan: Katta Sotuvchi"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
+                  <div className="flex items-center gap-1.5">
+                    {task.status !== 'BAJARILDI' ? (
+                      <Button size="sm" variant="success" onClick={() => handleTaskStatusChange(task.id, 'BAJARILDI')}>
+                        {t('hr.tasks.done')}
+                      </Button>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-success">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <span>{t('hr.tasks.finished')}</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Bo'lim</label>
-                  <select
-                    value={empForm.department}
-                    onChange={(e) => setEmpForm({ ...empForm, department: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  >
-                    <option value="Operatsiyalar">Operatsiyalar</option>
-                    <option value="Koll-markaz">Koll-markaz</option>
-                    <option value="Logistika va Ombor">Logistika va Ombor</option>
-                    <option value="Sotuv">Sotuv</option>
-                    <option value="Buxgalteriya">Buxgalteriya</option>
-                    <option value="Boshqaruv">Boshqaruv</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Asosiy Oylik Baza (UZS)</label>
-                  <input
-                    type="number"
-                    value={empForm.baseSalary}
-                    onChange={(e) => setEmpForm({ ...empForm, baseSalary: e.target.value })}
-                    placeholder="6000000"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">KPI Bonusi (UZS)</label>
-                  <input
-                    type="number"
-                    value={empForm.kpiBonus}
-                    onChange={(e) => setEmpForm({ ...empForm, kpiBonus: e.target.value })}
-                    placeholder="1500000"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsEmpModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 font-bold"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="btn-3d py-2 px-5 rounded-xl font-bold bg-gradient-to-r from-rose-600 to-pink-600 text-white"
-                >
-                  Saqlash
-                </button>
-              </div>
-            </form>
+              </Card>
+            ))}
           </div>
-        </div>
+        )
       )}
 
-      {/* Modal: Salary Advance */}
-      {isAdvanceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-5 bg-gradient-to-r from-amber-600 to-orange-600 text-white flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black tracking-tight">Avans Berish</h3>
-                <p className="text-xs text-amber-100">Xodimga muddatidan oldin maosh berish</p>
-              </div>
-              <button onClick={() => setIsAdvanceModalOpen(false)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* Yangi xodim */}
+      <Modal
+        open={isEmpModalOpen}
+        onClose={() => setIsEmpModalOpen(false)}
+        size="md"
+        title={t('hr.emp.title')}
+        description={t('hr.emp.subtitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsEmpModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form="hr-emp-form">
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <form id="hr-emp-form" onSubmit={handleCreateEmployee} className="space-y-3.5">
+          <Field label={t('hr.emp.fullName')} required>
+            <Input
+              type="text"
+              required
+              value={empForm.fullName}
+              onChange={(e) => setEmpForm({ ...empForm, fullName: e.target.value })}
+              placeholder={t('hr.emp.fullNamePlaceholder')}
+            />
+          </Field>
 
-            <form onSubmit={handleCreateAdvance} className="p-5 space-y-3.5 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Xodimni tanlang *</label>
-                <select
-                  required
-                  value={advanceForm.employeeId}
-                  onChange={(e) => setAdvanceForm({ ...advanceForm, employeeId: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                >
-                  <option value="">-- Xodimni tanlang --</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.fullName} ({emp.position})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Avans Summasi (UZS) *</label>
-                <input
-                  type="number"
-                  required
-                  value={advanceForm.amount}
-                  onChange={(e) => setAdvanceForm({ ...advanceForm, amount: e.target.value })}
-                  placeholder="1000000"
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-black text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">To'lov Manbasi</label>
-                <select
-                  value={advanceForm.accountType}
-                  onChange={(e) => setAdvanceForm({ ...advanceForm, accountType: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                >
-                  <option value="CASH">Naqd pul (Kassa)</option>
-                  <option value="BANK">Bank kartasi / Hisobvaraq</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Sabab / Izoh</label>
-                <input
-                  type="text"
-                  value={advanceForm.reason}
-                  onChange={(e) => setAdvanceForm({ ...advanceForm, reason: e.target.value })}
-                  placeholder="Oylik avansi"
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="createDds"
-                  checked={advanceForm.createDdsExpense}
-                  onChange={(e) => setAdvanceForm({ ...advanceForm, createDdsExpense: e.target.checked })}
-                  className="w-4 h-4 text-amber-600 rounded"
-                />
-                <label htmlFor="createDds" className="text-[11px] font-semibold text-amber-800 dark:text-amber-200">
-                  DDS pul harakatiga xarajat (FOT) qilib avtomatik kiritilsin (TZ 12.3)
-                </label>
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAdvanceModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 font-bold"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="btn-3d py-2 px-5 rounded-xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 text-white"
-                >
-                  Avansni Tasdiqlash
-                </button>
-              </div>
-            </form>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('hr.emp.position')} required>
+              <Input
+                type="text"
+                required
+                value={empForm.position}
+                onChange={(e) => setEmpForm({ ...empForm, position: e.target.value })}
+                placeholder={t('hr.emp.positionPlaceholder')}
+              />
+            </Field>
+            <Field label={t('hr.col.department')}>
+              <Select value={empForm.department} onChange={(e) => setEmpForm({ ...empForm, department: e.target.value })}>
+                {DEPARTMENTS.map((d) => (
+                  <option key={d} value={d}>{t(`hr.dept.${d}`)}</option>
+                ))}
+              </Select>
+            </Field>
           </div>
-        </div>
-      )}
 
-      {/* Modal: New Task */}
-      {isTaskModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black tracking-tight">Yangi Vazifa Qo'shish</h3>
-                <p className="text-xs text-indigo-100">Xodim yoki jamoa uchun vazifa va muddat</p>
-              </div>
-              <button onClick={() => setIsTaskModalOpen(false)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateTask} className="p-5 space-y-3.5 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Vazifa Sarlavhasi *</label>
-                <input
-                  type="text"
-                  required
-                  value={taskForm.title}
-                  onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
-                  placeholder="Misol: Angren filialiga tovar jo'natish"
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Batafsil Tavsif</label>
-                <textarea
-                  rows={2}
-                  value={taskForm.description}
-                  onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-                  placeholder="Qo'shimcha tafsilotlar..."
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Mas'ul Shaxs</label>
-                  <input
-                    type="text"
-                    value={taskForm.assigneeName}
-                    onChange={(e) => setTaskForm({ ...taskForm, assigneeName: e.target.value })}
-                    placeholder="Xodim ismi"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Ustuvorlik</label>
-                  <select
-                    value={taskForm.priority}
-                    onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  >
-                    <option value="YUQORI">Yuqori</option>
-                    <option value="ORTA">O'rta</option>
-                    <option value="PAST">Past</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsTaskModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 font-bold"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="btn-3d py-2 px-5 rounded-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 text-white"
-                >
-                  Vazifani Saqlash
-                </button>
-              </div>
-            </form>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('hr.emp.baseSalary')}>
+              <Input
+                type="number"
+                inputMode="numeric"
+                value={empForm.baseSalary}
+                onChange={(e) => setEmpForm({ ...empForm, baseSalary: e.target.value })}
+                placeholder="6000000"
+                className="tabular-nums"
+              />
+            </Field>
+            <Field label={t('hr.emp.kpiBonus')}>
+              <Input
+                type="number"
+                inputMode="numeric"
+                value={empForm.kpiBonus}
+                onChange={(e) => setEmpForm({ ...empForm, kpiBonus: e.target.value })}
+                placeholder="1500000"
+                className="tabular-nums"
+              />
+            </Field>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
 
-      {/* Modal: Record Attendance */}
-      {isAttendModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black tracking-tight">Davomat Belgilash</h3>
-                <p className="text-xs text-emerald-100">Xodim kelishi va ketish vaqti</p>
-              </div>
-              <button onClick={() => setIsAttendModalOpen(false)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* Avans berish */}
+      <Modal
+        open={isAdvanceModalOpen}
+        onClose={() => setIsAdvanceModalOpen(false)}
+        size="md"
+        title={t('hr.advance.title')}
+        description={t('hr.advance.subtitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsAdvanceModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form="hr-advance-form">
+              {t('hr.advance.confirm')}
+            </Button>
+          </>
+        }
+      >
+        <form id="hr-advance-form" onSubmit={handleCreateAdvance} className="space-y-3.5">
+          <Field label={t('hr.advance.employee')} required>
+            <Select
+              required
+              value={advanceForm.employeeId}
+              onChange={(e) => setAdvanceForm({ ...advanceForm, employeeId: e.target.value })}
+            >
+              <option value="">{t('hr.advance.selectEmployee')}</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.fullName} ({emp.position})
+                </option>
+              ))}
+            </Select>
+          </Field>
 
-            <form onSubmit={handleRecordAttendance} className="p-5 space-y-3.5 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Xodimni tanlang *</label>
-                <select
-                  required
-                  value={attendForm.employeeId}
-                  onChange={(e) => setAttendForm({ ...attendForm, employeeId: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                >
-                  <option value="">-- Xodimni tanlang --</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.fullName}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <Field label={t('hr.advance.amount')} required>
+            <Input
+              type="number"
+              inputMode="numeric"
+              required
+              value={advanceForm.amount}
+              onChange={(e) => setAdvanceForm({ ...advanceForm, amount: e.target.value })}
+              placeholder="1000000"
+              className="font-semibold tabular-nums"
+            />
+          </Field>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Sana</label>
-                  <input
-                    type="date"
-                    value={attendForm.date}
-                    onChange={(e) => setAttendForm({ ...attendForm, date: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Holati</label>
-                  <select
-                    value={attendForm.status}
-                    onChange={(e) => setAttendForm({ ...attendForm, status: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  >
-                    <option value="KELDI">Keldi (O'z vaqtida)</option>
-                    <option value="KECHIKDI">Kechikdi</option>
-                    <option value="SABABLI">Sababli (Ruxsat olgan)</option>
-                    <option value="KELMADI">Kelmadi</option>
-                  </select>
-                </div>
-              </div>
+          <Field label={t('hr.advance.source')}>
+            <Select
+              value={advanceForm.accountType}
+              onChange={(e) => setAdvanceForm({ ...advanceForm, accountType: e.target.value })}
+            >
+              <option value="CASH">{t('hr.account.CASH_OPTION')}</option>
+              <option value="BANK">{t('hr.account.BANK_OPTION')}</option>
+            </Select>
+          </Field>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Kelgan vaqti</label>
-                  <input
-                    type="time"
-                    value={attendForm.checkInTime}
-                    onChange={(e) => setAttendForm({ ...attendForm, checkInTime: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Ketgan vaqti</label>
-                  <input
-                    type="time"
-                    value={attendForm.checkOutTime}
-                    onChange={(e) => setAttendForm({ ...attendForm, checkOutTime: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono"
-                  />
-                </div>
-              </div>
+          <Field label={t('hr.advance.reason')}>
+            <Input
+              type="text"
+              value={advanceForm.reason}
+              onChange={(e) => setAdvanceForm({ ...advanceForm, reason: e.target.value })}
+              placeholder={t('hr.advance.defaultReason')}
+            />
+          </Field>
 
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAttendModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 font-bold"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="btn-3d py-2 px-5 rounded-xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 text-white"
-                >
-                  Belgilash
-                </button>
-              </div>
-            </form>
+          <label
+            htmlFor="createDds"
+            className="flex min-h-touch cursor-pointer items-center gap-2 rounded-control border border-warning/30 bg-warning-soft p-3 sm:min-h-0"
+          >
+            <input
+              type="checkbox"
+              id="createDds"
+              checked={advanceForm.createDdsExpense}
+              onChange={(e) => setAdvanceForm({ ...advanceForm, createDdsExpense: e.target.checked })}
+              className="h-4 w-4 shrink-0 rounded border-line-strong accent-brand"
+            />
+            <span className="text-[11px] font-medium text-fg-secondary">{t('hr.advance.createDds')}</span>
+          </label>
+        </form>
+      </Modal>
+
+      {/* Yangi vazifa */}
+      <Modal
+        open={isTaskModalOpen}
+        onClose={() => setIsTaskModalOpen(false)}
+        size="md"
+        title={t('hr.task.title')}
+        description={t('hr.task.subtitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsTaskModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form="hr-task-form">
+              {t('hr.task.save')}
+            </Button>
+          </>
+        }
+      >
+        <form id="hr-task-form" onSubmit={handleCreateTask} className="space-y-3.5">
+          <Field label={t('hr.task.name')} required>
+            <Input
+              type="text"
+              required
+              value={taskForm.title}
+              onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+              placeholder={t('hr.task.namePlaceholder')}
+            />
+          </Field>
+
+          <Field label={t('hr.task.description')}>
+            <Textarea
+              rows={2}
+              value={taskForm.description}
+              onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+              placeholder={t('hr.task.descriptionPlaceholder')}
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('hr.task.assignee')}>
+              <Input
+                type="text"
+                value={taskForm.assigneeName}
+                onChange={(e) => setTaskForm({ ...taskForm, assigneeName: e.target.value })}
+                placeholder={t('hr.task.assigneePlaceholder')}
+              />
+            </Field>
+            <Field label={t('hr.task.priorityLabel')}>
+              <Select value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{t(`hr.priority.${p}`)}</option>
+                ))}
+              </Select>
+            </Field>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
+
+      {/* Davomat belgilash */}
+      <Modal
+        open={isAttendModalOpen}
+        onClose={() => setIsAttendModalOpen(false)}
+        size="md"
+        title={t('hr.attend.title')}
+        description={t('hr.attend.subtitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsAttendModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form="hr-attend-form">
+              {t('hr.attend.mark')}
+            </Button>
+          </>
+        }
+      >
+        <form id="hr-attend-form" onSubmit={handleRecordAttendance} className="space-y-3.5">
+          <Field label={t('hr.advance.employee')} required>
+            <Select
+              required
+              value={attendForm.employeeId}
+              onChange={(e) => setAttendForm({ ...attendForm, employeeId: e.target.value })}
+            >
+              <option value="">{t('hr.advance.selectEmployee')}</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.fullName}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('common.date')}>
+              <Input
+                type="date"
+                value={attendForm.date}
+                onChange={(e) => setAttendForm({ ...attendForm, date: e.target.value })}
+              />
+            </Field>
+            <Field label={t('common.status')}>
+              <Select value={attendForm.status} onChange={(e) => setAttendForm({ ...attendForm, status: e.target.value })}>
+                <option value="KELDI">{t('hr.attendance.statusOption.KELDI')}</option>
+                <option value="KECHIKDI">{t('hr.attendance.status.KECHIKDI')}</option>
+                <option value="SABABLI">{t('hr.attendance.statusOption.SABABLI')}</option>
+                <option value="KELMADI">{t('hr.attendance.status.KELMADI')}</option>
+              </Select>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('hr.attend.checkIn')}>
+              <Input
+                type="time"
+                value={attendForm.checkInTime}
+                onChange={(e) => setAttendForm({ ...attendForm, checkInTime: e.target.value })}
+                className="font-mono tabular-nums"
+              />
+            </Field>
+            <Field label={t('hr.attend.checkOut')}>
+              <Input
+                type="time"
+                value={attendForm.checkOutTime}
+                onChange={(e) => setAttendForm({ ...attendForm, checkOutTime: e.target.value })}
+                className="font-mono tabular-nums"
+              />
+            </Field>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

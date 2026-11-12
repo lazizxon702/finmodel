@@ -1,750 +1,642 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import {
-  Users,
-  Search,
-  Filter,
-  Calendar,
-  X,
-  Briefcase,
-  TrendingUp,
-  CreditCard,
-  Wallet,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Package,
-  Layers,
-  Sparkles,
-  Phone,
-  UserCheck,
-  RefreshCw,
-  Building,
-  Coins,
-  ArrowUpRight,
-} from 'lucide-react';
-import { formatMoney, formatPercent, formatDate } from '../utils/format';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, Briefcase, CalendarDays, CalendarRange, RefreshCw, Search, Sigma, UsersRound, X } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
+import { useRealtime } from '../context/SocketContext';
+import { formatDate, formatMoney, formatNumber, formatPercent } from '../utils/format';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  DateRangeFilter,
+  defaultDateRange,
+  EmptyState,
+  Input,
+  LoadingBlock,
+  PageHeader,
+  Select,
+  StatCard,
+  Table,
+  TableContainer,
+  TableEmpty,
+  Tabs,
+  Tbody,
+  Td,
+  Th,
+  Thead,
+  Tr,
+  approvalTone,
+  cn,
+} from '../components/ui';
+
+// --- API javoblari (server/src/routes/agents.routes.ts) ---
+interface SummaryRow {
+  agencyId: string | null;
+  agencyName: string;
+  today: number;
+  month: number;
+  total: number;
+  dealsToday: number;
+  dealsMonth: number;
+  dealsTotal: number;
+}
+
+interface Summary {
+  agencies: SummaryRow[];
+  totals: Omit<SummaryRow, 'agencyId' | 'agencyName'>;
+}
+
+interface AgentDeal {
+  id: string;
+  dealNumber: number;
+  date: string;
+  dateTimeLabel?: string;
+  approvalStatus?: string;
+  agencyName: string;
+  agentName: string;
+  customerName: string;
+  customerPhone1: string;
+  productName: string;
+  status: string;
+  withdrawnLimit: number;
+  purchaseDiscountPct: number;
+  agentAmount: number;
+  agentPct: number;
+  profit: number;
+}
+
+interface DealTotals {
+  dealCount: number;
+  totalWithdrawn: number;
+  totalCalculated: number;
+  totalAgentCommission: number;
+  totalProfit: number;
+}
+
+interface AgentOption {
+  id: string;
+  name: string;
+  agencyId: string;
+  agencyName: string;
+  dealCount: number;
+}
+
+type ApprovalFilter = 'all' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+
+const DEAL_STATUSES = ['PENDING', 'IN_WAREHOUSE', 'SOLD', 'NEED_TO_BUY'];
+const PAGE_SIZE = 50;
+
+const linkButton =
+  'inline-flex min-h-touch items-center justify-center gap-2 whitespace-nowrap rounded-control border border-line-strong bg-surface px-4 text-sm font-semibold text-fg transition-colors hover:bg-surface-2 sm:min-h-[2.5rem]';
 
 export const AgentsPage: React.FC = () => {
+  const { user } = useAuth();
   const { t } = useTranslation();
+  const isAgent = user?.role === 'AGENT';
 
-  const [items, setItems] = useState<any[]>([]);
-  const [totals, setTotals] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  // --- Yig'ma: bugun / shu oy / jami ---
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryError, setSummaryError] = useState('');
 
-  // Filters state
-  const [search, setSearch] = useState('');
-  const [selectedAgentId, setSelectedAgentId] = useState('');
-  const [selectedAgencyId, setSelectedAgencyId] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [page, setPage] = useState(1);
+  // --- Bitimlar ---
+  const [items, setItems] = useState<AgentDeal[]>([]);
+  const [totals, setTotals] = useState<DealTotals | null>(null);
+  const [agentsList, setAgentsList] = useState<AgentOption[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [dealsLoading, setDealsLoading] = useState(true);
+  const [dealsError, setDealsError] = useState('');
 
-  // Catalogs
-  const [agentsList, setAgentsList] = useState<any[]>([]);
-  const [agenciesList, setAgenciesList] = useState<any[]>([]);
-  const [selectedAgentInfo, setSelectedAgentInfo] = useState<any>(null);
+  // --- Filtrlar ---
+  const [agencyId, setAgencyId] = useState('');
+  const [agentId, setAgentId] = useState('');
+  const [status, setStatus] = useState('');
+  // Agent o'z kabinetida tasdiq kutayotgan va rad etilgan bitimlarini ham ko'rishi kerak
+  const [approval, setApproval] = useState<ApprovalFilter>(isAgent ? 'all' : 'APPROVED');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [range, setRange] = useState(() => defaultDateRange('all'));
+  const [page, setPage] = useState(1);
+
+  // AGENT: tab yonidagi sonlar (o'z doirasi bo'yicha)
+  const [pending, setPending] = useState<{ count: number; rejectedCount: number } | null>(null);
+
+  // Qidiruv: yozish tugagach so'rov yuboriladi
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
+  const loadSummary = useCallback(
+    async (silent = false) => {
+      if (!silent) setSummaryLoading(true);
+      try {
+        const res = await axios.get<Summary>('/api/agents/commission-summary');
+        setSummary(res.data);
+        setSummaryError('');
+      } catch (e: any) {
+        if (!silent) setSummaryError(e?.response?.data?.error || t('agentsPage.summary_error'));
+      } finally {
+        if (!silent) setSummaryLoading(false);
+      }
+    },
+    [t]
+  );
+
+  const loadPending = useCallback(() => {
+    if (!isAgent) return;
+    axios
+      .get('/api/deals/pending-count')
+      .then((res) => setPending({ count: Number(res.data?.count) || 0, rejectedCount: Number(res.data?.rejectedCount) || 0 }))
+      .catch(() => undefined);
+  }, [isAgent]);
+
+  // Eskirgan javob yangisining ustidan yozilmasligi uchun
+  const requestSeq = useRef(0);
+  const loadDeals = useCallback(
+    async (silent = false) => {
+      const seq = ++requestSeq.current;
+      if (!silent) setDealsLoading(true);
+      try {
+        const res = await axios.get('/api/agents/deals', {
+          params: {
+            page,
+            limit: PAGE_SIZE,
+            approvalStatus: approval,
+            agencyId: agencyId || undefined,
+            agentId: agentId || undefined,
+            status: status || undefined,
+            search: search || undefined,
+            startDate: range.startDate || undefined,
+            endDate: range.endDate || undefined,
+          },
+        });
+        if (seq !== requestSeq.current) return;
+        setItems(res.data?.items || []);
+        setTotals(res.data?.totals || null);
+        setAgentsList(res.data?.agentsList || []);
+        setTotalCount(res.data?.pagination?.total || 0);
+        setTotalPages(Math.max(1, res.data?.pagination?.totalPages || 1));
+        setDealsError('');
+      } catch (e: any) {
+        if (seq !== requestSeq.current || silent) return;
+        setItems([]);
+        setTotals(null);
+        setDealsError(e?.response?.data?.error || t('agentsPage.deals_error'));
+      } finally {
+        if (seq === requestSeq.current && !silent) setDealsLoading(false);
+      }
+    },
+    [page, approval, agencyId, agentId, status, search, range.startDate, range.endDate, t]
+  );
 
   useEffect(() => {
-    fetchAgentsDeals();
-  }, [search, selectedAgentId, selectedAgencyId, statusFilter, startDate, endDate, page]);
+    void loadSummary();
+    loadPending();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const fetchAgentsDeals = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (selectedAgentId) params.append('agentId', selectedAgentId);
-      if (selectedAgencyId) params.append('agencyId', selectedAgencyId);
-      if (statusFilter) params.append('status', statusFilter);
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
-      params.append('page', String(page));
-      params.append('limit', '50');
+  useEffect(() => {
+    void loadDeals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, approval, agencyId, agentId, status, search, range.startDate, range.endDate]);
 
-      const res = await axios.get(`/api/agents/deals?${params.toString()}`);
-      setItems(res.data.items || []);
-      setTotals(res.data.totals || null);
-      setSelectedAgentInfo(res.data.selectedAgent || null);
-      if (res.data.agentsList) setAgentsList(res.data.agentsList);
-      if (res.data.agenciesList) setAgenciesList(res.data.agenciesList);
-      if (res.data.pagination) setTotalPages(res.data.pagination.totalPages || 1);
-    } catch (err) {
-      console.error('Fetch agents deals error:', err);
-    } finally {
-      setLoading(false);
-    }
+  // Bitim yaratilsa / tasdiqlansa / rad etilsa — raqamlar jimgina yangilanadi
+  useRealtime('deals:updated', () => {
+    void loadSummary(true);
+    void loadDeals(true);
+    loadPending();
+  });
+
+  const refreshAll = () => {
+    void loadSummary();
+    void loadDeals();
+    loadPending();
   };
 
-  const handleSelectQuickAgent = (agentId: string) => {
-    if (selectedAgentId === agentId) {
-      setSelectedAgentId('');
-    } else {
-      setSelectedAgentId(agentId);
-      setPage(1);
-    }
-  };
-
-  const handleResetFilters = () => {
-    setSearch('');
-    setSelectedAgentId('');
-    setSelectedAgencyId('');
-    setStatusFilter('');
-    setStartDate('');
-    setEndDate('');
+  const selectAgency = (id: string) => {
+    setAgencyId((prev) => (prev === id ? '' : id));
+    setAgentId('');
     setPage(1);
   };
 
-  // Top 10 most active agents for the quick CRM switcher pills
-  const topActiveAgents = [...agentsList]
-    .filter((ag) => ag.dealCount > 0)
-    .sort((a, b) => b.dealCount - a.dealCount)
-    .slice(0, 10);
+  const rows = summary?.agencies || [];
+  const selectedRow = useMemo(() => rows.find((r) => r.agencyId && r.agencyId === agencyId) || null, [rows, agencyId]);
+  // Kartochkalar: agentlik tanlangan bo'lsa — uniki, aks holda umumiy (AGENT uchun yagona qator = o'zi)
+  const cards = selectedRow || summary?.totals || null;
+  const agentOptions = agencyId ? agentsList.filter((a) => a.agencyId === agencyId) : agentsList;
+  const hasFilters = !!(agencyId || agentId || status || searchInput || range.mode !== 'all');
 
-  const byStatus = totals?.byStatus || {
-    PENDING: { count: 0, volume: 0 },
-    IN_WAREHOUSE: { count: 0, volume: 0 },
-    SOLD: { count: 0, volume: 0 },
-    NEED_TO_BUY: { count: 0, volume: 0 },
+  const resetFilters = () => {
+    setAgencyId('');
+    setAgentId('');
+    setStatus('');
+    setSearchInput('');
+    setRange(defaultDateRange('all'));
+    setPage(1);
   };
 
-  const renderStatusBadge = (status: string) => {
-    switch (status) {
-      case 'PENDING':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-            <Clock className="w-3 h-3" />
-            Kutilmoqda
-          </span>
-        );
-      case 'IN_WAREHOUSE':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
-            <Package className="w-3 h-3" />
-            Omborda
-          </span>
-        );
-      case 'SOLD':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-            <CheckCircle2 className="w-3 h-3" />
-            Sotilgan
-          </span>
-        );
-      case 'NEED_TO_BUY':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
-            <AlertCircle className="w-3 h-3" />
-            Sotib olish kerak
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            {status || '-'}
-          </span>
-        );
-    }
-  };
+  const approvalTabs = [
+    { value: 'all' as ApprovalFilter, label: t('agentsPage.filter_all') },
+    { value: 'PENDING_APPROVAL' as ApprovalFilter, label: t('approval.PENDING_APPROVAL'), count: pending?.count },
+    { value: 'APPROVED' as ApprovalFilter, label: t('approval.APPROVED') },
+    { value: 'REJECTED' as ApprovalFilter, label: t('approval.REJECTED'), count: pending?.rejectedCount },
+  ];
+
+  const dealsTitle = isAgent
+    ? t('agentsPage.deals_title_mine')
+    : selectedRow
+      ? t('agentsPage.deals_title_agency', { name: selectedRow.agencyName })
+      : t('agentsPage.deals_title_all');
+
+  const columnCount = isAgent ? 9 : 10;
+  const cardValue = (value?: number) => (summaryLoading && !summary ? '…' : formatMoney(value ?? 0));
+  const cardHint = (count?: number) => t('agentsPage.deals_count', { count: formatNumber(count ?? 0) });
 
   return (
-    <div className="space-y-6 text-slate-900 dark:text-slate-100">
-      {/* Top Banner / CRM Header */}
-      <div className="card-3d flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-white rounded-3xl border border-slate-800 shadow-xl">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center text-white shadow-lg shadow-purple-500/30">
-              <Briefcase className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-lg sm:text-xl font-black tracking-tight flex items-center gap-2">
-                <span>Agentlar Shaxsiy CRM & Hisob-kitob Tizimi</span>
-                <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />
-              </h1>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Har bir agentning shaxsiy aylanmasi, hisoblangan komissiyasi, mijozlari va bitimlar tahlili
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        icon={<Briefcase />}
+        title={t(isAgent ? 'agentsPage.cabinet_title' : 'agentsPage.title')}
+        description={
+          isAgent
+            ? user?.agencyName
+              ? t('agentsPage.cabinet_agency', { name: user.agencyName })
+              : t('agentsPage.cabinet_subtitle')
+            : t('agentsPage.subtitle')
+        }
+        actions={
+          <>
+            {isAgent && (
+              <Link to="/team" className={linkButton}>
+                <UsersRound className="h-4 w-4" aria-hidden="true" />
+                {t('agentsPage.go_team')}
+              </Link>
+            )}
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={refreshAll}
+              aria-label={t('common.refresh')}
+              title={t('common.refresh')}
+              disabled={summaryLoading || dealsLoading}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </>
+        }
+      />
 
-        {/* Selected Agent Quick Overview in Banner */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="px-4 py-2 bg-purple-500/15 border border-purple-500/30 rounded-2xl flex items-center gap-2.5">
-            <UserCheck className="w-4 h-4 text-purple-400" />
-            <div>
-              <span className="text-[10px] text-purple-300 font-semibold uppercase block">Faol Agent CRM:</span>
-              <span className="text-xs sm:text-sm font-black text-white">
-                {selectedAgentInfo ? selectedAgentInfo.name : 'Barcha Agentlar (Umumiy)'}
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={fetchAgentsDeals}
-            title="Yangilash"
-            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-2xl border border-slate-700 transition"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-purple-400' : ''}`} />
-          </button>
-        </div>
-      </div>
-
-      {/* QUICK AGENT SWITCHER PILLS (TEZKOR CRM ALMASHTIRGICH) */}
-      <div className="p-3 bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5 text-purple-500" />
-            <span>Agent tanlash (Tezkor CRM kabineti):</span>
+      {summaryError && (
+        <div role="alert" className="flex flex-col gap-2 rounded-card bg-danger-soft px-4 py-3 text-sm text-danger sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{summaryError}</span>
           </span>
-          {selectedAgentId && (
-            <button
-              onClick={() => setSelectedAgentId('')}
-              className="text-[11px] font-bold text-rose-500 hover:text-rose-600 flex items-center gap-1"
-            >
-              <X className="w-3 h-3" />
-              <span>Umumiy ko'rinishga qaytish</span>
-            </button>
-          )}
+          <Button variant="secondary" size="sm" onClick={() => void loadSummary()} className="shrink-0">
+            {t('common.retry')}
+          </Button>
         </div>
+      )}
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setSelectedAgentId('')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-              !selectedAgentId
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-500/25 scale-105'
-                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>🌐 Barchasi ({agentsList.length} agent)</span>
-          </button>
+      {/* Agent foydasi: bugun / shu oy / jami */}
+      <section aria-label={t('agentsPage.title')} className="space-y-2">
+        {!isAgent && (
+          <p className="text-xs font-medium text-fg-secondary">{selectedRow ? selectedRow.agencyName : t('agentsPage.scope_all')}</p>
+        )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+          <StatCard
+            title={t('agentsPage.card_today')}
+            value={cardValue(cards?.today)}
+            hint={cardHint(cards?.dealsToday)}
+            icon={<CalendarDays />}
+            tone="brand"
+          />
+          <StatCard
+            title={t('agentsPage.card_month')}
+            value={cardValue(cards?.month)}
+            hint={cardHint(cards?.dealsMonth)}
+            icon={<CalendarRange />}
+            tone="brand"
+          />
+          <StatCard
+            title={t('agentsPage.card_total')}
+            value={cardValue(cards?.total)}
+            hint={cardHint(cards?.dealsTotal)}
+            icon={<Sigma />}
+            tone="success"
+          />
+        </div>
+        <p className="text-xs leading-relaxed text-fg-muted">{t('agentsPage.formula')}</p>
+      </section>
 
-          {topActiveAgents.map((ag) => (
-            <button
-              key={ag.id}
-              type="button"
-              onClick={() => handleSelectQuickAgent(ag.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                selectedAgentId === ag.id
-                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md shadow-purple-500/30 scale-105 font-black ring-2 ring-purple-400'
-                  : 'bg-slate-100 hover:bg-purple-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              <span>{ag.name}</span>
-              <span
-                className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                  selectedAgentId === ag.id
-                    ? 'bg-white/25 text-white'
-                    : 'bg-purple-500/15 text-purple-600 dark:text-purple-400'
-                }`}
+      {/* Agentliklar kesimi — AGENT uchun ko'rsatilmaydi (u faqat o'z raqamlarini ko'radi) */}
+      {!isAgent && (
+        <Card padding="none">
+          <CardHeader
+            bordered
+            title={t('agentsPage.agencies_title')}
+            description={t('agentsPage.agencies_hint')}
+            actions={
+              agencyId ? (
+                <Button variant="ghost" size="sm" leftIcon={<X className="h-4 w-4" />} onClick={() => selectAgency(agencyId)}>
+                  {t('agentsPage.show_all')}
+                </Button>
+              ) : undefined
+            }
+          />
+          {summaryLoading && !summary ? (
+            <LoadingBlock label={t('common.loading')} />
+          ) : (
+            <TableContainer bare maxHeightClass="max-h-[24rem]">
+              <Table>
+                <Thead>
+                  <Tr>
+                    <Th>{t('agentsPage.col_agency')}</Th>
+                    <Th align="right">{t('agentsPage.card_today')}</Th>
+                    <Th align="right">{t('agentsPage.card_month')}</Th>
+                    <Th align="right">{t('agentsPage.card_total')}</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {rows.length === 0 && <TableEmpty colSpan={4} title={t('agentsPage.agencies_empty')} />}
+                  {rows.map((row) => {
+                    const active = !!row.agencyId && row.agencyId === agencyId;
+                    const cell = (amount: number, count: number) => (
+                      <>
+                        <span className={cn('block font-medium', amount === 0 && 'font-normal text-fg-muted')}>{formatMoney(amount)}</span>
+                        <span className="block text-xs text-fg-muted">{cardHint(count)}</span>
+                      </>
+                    );
+                    return (
+                      <Tr
+                        key={row.agencyId || row.agencyName}
+                        clickable={!!row.agencyId}
+                        onClick={row.agencyId ? () => selectAgency(row.agencyId!) : undefined}
+                        className={active ? 'bg-brand-soft hover:bg-brand-soft' : undefined}
+                      >
+                        <Td className="min-w-[9rem] font-medium">
+                          {row.agencyId ? (
+                            <button
+                              type="button"
+                              aria-pressed={active}
+                              className={cn('text-left underline-offset-2 hover:underline', active && 'text-accent')}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                selectAgency(row.agencyId!);
+                              }}
+                            >
+                              {row.agencyName}
+                            </button>
+                          ) : (
+                            row.agencyName
+                          )}
+                        </Td>
+                        <Td align="right" numeric>
+                          {cell(row.today, row.dealsToday)}
+                        </Td>
+                        <Td align="right" numeric>
+                          {cell(row.month, row.dealsMonth)}
+                        </Td>
+                        <Td align="right" numeric>
+                          {cell(row.total, row.dealsTotal)}
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                  {rows.length > 1 && summary && (
+                    <Tr className="bg-surface-2 font-semibold hover:bg-surface-2">
+                      <Td>{t('common.total')}</Td>
+                      <Td align="right" numeric>
+                        {formatMoney(summary.totals.today)}
+                      </Td>
+                      <Td align="right" numeric>
+                        {formatMoney(summary.totals.month)}
+                      </Td>
+                      <Td align="right" numeric>
+                        {formatMoney(summary.totals.total)}
+                      </Td>
+                    </Tr>
+                  )}
+                </Tbody>
+              </Table>
+            </TableContainer>
+          )}
+        </Card>
+      )}
+
+      {/* Bitimlar */}
+      <Card padding="none">
+        <CardHeader
+          bordered
+          title={dealsTitle}
+          description={
+            totals
+              ? t('agentsPage.deals_totals', {
+                  count: formatNumber(totals.dealCount),
+                  limit: formatMoney(totals.totalWithdrawn),
+                  profit: formatMoney(totals.totalAgentCommission),
+                })
+              : undefined
+          }
+          actions={
+            hasFilters ? (
+              <Button variant="ghost" size="sm" leftIcon={<X className="h-4 w-4" />} onClick={resetFilters}>
+                {t('common.clear_filter')}
+              </Button>
+            ) : undefined
+          }
+        />
+
+        <Tabs
+          ariaLabel={t('agentsPage.filter_approval')}
+          className="px-2 sm:px-3"
+          items={approvalTabs}
+          value={approval}
+          onChange={(v) => {
+            setApproval(v);
+            setPage(1);
+          }}
+        />
+
+        <div className="space-y-3 border-b border-line px-4 py-3 sm:px-5">
+          <div className={cn('grid grid-cols-1 gap-2 sm:grid-cols-2', !isAgent && 'lg:grid-cols-3')}>
+            <Input
+              leftIcon={<Search />}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder={t('agentsPage.filter_search')}
+              aria-label={t('agentsPage.filter_search')}
+            />
+            {!isAgent && (
+              <Select
+                value={agentId}
+                onChange={(e) => {
+                  setAgentId(e.target.value);
+                  setPage(1);
+                }}
+                aria-label={t('agentsPage.col_agent')}
               >
-                {ag.dealCount}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* TOP AGENT CRM KPI SUMMARY CARDS (6 TA HISOB-KITOB METRIKASI) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5 w-full">
-        {/* Card 1: Deals Count */}
-        <div className="card-3d p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Bitimlar Soni
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-              <Layers className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-2">
-            {totals?.dealCount || 0} ta
-          </h3>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            {selectedAgentInfo ? `${selectedAgentInfo.name} bitimlari` : 'Barcha agentlar jami'}
-          </p>
-        </div>
-
-        {/* Card 2: Limit Volume */}
-        <div className="card-3d p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Yechilgan Limit
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-              <CreditCard className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-2">
-            {formatMoney(totals?.totalWithdrawn)}
-          </h3>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Umumiy aylanma summasi</p>
-        </div>
-
-        {/* Card 3: Agent Commission */}
-        <div className="card-3d p-4 bg-gradient-to-br from-purple-500/10 via-purple-500/5 to-transparent border border-purple-500/30 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-600 dark:text-purple-400">
-              Agent Komissiyasi
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-purple-500 text-white flex items-center justify-center shadow-md shadow-purple-500/25">
-              <Wallet className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-xl sm:text-2xl font-black text-purple-700 dark:text-purple-300 mt-2">
-            {formatMoney(totals?.totalAgentCommission)}
-          </h3>
-          <p className="text-[11px] text-purple-600/80 dark:text-purple-400/80 mt-0.5">Agentga tegishli haq</p>
-        </div>
-
-        {/* Card 4: Customer Payout */}
-        <div className="card-3d p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Mijozga To'lov
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
-              <Coins className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-xl sm:text-2xl font-black text-cyan-700 dark:text-cyan-400 mt-2">
-            {formatMoney(totals?.totalCalculated)}
-          </h3>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Berilgan naqd/kartaga</p>
-        </div>
-
-        {/* Card 5: Net Profit */}
-        <div className="card-3d p-4 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-500/30 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-              Kompaniya Foydasi
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/25">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-400 mt-2">
-            {formatMoney(totals?.totalProfit)}
-          </h3>
-          <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">Keltirilgan sof foyda</p>
-        </div>
-
-        {/* Card 6: Average Rates */}
-        <div className="card-3d p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              O'rtacha Stavka %
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <ArrowUpRight className="w-4 h-4" />
-            </div>
-          </div>
-          <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-2">
-            {totals?.avgAgentPct || 0}%
-          </h3>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            Diskont: {totals?.avgDiscountPct || 0}%
-          </p>
-        </div>
-      </div>
-
-      {/* AGENT CRM PIPELINE / FUNNEL STATUS CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-3.5 bg-amber-500/10 border border-amber-500/25 rounded-2xl flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-600 dark:text-amber-400 block">
-              ⏳ Kutilmoqda (Pending)
-            </span>
-            <span className="text-base font-black text-slate-900 dark:text-white mt-1 block">
-              {byStatus.PENDING?.count || 0} ta bitim
-            </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              {formatMoney(byStatus.PENDING?.volume || 0)}
-            </span>
-          </div>
-        </div>
-
-        <div className="p-3.5 bg-blue-500/10 border border-blue-500/25 rounded-2xl flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600 dark:text-blue-400 block">
-              📦 Omborda (Warehouse)
-            </span>
-            <span className="text-base font-black text-slate-900 dark:text-white mt-1 block">
-              {byStatus.IN_WAREHOUSE?.count || 0} ta bitim
-            </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              {formatMoney(byStatus.IN_WAREHOUSE?.volume || 0)}
-            </span>
-          </div>
-        </div>
-
-        <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/25 rounded-2xl flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">
-              ✅ Sotilgan (Sold)
-            </span>
-            <span className="text-base font-black text-slate-900 dark:text-white mt-1 block">
-              {byStatus.SOLD?.count || 0} ta bitim
-            </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              {formatMoney(byStatus.SOLD?.volume || 0)}
-            </span>
-          </div>
-        </div>
-
-        <div className="p-3.5 bg-rose-500/10 border border-rose-500/25 rounded-2xl flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-400 block">
-              🛒 Sotib Olish Kerak
-            </span>
-            <span className="text-base font-black text-slate-900 dark:text-white mt-1 block">
-              {byStatus.NEED_TO_BUY?.count || 0} ta bitim
-            </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              {formatMoney(byStatus.NEED_TO_BUY?.volume || 0)}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* FILTER BAR (AGENTLAR, AGENTLIK, STATUS VA SANA FILTRI) */}
-      <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-purple-600" />
-            <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
-              Agentlar va Hisob-kitob Filtrlari:
-            </span>
-          </div>
-
-          {(search || selectedAgentId || selectedAgencyId || statusFilter || startDate || endDate) && (
-            <button
-              onClick={handleResetFilters}
-              className="px-3 py-1 text-xs font-bold text-rose-500 hover:text-white hover:bg-rose-500 rounded-xl transition flex items-center gap-1 border border-rose-500/30"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Filtrlarni tozalash</span>
-            </button>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
-          {/* Search Input */}
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Chek, mijoz, telefon..."
-              value={search}
+                <option value="">{t('agentsPage.filter_agent_all')}</option>
+                {agentOptions.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.agencyName || t('agentsPage.no_agency')}) — {a.dealCount}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <Select
+              value={status}
               onChange={(e) => {
-                setSearch(e.target.value);
+                setStatus(e.target.value);
                 setPage(1);
               }}
-              className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium"
-            />
-          </div>
-
-          {/* Agent Dropdown */}
-          <div>
-            <select
-              value={selectedAgentId}
-              onChange={(e) => {
-                setSelectedAgentId(e.target.value);
-                setPage(1);
-              }}
-              className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-bold text-purple-700 dark:text-purple-300"
+              aria-label={t('common.status')}
             >
-              <option value="">👤 Barcha Agentlar ({agentsList.length})</option>
-              {agentsList.map((ag) => (
-                <option key={ag.id} value={ag.id}>
-                  {ag.name} ({ag.agencyName || 'Agentliksiz'}) — {ag.dealCount} ta
+              <option value="">{t('agentsPage.filter_status_all')}</option>
+              {DEAL_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {t(`dealStatus.${s}`)}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
-
-          {/* Agency Dropdown */}
-          <div>
-            <select
-              value={selectedAgencyId}
-              onChange={(e) => {
-                setSelectedAgencyId(e.target.value);
-                setPage(1);
-              }}
-              className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium"
-            >
-              <option value="">🏢 Barcha Agentliklar ({agenciesList.length})</option>
-              {agenciesList.map((agc) => (
-                <option key={agc.id} value={agc.id}>
-                  {agc.name} ({agc.dealCount} ta bitim)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Status Dropdown */}
-          <div>
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 font-medium"
-            >
-              <option value="">📌 Barcha Holatlar</option>
-              <option value="PENDING">Kutilmoqda (Pending)</option>
-              <option value="IN_WAREHOUSE">Omborda (In Warehouse)</option>
-              <option value="SOLD">Sotilgan (Sold)</option>
-              <option value="NEED_TO_BUY">Sotib olish kerak</option>
-            </select>
-          </div>
-
-          {/* Date range inputs */}
-          <div className="flex items-center gap-1.5">
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => {
-                setStartDate(e.target.value);
-                setPage(1);
-              }}
-              className="w-1/2 px-2 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none"
-            />
-            <span className="text-slate-400 text-xs">—</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => {
-                setEndDate(e.target.value);
-                setPage(1);
-              }}
-              className="w-1/2 px-2 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none"
-            />
-          </div>
+          <DateRangeFilter
+            value={range}
+            onChange={(v) => {
+              setRange(v);
+              setPage(1);
+            }}
+          />
         </div>
 
-        {/* Quick Date Presets */}
-        <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800 overflow-x-auto">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">
-            Sana tugmalari:
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              const today = new Date().toISOString().slice(0, 10);
-              setStartDate(today);
-              setEndDate(today);
-            }}
-            className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition"
-          >
-            Bugun
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const d = new Date();
-              d.setDate(d.getDate() - 1);
-              const yest = d.toISOString().slice(0, 10);
-              setStartDate(yest);
-              setEndDate(yest);
-            }}
-            className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition"
-          >
-            Kecha
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const now = new Date();
-              const past7 = new Date();
-              past7.setDate(now.getDate() - 7);
-              setStartDate(past7.toISOString().slice(0, 10));
-              setEndDate(now.toISOString().slice(0, 10));
-            }}
-            className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition"
-          >
-            Oxirgi 7 kun
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const now = new Date();
-              const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-              const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-              setStartDate(firstDay);
-              setEndDate(lastDay);
-            }}
-            className="px-2.5 py-1 text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-purple-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition"
-          >
-            Shu oy
-          </button>
-        </div>
-      </div>
+        {/* Kompaniya ko'rsatkichlari — agentga ko'rsatilmaydi */}
+        {!isAgent && totals && (
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-2 border-b border-line px-4 py-3 text-sm sm:grid-cols-3 sm:px-5">
+            {[
+              [t('agentsPage.kpi_limit'), totals.totalWithdrawn],
+              [t('agentsPage.kpi_payout'), totals.totalCalculated],
+              [t('agentsPage.kpi_company_profit'), totals.totalProfit],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="flex items-baseline justify-between gap-3 sm:block">
+                <dt className="text-xs text-fg-muted">{label}</dt>
+                <dd className="font-semibold tabular-nums text-fg sm:mt-0.5">{formatMoney(value as number)}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
 
-      {/* MAIN AGENT CRM DEALS TABLE */}
-      <div className="card-3d bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Briefcase className="w-4 h-4 text-purple-600" />
-            <h3 className="text-sm font-black text-slate-900 dark:text-white">
-              {selectedAgentInfo ? `${selectedAgentInfo.name} — Shaxsiy Bitimlari va Hisob-kitoblari` : "Barcha Agentlar Bitimlari Ro'yxati"}
-            </h3>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30">
-              {items.length} ta bitim
-            </span>
-          </div>
-        </div>
-
-        <div className="table-scroll-container custom-scrollbar overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200 dark:border-slate-800">
-              <tr>
-                <th className="px-3 py-3 text-center whitespace-nowrap">№</th>
-                <th className="px-3 py-3 whitespace-nowrap">Chek №</th>
-                <th className="px-3 py-3 whitespace-nowrap">Sana</th>
-                <th className="px-3 py-3 whitespace-nowrap">Agentlik</th>
-                <th className="px-3 py-3 whitespace-nowrap">Agent</th>
-                <th className="px-3 py-3 whitespace-nowrap">Mijoz (F.I.O)</th>
-                <th className="px-3 py-3 whitespace-nowrap">Mahsulot</th>
-                <th className="px-3 py-3 text-center whitespace-nowrap">Holat</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">Yechilgan limit</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">Mijozga to'lov</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">Diskont %</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
-                  Agent summasi
-                </th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">% Agenta</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">Sof foyda</th>
-              </tr>
-            </thead>
-
-            {/* Summary Sticky Top Row */}
-            <tbody className="bg-purple-100/70 dark:bg-purple-950/70 font-black border-b border-purple-300 dark:border-purple-800 text-purple-950 dark:text-purple-200">
-              <tr>
-                <td className="px-3 py-2 text-center text-[11px]" colSpan={8}>
-                  JAMI YIG'INDI (Tanlangan filtrlar bo'yicha):
-                </td>
-                <td className="px-3 py-2 text-right font-black text-slate-900 dark:text-white">
-                  {formatMoney(totals?.totalWithdrawn)}
-                </td>
-                <td className="px-3 py-2 text-right font-black text-cyan-800 dark:text-cyan-300">
-                  {formatMoney(totals?.totalCalculated)}
-                </td>
-                <td className="px-3 py-2 text-right font-bold text-slate-600 dark:text-slate-300">
-                  {totals?.avgDiscountPct}%
-                </td>
-                <td className="px-3 py-2 text-right font-black text-purple-700 dark:text-purple-300 bg-purple-200/60 dark:bg-purple-900/60">
-                  {formatMoney(totals?.totalAgentCommission)}
-                </td>
-                <td className="px-3 py-2 text-right font-bold text-purple-700 dark:text-purple-300">
-                  {totals?.avgAgentPct}%
-                </td>
-                <td className="px-3 py-2 text-right font-black text-emerald-700 dark:text-emerald-400">
-                  {formatMoney(totals?.totalProfit)}
-                </td>
-              </tr>
-            </tbody>
-
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-              {loading ? (
-                <tr>
-                  <td colSpan={14} className="py-12 text-center text-slate-400">
-                    <Clock className="w-6 h-6 animate-spin mx-auto mb-2 text-purple-500" />
-                    Agent ma'lumotlari yuklanmoqda...
-                  </td>
-                </tr>
-              ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={14} className="py-12 text-center text-slate-400">
-                    Hech qanday agent bitimi topilmadi
-                  </td>
-                </tr>
-              ) : (
-                items.map((it) => (
-                  <tr key={it.id} className="hover:bg-purple-50/30 dark:hover:bg-slate-800/40 transition">
-                    <td className="px-3 py-2.5 text-center font-bold text-slate-400">{it.index}</td>
-                    <td className="px-3 py-2.5 font-black text-purple-600 dark:text-purple-400">
-                      №{it.dealNumber}
-                    </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap text-slate-500 dark:text-slate-400">
-                      {formatDate(it.date)}
-                    </td>
-                    <td className="px-3 py-2.5 font-medium text-slate-700 dark:text-slate-300">
-                      {it.agencyName}
-                    </td>
-                    <td className="px-3 py-2.5 font-bold text-slate-900 dark:text-white">
-                      <span className="flex items-center gap-1">
-                        <span>{it.agentName}</span>
+        {dealsLoading && items.length === 0 ? (
+          <LoadingBlock label={t('common.loading')} />
+        ) : dealsError ? (
+          <EmptyState
+            icon={<AlertTriangle />}
+            title={t('agentsPage.deals_error')}
+            description={dealsError}
+            action={
+              <Button variant="secondary" onClick={() => void loadDeals()}>
+                {t('common.retry')}
+              </Button>
+            }
+          />
+        ) : (
+          <TableContainer bare className={cn(dealsLoading && 'opacity-60')}>
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('agentsPage.col_deal')}</Th>
+                  <Th>{t('agentsPage.col_customer')}</Th>
+                  <Th>{t('agentsPage.col_product')}</Th>
+                  <Th>{t('agentsPage.col_agent')}</Th>
+                  <Th>{t('agentsPage.col_approval')}</Th>
+                  <Th align="right">{t('agentsPage.col_limit')}</Th>
+                  <Th align="right">{t('agentsPage.col_discount')}</Th>
+                  <Th align="right">{t('agentsPage.col_agent_pct')}</Th>
+                  <Th align="right">{t('agentsPage.col_agent_profit')}</Th>
+                  {!isAgent && <Th align="right">{t('agentsPage.col_company_profit')}</Th>}
+                </Tr>
+              </Thead>
+              <Tbody>
+                {items.length === 0 && (
+                  <TableEmpty
+                    colSpan={columnCount}
+                    title={t('agentsPage.deals_empty')}
+                    description={hasFilters || approval !== 'all' ? t('agentsPage.deals_empty_hint') : undefined}
+                  />
+                )}
+                {items.map((deal) => (
+                  <Tr key={deal.id}>
+                    <Td numeric>
+                      <span className="block font-medium">№{deal.dealNumber}</span>
+                      <span className="block text-xs text-fg-muted">{deal.dateTimeLabel || formatDate(deal.date)}</span>
+                    </Td>
+                    <Td className="min-w-[9rem]">
+                      <span className="block">{deal.customerName || '—'}</span>
+                      {deal.customerPhone1 && <span className="block text-xs tabular-nums text-fg-muted">{deal.customerPhone1}</span>}
+                    </Td>
+                    <Td className="max-w-[14rem]">
+                      <span className="block truncate" title={deal.productName}>
+                        {deal.productName}
                       </span>
-                    </td>
-                    <td className="px-3 py-2.5 font-medium text-slate-800 dark:text-slate-200">
-                      <div>{it.customerName}</div>
-                      <div className="text-[10px] text-slate-400">{it.customerPhone1}</div>
-                    </td>
-                    <td className="px-3 py-2.5 max-w-[170px] truncate" title={it.productName}>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">{it.productName}</span>
-                    </td>
-                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                      {renderStatusBadge(it.status)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-black text-slate-900 dark:text-white">
-                      {formatMoney(it.withdrawnLimit)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-semibold text-cyan-700 dark:text-cyan-400">
-                      {formatMoney(it.calculatedAmount)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-slate-500 dark:text-slate-400">
-                      {formatPercent(it.purchaseDiscountPct)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-black text-purple-700 dark:text-purple-400 bg-purple-50/40 dark:bg-purple-950/20">
-                      {formatMoney(it.agentAmount)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-purple-600 dark:text-purple-400">
-                      {formatPercent(it.agentPct)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                      {formatMoney(it.profit)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      <span className="block text-xs text-fg-muted">{t(`dealStatus.${deal.status}`, deal.status || '')}</span>
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      <span className="block">{deal.agentName}</span>
+                      {!isAgent && <span className="block text-xs text-fg-muted">{deal.agencyName}</span>}
+                    </Td>
+                    <Td>
+                      <Badge tone={approvalTone(deal.approvalStatus)}>
+                        {t(`approval.${deal.approvalStatus}`, deal.approvalStatus || '—')}
+                      </Badge>
+                    </Td>
+                    <Td align="right" numeric>
+                      {formatMoney(deal.withdrawnLimit)}
+                    </Td>
+                    <Td align="right" numeric className="text-fg-secondary">
+                      {formatPercent(deal.purchaseDiscountPct)}
+                    </Td>
+                    <Td align="right" numeric className="text-fg-secondary">
+                      {formatPercent(deal.agentPct)}
+                    </Td>
+                    <Td align="right" numeric className="font-semibold">
+                      {formatMoney(deal.agentAmount)}
+                    </Td>
+                    {!isAgent && (
+                      <Td align="right" numeric className={deal.profit < 0 ? 'text-danger' : 'text-success'}>
+                        {formatMoney(deal.profit)}
+                      </Td>
+                    )}
+                  </Tr>
+                ))}
+              </Tbody>
+            </Table>
+          </TableContainer>
+        )}
 
-        {/* Pagination bar */}
-        <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-          <span>
-            Jami: <b>{totals?.dealCount || 0} ta</b> bitim
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-              className="px-3 py-1 rounded-xl border border-slate-300 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold"
-            >
-              Oldingi
-            </button>
-            <span>
-              Sahifa {page} / {totalPages}
-            </span>
-            <button
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              className="px-3 py-1 rounded-xl border border-slate-300 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-slate-800 font-bold"
-            >
-              Keyingi
-            </button>
+        {!dealsError && (
+          <div className="flex flex-col gap-2 border-t border-line px-4 py-3 text-xs text-fg-muted sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <span className="tabular-nums">{t('agentsPage.total_found', { count: formatNumber(totalCount) })}</span>
+            <div className="flex items-center justify-between gap-2 sm:justify-end">
+              <Button variant="secondary" size="sm" disabled={page <= 1 || dealsLoading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                {t('agentsPage.prev')}
+              </Button>
+              <span className="tabular-nums">{t('agentsPage.page', { page, total: totalPages })}</span>
+              <Button variant="secondary" size="sm" disabled={page >= totalPages || dealsLoading} onClick={() => setPage((p) => p + 1)}>
+                {t('agentsPage.next')}
+              </Button>
+            </div>
           </div>
-        </div>
-      </div>
+        )}
+      </Card>
     </div>
   );
 };
+
+export default AgentsPage;

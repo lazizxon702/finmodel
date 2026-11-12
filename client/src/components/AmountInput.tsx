@@ -10,6 +10,10 @@ interface AmountInputProps {
   autoFocus?: boolean;
   name?: string;
   id?: string;
+  /** Masalan Enter bosilganda formani yubormaslik uchun */
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+  'aria-label'?: string;
+  'aria-invalid'?: boolean;
 }
 
 export const formatSpaced = (val: number | string): string => {
@@ -31,6 +35,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   autoFocus = false,
   name,
   id,
+  onKeyDown,
+  'aria-label': ariaLabel,
+  'aria-invalid': ariaInvalid,
 }) => {
   const [displayValue, setDisplayValue] = useState<string>(() => {
     const num = Number(value) || 0;
@@ -75,6 +82,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       value={displayValue}
       onChange={handleChange}
       onFocus={handleFocus}
+      onKeyDown={onKeyDown}
+      aria-label={ariaLabel}
+      aria-invalid={ariaInvalid || undefined}
       className={className}
     />
   );

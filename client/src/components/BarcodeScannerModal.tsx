@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Camera, CheckCircle2, QrCode, X, AlertCircle, RefreshCw, Barcode } from 'lucide-react';
+import { Camera, CheckCircle2, AlertCircle, Barcode } from 'lucide-react';
 import { formatMoney, formatDate } from '../utils/format';
 import { useTranslation } from '../context/LanguageContext';
+import { Button, Field, Input, Modal } from './ui';
 
 interface BarcodeScannerModalProps {
   item: any;
@@ -26,6 +28,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [error, setError] = useState('');
 
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const imei2Ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isCameraActive) {
@@ -41,17 +44,18 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
       scanner.render(
         (decodedText) => {
+          // Kamera skaneri FAQAT maydonni to'ldiradi — saqlash (handleSubmit) chaqirilmaydi
           if (!imei1) {
             setImei1(decodedText);
           } else if (!imei2) {
             setImei2(decodedText);
           }
-          // Stop camera once scanned
+          // Skanerlangach kamerani to'xtatish
           scanner.clear().catch(console.error);
           setIsCameraActive(false);
         },
-        (err) => {
-          // ignore frame decode fails
+        () => {
+          // kadr o'qilmagan xatolarini e'tiborsiz qoldiramiz
         }
       );
 
@@ -65,204 +69,165 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }, [isCameraActive, imei1, imei2]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Saqlash FAQAT "Omborga qabul qilish" tugmasi qo'lda bosilganda ishlaydi.
+  // Skaner (kamera yoki USB/Bluetooth) hech qachon bu funksiyani chaqirmaydi.
+  const handleSubmit = async () => {
+    if (submitting) return;
     if (!imei1.trim()) {
-      setError('IMEI 1 kiritilishi yoki skaner qilinishi shart!');
+      setError(t('scanner.imei1Required'));
       return;
     }
 
     try {
       setSubmitting(true);
       setError('');
-      const res = await fetch(`/api/inventory/${item.id}/receive`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({
-          imeiBarcode: imei1.trim(),
-          imei2: imei2.trim(),
-          color: color.trim(),
-          storageGb: storageGb.trim(),
-        }),
+      await axios.put(`/api/inventory/${item.id}/receive`, {
+        imeiBarcode: imei1.trim(),
+        imei2: imei2.trim(),
+        color: color.trim(),
+        storageGb: storageGb.trim(),
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Qabul qilishda xatolik');
-      }
 
       onSuccess();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.response?.data?.error || err.message || t('scanner.receiveError'));
     } finally {
       setSubmitting(false);
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/80 backdrop-blur-md">
-      <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[94vh] sm:h-auto sm:max-h-[92vh] text-xs text-slate-800 dark:text-slate-200">
-        {/* Header */}
-        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/90 shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center border border-cyan-500/30">
-              <Camera className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                Skaner & Prixod
-              </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[200px] sm:max-w-none">
-                Chek №{item.dealNumber} - {item.productName}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+  // Apparat skanerlari kod oxirida Enter yuboradi — bu formani saqlamasligi kerak.
+  // IMEI 1 dan keyin fokus IMEI 2 ga o'tadi; boshqa maydonlarda Enter e'tiborsiz.
+  const onScanKeyDown =
+    (next?: React.RefObject<HTMLInputElement>) => (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      next?.current?.focus();
+    };
 
-        {/* Item arrival info card */}
-        <div className="p-3 sm:p-4 mx-4 sm:mx-6 mt-3 sm:mt-4 rounded-2xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 grid grid-cols-2 gap-2.5 sm:gap-3 text-[11px] shrink-0">
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="md"
+      title={
+        <span className="flex items-center gap-2">
+          <Camera className="h-4 w-4 text-accent" />
+          {t('scanner.title')}
+        </span>
+      }
+      description={t('scanner.subtitle', { number: item.dealNumber, product: item.productName })}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="success"
+            onClick={handleSubmit}
+            loading={submitting}
+            leftIcon={<CheckCircle2 className="h-4 w-4" />}
+          >
+            {t('scanner.receive')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* Kelgan tovar ma'lumoti */}
+        <div className="grid grid-cols-2 gap-3 rounded-card border border-line bg-surface-2 p-3 text-xs">
           <div>
-            <span className="text-slate-500 dark:text-slate-400 block font-medium">Qayerdan kelgan:</span>
-            <span className="font-bold text-slate-900 dark:text-white text-xs">{item.storeName}</span>
+            <span className="block text-fg-muted">{t('scanner.from')}</span>
+            <span className="font-semibold text-fg">{item.storeName}</span>
           </div>
           <div>
-            <span className="text-slate-500 dark:text-slate-400 block font-medium">Kelgan sanasi:</span>
-            <span className="font-bold text-slate-900 dark:text-white text-xs">{formatDate(item.date)}</span>
+            <span className="block text-fg-muted">{t('scanner.arrivalDate')}</span>
+            <span className="font-semibold tabular-nums text-fg">{formatDate(item.date)}</span>
           </div>
           <div>
-            <span className="text-slate-500 dark:text-slate-400 block font-medium">Chek raqami:</span>
-            <span className="font-bold text-cyan-600 dark:text-cyan-400 text-xs">№{item.dealNumber}</span>
+            <span className="block text-fg-muted">{t('scanner.receiptNo')}</span>
+            <span className="font-semibold tabular-nums text-accent">№{item.dealNumber}</span>
           </div>
           <div>
-            <span className="text-slate-500 dark:text-slate-400 block font-medium">Xarid narxi (Qanchaga):</span>
-            <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">{formatMoney(item.purchaseCost)}</span>
+            <span className="block text-fg-muted">{t('scanner.purchasePrice')}</span>
+            <span className="font-semibold tabular-nums text-success">{formatMoney(item.purchaseCost)}</span>
           </div>
         </div>
 
         {error && (
-          <div className="mx-4 sm:mx-6 mt-3 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400" />
+          <div className="flex items-center gap-2 rounded-control border border-danger/30 bg-danger-soft p-3 text-xs text-danger">
+            <AlertCircle className="h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-          {/* Camera View Area */}
+        {/* Forma Enter bilan hech qachon yuborilmaydi (onSubmit bloklangan) */}
+        <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+          {/* Kamera: skanerning o'zi ataylab qora fonda (.keep-colors) */}
           {isCameraActive ? (
             <div className="space-y-2">
-              <div id="reader" className="w-full rounded-2xl overflow-hidden bg-black min-h-[220px]" />
-              <button
-                type="button"
-                onClick={() => setIsCameraActive(false)}
-                className="w-full py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-xl font-bold"
-              >
-                Kamerani to'xtatish
-              </button>
+              <div id="reader" className="keep-colors min-h-[220px] w-full overflow-hidden rounded-card bg-black" />
+              <Button variant="secondary" fullWidth onClick={() => setIsCameraActive(false)}>
+                {t('scanner.stopCamera')}
+              </Button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setIsCameraActive(true)}
-              className="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/20 active:scale-[0.99] transition"
-            >
-              <Camera className="w-4 h-4" />
-              <span>Telefon kamerasini yoqish (Skanerlash)</span>
-            </button>
+            <Button fullWidth size="lg" leftIcon={<Camera className="h-4 w-4" />} onClick={() => setIsCameraActive(true)}>
+              {t('scanner.startCamera')}
+            </Button>
           )}
 
-          {/* Dual IMEI inputs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                IMEI 1 / Shtrix-kod *
-              </label>
-              <div className="relative">
-                <Barcode className="w-4 h-4 text-cyan-600 dark:text-cyan-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  required
-                  placeholder="352887831..."
-                  value={imei1}
-                  onChange={(e) => setImei1(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono text-xs focus:ring-2 focus:ring-cyan-500 outline-none"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                IMEI 2 (Dual SIM)
-              </label>
-              <div className="relative">
-                <Barcode className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  placeholder="352887832..."
-                  value={imei2}
-                  onChange={(e) => setImei2(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-mono text-xs focus:ring-2 focus:ring-cyan-500 outline-none"
-                />
-              </div>
-            </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('scanner.imei1')} required>
+              <Input
+                type="text"
+                inputMode="numeric"
+                placeholder="352887831..."
+                value={imei1}
+                onChange={(e) => setImei1(e.target.value)}
+                onKeyDown={onScanKeyDown(imei2Ref)}
+                leftIcon={<Barcode />}
+                className="font-mono tabular-nums"
+              />
+            </Field>
+            <Field label={t('scanner.imei2')}>
+              <Input
+                ref={imei2Ref}
+                type="text"
+                inputMode="numeric"
+                placeholder="352887832..."
+                value={imei2}
+                onChange={(e) => setImei2(e.target.value)}
+                onKeyDown={onScanKeyDown()}
+                leftIcon={<Barcode />}
+                className="font-mono tabular-nums"
+              />
+            </Field>
           </div>
 
-          {/* Color & Storage specs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Rangi</label>
-              <input
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('scanner.color')}>
+              <Input
                 type="text"
-                placeholder="Natural Titanium, Black..."
+                placeholder={t('scanner.colorPlaceholder')}
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-cyan-500 outline-none"
+                onKeyDown={onScanKeyDown()}
               />
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Xotirasi</label>
-              <input
+            </Field>
+            <Field label={t('scanner.storage')}>
+              <Input
                 type="text"
-                placeholder="256GB, 512GB..."
+                placeholder={t('scanner.storagePlaceholder')}
                 value={storageGb}
                 onChange={(e) => setStorageGb(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs focus:ring-2 focus:ring-cyan-500 outline-none"
+                onKeyDown={onScanKeyDown()}
               />
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="pt-2 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-xl font-bold transition"
-            >
-              Bekor qilish
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition disabled:opacity-50"
-            >
-              {submitting ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <CheckCircle2 className="w-3.5 h-3.5" />
-              )}
-              <span>Omborga qabul qilish (Omborda)</span>
-            </button>
+            </Field>
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 };
 export default BarcodeScannerModal;

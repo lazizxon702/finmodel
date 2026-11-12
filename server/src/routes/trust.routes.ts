@@ -12,6 +12,12 @@ import { LedgerError, createDds, getAccountBalances, getTrustLedger } from '../s
  */
 const router = Router();
 
+/** Eski yozuvlardagi to'ldirgichlar ("Mijoz", "-") ism sifatida ko'rsatilmaydi */
+const cleanName = (v?: string | null) => {
+  const t = (v || '').trim();
+  return !t || t === '-' || t.toLowerCase() === 'mijoz' ? null : t;
+};
+
 const VIEW_ROLES: Role[] = [Role.ADMIN, Role.MANAGER, Role.CFO, Role.COO, Role.CASHIER, Role.VIEWER];
 const WRITE_ROLES: Role[] = [Role.ADMIN, Role.MANAGER, Role.CFO, Role.CASHIER];
 
@@ -37,7 +43,7 @@ router.get('/', authenticateToken, requireRoles(VIEW_ROLES), async (req: AuthReq
           ? {
               id: e.deal.id,
               dealNumber: e.deal.dealNumber,
-              customerName: e.deal.customerName,
+              customerName: cleanName(e.deal.customerName),
               withdrawnLimit: Number(e.deal.withdrawnLimit),
               storeName: e.deal.store?.name || null,
               providerName: e.deal.provider?.name || null,

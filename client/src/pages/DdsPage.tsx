@@ -1,714 +1,689 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
 import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowDownLeft,
   ArrowDownUp,
-  Plus,
-  Search,
-  Wallet,
-  CreditCard,
+  ArrowUpRight,
   Building,
-  TrendingUp,
-  TrendingDown,
-  PieChart,
-  RefreshCw,
-  X,
-  Layers,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
-  PlusCircle,
-  Trash2
+  CreditCard,
+  Layers,
+  PieChart,
+  Plus,
+  RefreshCw,
+  Scale,
+  Search,
+  Trash2,
+  Wallet,
+  X,
 } from 'lucide-react';
-import { DdsTransaction } from '../types';
-import { formatMoney, formatPercent, formatDateTime } from '../utils/format';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Field,
+  Input,
+  LoadingBlock,
+  Modal,
+  PageHeader,
+  Select,
+  StatCard,
+  Table,
+  TableContainer,
+  TableEmpty,
+  Tbody,
+  Td,
+  Th,
+  Thead,
+  Tr,
+  cn,
+  type Tone,
+} from '../components/ui';
+import { apiErrorMessage } from '../components/dashboard/period';
+import { DdsFormModal } from '../components/dds/DdsFormModal';
+import {
+  DDS_ACCOUNTS,
+  DDS_DELETE_ROLES,
+  DDS_SOURCES,
+  DDS_SYNC_ROLES,
+  DDS_WRITE_ROLES,
+  DEFAULT_CATEGORIES,
+  type DdsBalances,
+  type DdsSource,
+} from '../components/dds/constants';
+import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
-import { AmountInput } from '../components/AmountInput';
+import { useRealtime } from '../context/SocketContext';
+import { DdsTransaction } from '../types';
+import { formatDateTime, formatMoney, formatNumber, formatPercent } from '../utils/format';
+
+const SOURCE_TONE: Record<DdsSource, Tone> = {
+  MANUAL: 'neutral',
+  DEAL_CHECK: 'info',
+  TRUST_PAYMENT: 'brand',
+  SYNC: 'warning',
+};
+
+interface Notice {
+  tone: 'success' | 'danger';
+  text: string;
+}
 
 export const DdsPage: React.FC = () => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
   const { t } = useTranslation();
-  const [transactions, setTransactions] = useState<DdsTransaction[]>([]);
-  const [summary, setSummary] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const role = user?.role || '';
+  const isAdmin = role === 'ADMIN';
+  const canWrite = DDS_WRITE_ROLES.includes(role);
+  const canDelete = DDS_DELETE_ROLES.includes(role);
+  const canSync = DDS_SYNC_ROLES.includes(role);
 
-  // Filters
+  const [transactions, setTransactions] = useState<DdsTransaction[]>([]);
+  const [totalOnServer, setTotalOnServer] = useState(0);
+  const [summary, setSummary] = useState<any>(null);
+  const [balances, setBalances] = useState<DdsBalances | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+
+  // Filtrlar
   const [typeFilter, setTypeFilter] = useState('');
   const [accountFilter, setAccountFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [showCategoryBreakdown, setShowCategoryBreakdown] = useState(false);
 
-  // Category state
-  const [categories, setCategories] = useState<string[]>([
-    'Mijozga berilgan summa (Tovar xaridi)',
-    'Tovar xaridi (mijozlardan)',
-    'Agent va hamkor komissiyasi',
-    'UZIMEI ro\'yxatdan o\'tkazish',
-    'Logistika va yetkazib berish',
-    'Marketing va reklama',
-    'Ish haqi (FOT)',
-    'Ofis ijara va kommunal xizmatlar',
-    'Aloqa va internet',
-    'Ulgurji savdo tushumi',
-    'Daftar tushumi',
-    'Инвестиция Хасан',
-    'Выкуп техники (клиенты)',
-    'Выручка от оптовиков',
-    'Boshqa xarajat',
-  ]);
-  const [isAddingNewCategory, setIsAddingNewCategory] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
 
-  // Modal State
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // Modallar
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [syncingDds, setSyncingDds] = useState(false);
-  const [form, setForm] = useState({
-    dateTime: new Date().toISOString().slice(0, 10),
-    type: 'EXPENSE',
-    account: 'CASH',
-    expenseType: 'COGS',
-    categoryName: 'Mijozga berilgan summa (Tovar xaridi)',
-    sourcePerson: 'Hasan',
-    amount: 0,
-    description: '',
+  const [deleteTarget, setDeleteTarget] = useState<DdsTransaction | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearCode, setClearCode] = useState('');
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+
+  const requestId = useRef(0);
+
+  // Qidiruv matni yozib bo'lingach so'rov yuboriladi (har harfda emas)
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await axios.get('/api/dds/categories');
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        // Server ro'yxati oldinda (tizim kategoriyalari boshida), so'ng boshlang'ich ro'yxatdan yetishmaganlari
+        setCategories((prev) => Array.from(new Set<string>([...res.data, ...prev])));
+      }
+    } catch {
+      // Kategoriyalar yuklanmasa boshlang'ich ro'yxat bilan ishlayveradi
+    }
+  }, []);
+
+  // silent = true — real vaqt hodisasi yoki saqlashdan keyingi jim yangilash (jadval o'chib-yonmaydi)
+  const fetchDdsData = useCallback(
+    async (silent = false) => {
+      const id = ++requestId.current;
+      if (!silent) {
+        setLoading(true);
+        setLoadError(null);
+      }
+      try {
+        const [txRes, sumRes] = await Promise.all([
+          axios.get('/api/dds', {
+            params: {
+              type: typeFilter || undefined,
+              account: accountFilter || undefined,
+              source: sourceFilter || undefined,
+              search: search || undefined,
+              limit: 500,
+              sortOrder: 'asc',
+            },
+          }),
+          axios.get('/api/dds/summary'),
+        ]);
+        if (id !== requestId.current) return; // eskirgan javob
+
+        const rows: DdsTransaction[] = (txRes.data.transactions || []).filter(
+          (tx: DdsTransaction) => Number(tx.amount) > 0 || (tx.description && tx.description.trim() !== '')
+        );
+        setTransactions(rows);
+        setTotalOnServer(Number(txRes.data.pagination?.total) || rows.length);
+        setSummary(sumRes.data);
+        if (sumRes.data?.balances) setBalances(sumRes.data.balances);
+        setLoadError(null);
+      } catch (err) {
+        if (id !== requestId.current || silent) return;
+        setLoadError(apiErrorMessage(err, t('common.load_error')));
+      } finally {
+        if (id === requestId.current && !silent) setLoading(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [typeFilter, accountFilter, sourceFilter, search]
+  );
+
+  useEffect(() => {
+    fetchDdsData();
+  }, [fetchDdsData]);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
+
+  useRealtime('dds:updated', () => {
+    fetchDdsData(true);
+    fetchCategories();
   });
 
   const handleSyncDdsFromSheets = async () => {
+    if (syncingDds) return;
+    setSyncingDds(true);
+    setNotice(null);
     try {
-      setSyncingDds(true);
       const res = await axios.post('/api/sync/dds');
-      alert(
-        `Google Sheets 'Транзакции_ДДС' jadvalidan ${res.data.importedCount} ta operatsiya muvaffaqiyatli yuklandi!\n\n` +
-          `• Kirim (Приход): ${formatMoney(res.data.totalIncome)}\n` +
-          `• Chiqim (Расход): ${formatMoney(res.data.totalExpense)}\n` +
-          `• Qoldiq (Saldo): ${formatMoney(res.data.netCashflow)}`
-      );
-      fetchDdsData();
+      setNotice({
+        tone: 'success',
+        text: t('ddsPage.sync_done', {
+          count: formatNumber(res.data?.importedCount),
+          income: formatMoney(res.data?.totalIncome),
+          expense: formatMoney(res.data?.totalExpense),
+          net: formatMoney(res.data?.netCashflow),
+        }),
+      });
+      fetchDdsData(true);
       fetchCategories();
-    } catch (err: any) {
-      alert("Sinxronizatsiyada xatolik: " + (err.response?.data?.error || err.message));
+    } catch (err) {
+      setNotice({ tone: 'danger', text: `${t('ddsPage.sync_error')}: ${apiErrorMessage(err, t('errors.server'))}` });
     } finally {
       setSyncingDds(false);
     }
   };
 
-  useEffect(() => {
-    fetchDdsData();
-    fetchCategories();
-  }, [typeFilter, accountFilter, search]);
-
-  const fetchCategories = async () => {
-    try {
-      const res = await axios.get('/api/dds/categories');
-      if (Array.isArray(res.data) && res.data.length > 0) {
-        setCategories((prev) => {
-          const merged = Array.from(new Set([...prev, ...res.data]));
-          return merged;
-        });
-      }
-    } catch (err) {
-      console.warn('Could not fetch categories:', err);
-    }
+  const handleCreated = (created: any) => {
+    setIsFormOpen(false);
+    // Javobdagi yangi qoldiqlar darhol ko'rsatiladi; ro'yxat fon rejimida yangilanadi
+    if (created?.balances) setBalances(created.balances);
+    setNotice({
+      tone: 'success',
+      text: created?.trust
+        ? t('ddsPage.saved_trust', { tx: created.txNumber, balance: formatMoney(created.trust.balance) })
+        : t('ddsPage.saved', { tx: created?.txNumber || '' }),
+    });
+    if (created?.categoryName) setCategories((prev) => Array.from(new Set([...prev, created.categoryName])));
+    fetchDdsData(true);
   };
 
-  const fetchDdsData = async () => {
+  const handleDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
     try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (typeFilter) params.append('type', typeFilter);
-      if (accountFilter) params.append('account', accountFilter);
-      if (search) params.append('search', search);
-      params.append('limit', '500');
-      params.append('sortOrder', 'asc');
-
-      const [txRes, sumRes] = await Promise.all([
-        axios.get(`/api/dds?${params.toString()}`),
-        axios.get('/api/dds/summary'),
-      ]);
-
-      const rawTxs = txRes.data.transactions || [];
-      // Chronological ascending sort (17:16 -> 17:17) and filter phantom 0s
-      const sorted = rawTxs
-        .filter((t: any) => Number(t.amount) > 0 || (t.description && t.description.trim() !== ''))
-        .sort((a: any, b: any) => {
-          return new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime();
-        });
-
-      setTransactions(sorted);
-      setSummary(sumRes.data);
+      const res = await axios.delete(`/api/dds/${deleteTarget.id}`);
+      if (res.data?.balances) setBalances(res.data.balances);
+      setTransactions((prev) => prev.filter((tx) => tx.id !== deleteTarget.id));
+      setNotice({ tone: 'success', text: t('ddsPage.deleted', { tx: deleteTarget.txNumber }) });
+      setDeleteTarget(null);
+      fetchDdsData(true);
     } catch (err) {
-      console.error('Fetch DDS error:', err);
+      setDeleteError(apiErrorMessage(err, t('common.delete_error')));
     } finally {
-      setLoading(false);
+      setDeleting(false);
     }
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleClearAll = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.amount || form.amount <= 0) {
-      alert('Iltimos, amaldagi to\'g\'ri summani kiriting!');
-      return;
-    }
-
-    let finalCategory = form.categoryName;
-    if (isAddingNewCategory && newCategoryName.trim()) {
-      finalCategory = newCategoryName.trim();
-      setCategories((prev) => Array.from(new Set([...prev, finalCategory])));
-    }
-
-    try {
-      await axios.post('/api/dds', {
-        ...form,
-        dateTime: form.dateTime ? `${form.dateTime}T12:00:00+05:00` : new Date().toISOString(),
-        categoryName: finalCategory,
-      });
-      setIsModalOpen(false);
-      setIsAddingNewCategory(false);
-      setNewCategoryName('');
-      setForm({
-        dateTime: new Date().toISOString().slice(0, 10),
-        type: 'EXPENSE',
-        account: 'CASH',
-        expenseType: 'COGS',
-        categoryName: finalCategory,
-        sourcePerson: 'Hasan',
-        amount: 0,
-        description: '',
-      });
-      fetchDdsData();
-      fetchCategories();
-    } catch (err: any) {
-      alert('Xatolik: ' + (err.response?.data?.error || err.message));
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Haqiqatdan ham bu tranzaksiyani o'chirmoqchimisiz?")) return;
-    try {
-      await axios.delete(`/api/dds/${id}`);
-      fetchDdsData();
-    } catch (err: any) {
-      alert("O'chirishda xatolik: " + (err.response?.data?.error || err.message));
-    }
-  };
-
-  const handleClearAll = async () => {
-    const conf = window.prompt("Barcha kirim-chiqimlarni o'chirish va kassa/karta balansini 0 qilish uchun administrator kodini kiriting:");
-    if (!conf) return;
+    if (clearing || !clearCode) return;
+    setClearing(true);
+    setClearError(null);
     try {
       // Kod serverda tekshiriladi; faqat ADMIN roli bajara oladi
-      await axios.delete('/api/dds/all', { data: { confirmCode: conf } });
-      fetchDdsData();
-      alert("Barcha kirim-chiqimlar o'chirildi va balans 0 qilindi!");
-    } catch (err: any) {
-      alert("Tozalashda xatolik: " + (err.response?.data?.error || err.message));
+      const res = await axios.delete('/api/dds/all', { data: { confirmCode: clearCode } });
+      if (res.data?.balances) setBalances(res.data.balances);
+      setClearOpen(false);
+      setClearCode('');
+      setNotice({ tone: 'success', text: t('ddsPage.cleared') });
+      fetchDdsData(true);
+    } catch (err) {
+      setClearError(apiErrorMessage(err, t('ddsPage.clear_error')));
+    } finally {
+      setClearing(false);
     }
   };
 
-  // Dynamic calculations based on active filtered transactions
+  const resetFilters = () => {
+    setTypeFilter('');
+    setAccountFilter('');
+    setSourceFilter('');
+    setSearchInput('');
+    setSearch('');
+  };
+
+  // Joriy filtr bo'yicha ko'rsatilgan yozuvlar aylanmasi
   const totalCount = transactions.length;
-  const filteredIncome = transactions
-    .filter((t) => t.type === 'INCOME')
-    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-  const filteredExpense = transactions
-    .filter((t) => t.type === 'EXPENSE')
-    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  const filteredIncome = transactions.filter((tx) => tx.type === 'INCOME').reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+  const filteredExpense = transactions.filter((tx) => tx.type === 'EXPENSE').reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
   const filteredNetFlow = filteredIncome - filteredExpense;
   const avgCheck = totalCount > 0 ? Math.round((filteredIncome + filteredExpense) / totalCount) : 0;
 
+  const hasFilters = !!(typeFilter || accountFilter || sourceFilter || searchInput);
+  const colCount = canDelete ? 10 : 9;
+  const breakdown: any[] = summary?.categoriesBreakdown || [];
+
   return (
-    <div className="space-y-6 text-slate-900 dark:text-slate-100 w-full">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-            <ArrowDownUp className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-            <span>Pul Oqimi va Harakati — DDS (Keng Jadval)</span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Kassa, karta va hisob-raqamdagi barcha kirim-chiqimlar, COGS va OPEX tasnifi (Xronologik o'sish tartibida)
-          </p>
-        </div>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        icon={<ArrowDownUp />}
+        title={t('ddsPage.title')}
+        description={t('ddsPage.subtitle')}
+        actions={
+          <>
+            {canSync && (
+              <Button
+                variant="secondary"
+                onClick={handleSyncDdsFromSheets}
+                loading={syncingDds}
+                leftIcon={<RefreshCw className="h-4 w-4" />}
+                title={t('ddsPage.sync_hint')}
+              >
+                {t('ddsPage.sync')}
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => setShowCategoryBreakdown((v) => !v)}
+              aria-expanded={showCategoryBreakdown}
+              leftIcon={<PieChart className="h-4 w-4" />}
+              rightIcon={showCategoryBreakdown ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            >
+              {t('ddsPage.breakdown')}
+            </Button>
+            {isAdmin && (
+              <Button
+                variant="ghost"
+                className="text-danger hover:bg-danger-soft hover:text-danger"
+                onClick={() => {
+                  setClearCode('');
+                  setClearError(null);
+                  setClearOpen(true);
+                }}
+                leftIcon={<Trash2 className="h-4 w-4" />}
+              >
+                {t('ddsPage.clear_all')}
+              </Button>
+            )}
+            {canWrite && (
+              <Button onClick={() => setIsFormOpen(true)} leftIcon={<Plus className="h-4 w-4" />}>
+                {t('ddsPage.add')}
+              </Button>
+            )}
+          </>
+        }
+      />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={syncingDds}
-            onClick={handleSyncDdsFromSheets}
-            className="btn-3d inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-800 rounded-xl transition"
-            title="Google Sheets 'Транзакции_ДДС' jadvalidagi barcha kirim va chiqimlarni yuklab olish"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${syncingDds ? 'animate-spin text-emerald-500' : 'text-emerald-600 dark:text-emerald-400'}`} />
-            <span>{syncingDds ? 'Yuklanmoqda...' : 'Sheets DDS yuklash'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowCategoryBreakdown(!showCategoryBreakdown)}
-            className="btn-3d inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition"
-          >
-            <PieChart className="w-4 h-4 text-indigo-500" />
-            <span>Xarajat Strukturasi</span>
-            {showCategoryBreakdown ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
-
-          {isAdmin && (
-          <button
-            type="button"
-            onClick={handleClearAll}
-            className="btn-3d inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 border border-rose-300 dark:border-rose-800 rounded-xl transition"
-            title="Barcha kirim-chiqimlarni tozalash va balansni 0 qilish"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Balansni 0 qilish</span>
-          </button>
+      {notice && (
+        <div
+          role={notice.tone === 'danger' ? 'alert' : 'status'}
+          className={cn(
+            'flex items-start gap-2.5 rounded-card border border-line px-4 py-3 text-sm',
+            notice.tone === 'danger' ? 'bg-danger-soft text-danger' : 'bg-success-soft text-success'
           )}
-
+        >
+          {notice.tone === 'danger' ? (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          ) : (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          )}
+          <p className="min-w-0 flex-1">{notice.text}</p>
           <button
-            onClick={() => {
-              setForm({
-                dateTime: new Date().toISOString().slice(0, 10),
-                type: 'EXPENSE',
-                account: 'CASH',
-                expenseType: 'OPEX',
-                categoryName: categories[0] || 'Boshqa xarajat',
-                sourcePerson: 'Hasan',
-                amount: 0,
-                description: '',
-              });
-              setIsAddingNewCategory(false);
-              setNewCategoryName('');
-              setIsModalOpen(true);
-            }}
-            className="btn-3d inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl shadow-md shadow-emerald-600/20 active:translate-y-[1px] transition"
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label={t('common.close')}
+            className="-my-1.5 -mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-control hover:bg-surface/40"
           >
-            <Plus className="w-4 h-4" />
-            <span>Yangi Pul Operatsiyasi</span>
+            <X className="h-4 w-4" />
           </button>
-        </div>
-      </div>
-
-      {/* Dynamic KPI Summary Banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 w-full">
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
-            Jami Kirim (Itogo)
-          </span>
-          <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
-            {formatMoney(filteredIncome)}
-          </p>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Barcha daromadlar</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider block">
-            Jami Chiqim (Xarajat)
-          </span>
-          <p className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 mt-1">
-            {formatMoney(filteredExpense)}
-          </p>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">COGS + OPEX xarajat</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-            Sof Pul Oqimi (Net Flow)
-          </span>
-          <p className={`text-base sm:text-lg font-black mt-1 ${filteredNetFlow >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-600 dark:text-rose-400'}`}>
-            {formatMoney(filteredNetFlow)}
-          </p>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Kirim - Chiqim</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-            Soni (Kolichestvo)
-          </span>
-          <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
-            {totalCount} ta
-          </p>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Tranzaksiyalar soni</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md col-span-2 sm:col-span-1">
-          <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
-            O'rtacha Chek
-          </span>
-          <p className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-1">
-            {formatMoney(avgCheck)}
-          </p>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">1 operatsiya summasi</span>
-        </div>
-      </div>
-
-      {/* Account Balances Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 w-full">
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">Kassa (Naqd pul)</p>
-            <p className="text-base font-black text-slate-900 dark:text-white mt-1">{formatMoney(summary?.cashBalance)}</p>
-          </div>
-          <Wallet className="w-6 h-6 text-emerald-500 dark:text-emerald-400" />
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">Bank karta (Humo/Uzcard)</p>
-            <p className="text-base font-black text-slate-900 dark:text-white mt-1">{formatMoney(summary?.cardBalance)}</p>
-          </div>
-          <CreditCard className="w-6 h-6 text-blue-500 dark:text-blue-400" />
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">Hisob-raqam (MChJ)</p>
-            <p className="text-base font-black text-slate-900 dark:text-white mt-1">{formatMoney(summary?.settlementBalance)}</p>
-          </div>
-          <Building className="w-6 h-6 text-purple-500 dark:text-purple-400" />
-        </div>
-
-        <div className="card-3d bg-gradient-to-r from-emerald-700 to-teal-800 text-white p-4 rounded-2xl flex items-center justify-between shadow-md">
-          <div>
-            <p className="text-[11px] text-emerald-200 font-semibold">Jami Likvidlik</p>
-            <p className="text-base font-extrabold mt-1">{formatMoney(summary?.totalLiquidity)}</p>
-          </div>
-          <PieChart className="w-6 h-6 text-emerald-300" />
-        </div>
-      </div>
-
-      {/* Category Breakdown Card (Collapsible) */}
-      {showCategoryBreakdown && (
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm p-5 space-y-4 animate-fade-in w-full">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Xarajatlar Strukturasi va Kriteriyalari (Kategoriyalar bo'yicha taqsimot)
-            </h3>
-            <span className="text-xs text-slate-500">{summary?.categoriesBreakdown?.length || 0} ta kategoriya</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {summary?.categoriesBreakdown?.map((cat: any, idx: number) => (
-              <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl space-y-1 border border-slate-200/60 dark:border-slate-700/60">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{cat.categoryName}</span>
-                  <span className="font-extrabold text-slate-900 dark:text-white">{formatMoney(cat.amount)}</span>
-                </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <span>{cat.classification}</span>
-                  <span className="font-semibold text-slate-600 dark:text-slate-300">{formatPercent(cat.sharePct)}</span>
-                </div>
-                <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden mt-1">
-                  <div
-                    className="h-full bg-emerald-500 rounded-full"
-                    style={{ width: `${Math.min(100, (cat.sharePct || 0) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
-      {/* FULL-WIDTH Transactions Table */}
-      <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden flex flex-col w-full">
-        <div className="lg:hidden px-3.5 py-2 bg-slate-100 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-          <span className="flex items-center gap-1 font-medium">👉 Jadvalni ko'rish uchun o'ngga suring</span>
-          <span className="font-bold text-emerald-600 dark:text-emerald-400">{transactions.length} ta operatsiya</span>
+      {/* Hisob qoldiqlari — AccountBalance (haqiqiy joriy qoldiq, filtrga bog'liq emas) */}
+      <section aria-label={t('ddsPage.balances_title')} className="space-y-2">
+        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+          <StatCard title={t('ddsPage.balance_cash')} value={formatMoney(balances?.CASH)} icon={<Wallet />} />
+          <StatCard title={t('ddsPage.balance_card')} value={formatMoney(balances?.BANK_CARD)} icon={<CreditCard />} />
+          <StatCard title={t('ddsPage.balance_settlement')} value={formatMoney(balances?.SETTLEMENT_ACCOUNT)} icon={<Building />} />
+          <StatCard
+            title={t('ddsPage.balance_total')}
+            value={formatMoney(balances?.total)}
+            icon={<Scale />}
+            tone="brand"
+            className="border-line-strong"
+          />
         </div>
-        {/* Search and High-Contrast Filters Bar */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap gap-3 items-center justify-between bg-slate-50/50 dark:bg-slate-950/40">
-          <div className="relative flex-1 min-w-[240px]">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-            <input
-              type="text"
-              placeholder="Qidiruv: TX raqami, tavsif, mas'ul shaxs, kategoriya..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        {summary && summary.balancesInSync === false && (
+          <p className="flex items-start gap-2 rounded-control bg-warning-soft px-3 py-2 text-xs text-warning">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{t('ddsPage.balances_drift', { diff: formatMoney(summary.balanceDrift?.total) })}</span>
+          </p>
+        )}
+      </section>
+
+      {/* Ko'rsatilgan yozuvlar aylanmasi */}
+      <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+        <StatCard title={t('ddsPage.flow_income')} value={formatMoney(filteredIncome)} tone="success" icon={<ArrowDownLeft />} />
+        <StatCard title={t('ddsPage.flow_expense')} value={formatMoney(filteredExpense)} tone="danger" icon={<ArrowUpRight />} />
+        <StatCard
+          title={t('ddsPage.flow_net')}
+          value={formatMoney(filteredNetFlow)}
+          tone={filteredNetFlow < 0 ? 'danger' : 'neutral'}
+          hint={t('ddsPage.flow_net_hint')}
+          icon={<ArrowDownUp />}
+        />
+        <StatCard
+          title={t('ddsPage.flow_count')}
+          value={formatNumber(totalCount)}
+          hint={t('ddsPage.flow_avg', { value: formatMoney(avgCheck) })}
+          icon={<Layers />}
+        />
+      </div>
+
+      {showCategoryBreakdown && (
+        <Card>
+          <CardHeader title={t('ddsPage.breakdown_title')} description={t('ddsPage.breakdown_count', { count: breakdown.length })} />
+          {breakdown.length === 0 ? (
+            <p className="text-sm text-fg-muted">{t('ddsPage.breakdown_empty')}</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {breakdown.map((cat) => (
+                <div key={cat.categoryName} className="rounded-control border border-line bg-surface-2 p-3">
+                  <div className="flex items-baseline justify-between gap-3 text-sm">
+                    <span className="min-w-0 truncate font-medium text-fg" title={cat.categoryName}>
+                      {cat.categoryName}
+                    </span>
+                    <span className="shrink-0 font-semibold tabular-nums text-fg">{formatMoney(cat.amount)}</span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-xs text-fg-muted">
+                    <span>{cat.expenseType ? t(`ddsPage.class_${cat.expenseType}`) : cat.classification}</span>
+                    <span className="tabular-nums">{formatPercent(cat.sharePct)}</span>
+                  </div>
+                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface" aria-hidden="true">
+                    <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, (cat.sharePct || 0) * 100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Card padding="none">
+        {/* Qidiruv va filtrlar */}
+        <div className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 lg:flex-row lg:items-center">
+          <div className="min-w-0 flex-1">
+            <Input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder={t('ddsPage.search_placeholder')}
+              aria-label={t('ddsPage.search_placeholder')}
+              leftIcon={<Search />}
             />
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Type Filter */}
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="px-3 py-2 text-xs font-bold bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-            >
-              <option value="" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Barcha turlar</option>
-              <option value="INCOME" className="bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-bold">Daromad (+)</option>
-              <option value="EXPENSE" className="bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 font-bold">Xarajat (-)</option>
-            </select>
-
-            {/* Account Filter */}
-            <select
+          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:flex lg:w-auto">
+            <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label={t('common.type')} className="lg:w-40">
+              <option value="">{t('ddsPage.filter_all_types')}</option>
+              <option value="INCOME">{t('common.income')}</option>
+              <option value="EXPENSE">{t('common.expense')}</option>
+            </Select>
+            <Select
               value={accountFilter}
               onChange={(e) => setAccountFilter(e.target.value)}
-              className="px-3 py-2 text-xs font-bold bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-700 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+              aria-label={t('accounts.label')}
+              className="lg:w-44"
             >
-              <option value="" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Barcha hisoblar</option>
-              <option value="CASH" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Kassa (Naqd)</option>
-              <option value="BANK_CARD" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Bank karta</option>
-              <option value="SETTLEMENT_ACCOUNT" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Hisob-raqam</option>
-            </select>
-
-            <button
-              type="button"
-              onClick={() => {
-                setTypeFilter('');
-                setAccountFilter('');
-                setSearch('');
-                fetchDdsData();
-              }}
-              className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition"
-              title="Filtrni tozalash"
+              <option value="">{t('ddsPage.filter_all_accounts')}</option>
+              {DDS_ACCOUNTS.map((a) => (
+                <option key={a} value={a}>
+                  {t(`accounts.${a}`)}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              aria-label={t('ddsPage.col_source')}
+              className="lg:w-40"
             >
-              <RefreshCw className="w-4 h-4" />
-            </button>
+              <option value="">{t('ddsPage.filter_all_sources')}</option>
+              {DDS_SOURCES.map((s) => (
+                <option key={s} value={s}>
+                  {t(`ddsPage.source_${s}`)}
+                </option>
+              ))}
+            </Select>
           </div>
+          {hasFilters && (
+            <Button variant="ghost" onClick={resetFilters} leftIcon={<X className="h-4 w-4" />}>
+              {t('common.clear_filter')}
+            </Button>
+          )}
         </div>
 
-        {/* Wide Table with Full Horizontal Freedom and Sticky Header */}
-        <div className="table-scroll-container custom-scrollbar w-full">
-          <table className="w-full text-xs text-left text-slate-700 dark:text-slate-200">
-            <thead className="table-sticky-head bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200 dark:border-slate-800 whitespace-nowrap shadow-sm">
-              <tr>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">ID</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Sana-vaqt (Tartib)</th>
-                <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Turi</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Hisob / Hamyon</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Kategoriya / Kriteriya</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Kim Kiritdi</th>
-                <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Summa (UZS)</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Tavsif / Izoh</th>
-                <th className="px-4 py-3.5 text-center sticky right-0 top-0 bg-slate-100 dark:bg-slate-950 z-30 shadow-md whitespace-nowrap">Amal</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium whitespace-nowrap">
-              {loading ? (
-                <tr>
-                  <td colSpan={9} className="text-center py-12 text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
-                    Tranzaksiyalar yuklanmoqda...
-                  </td>
-                </tr>
-              ) : transactions.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="text-center py-12 text-slate-400">
-                    Tranzaksiya topilmadi (Balans 0 UZS)
-                  </td>
-                </tr>
-              ) : (
-                transactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="px-4 py-3 font-mono font-bold text-slate-700 dark:text-slate-300">{tx.txNumber}</td>
-                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{formatDateTime(tx.dateTime)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`pill-3d px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
-                        tx.type === 'INCOME'
-                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
-                          : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30'
-                      }`}>
-                        {tx.type === 'INCOME' ? 'Daromad (+)' : 'Xarajat (-)'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
-                      {tx.account === 'CASH' ? 'Kassa' : tx.account === 'BANK_CARD' ? 'Karta' : 'H-raqam'}
-                    </td>
-                    <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">{tx.categoryName}</td>
-                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{tx.sourcePerson}</td>
-                    <td className={`px-4 py-3 text-right font-black ${
-                      tx.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'
-                    }`}>
-                      {Number(tx.amount) > 0 ? (
-                        `${tx.type === 'INCOME' ? '+' : '-'}${formatMoney(tx.amount)}`
-                      ) : (
-                        formatMoney(0)
-                      )}
-                    </td>
-                    <td className="px-4 py-3 max-w-[280px] truncate text-slate-500 dark:text-slate-400" title={tx.description || ''}>
-                      {tx.description || '-'}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(tx.id)}
-                        className="p-1.5 text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition"
-                        title="O'chirish"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Add Transaction Modal with ZERO-CLEARING AmountInput and Custom Category */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border-t sm:border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 text-xs overflow-y-auto max-h-[92vh]">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <ArrowDownUp className="w-4 h-4 text-emerald-500" />
-                <span>Yangi Pul Operatsiyasini Kiritish</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Sana</label>
-                  <input
-                    type="date"
-                    required
-                    value={form.dateTime}
-                    onChange={(e) => setForm({ ...form, dateTime: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-medium"
+        {loading && transactions.length === 0 && !loadError ? (
+          <LoadingBlock label={t('common.loading')} />
+        ) : loadError ? (
+          <EmptyState
+            icon={<AlertCircle />}
+            title={t('common.load_error')}
+            description={loadError}
+            action={
+              <Button variant="secondary" onClick={() => fetchDdsData()}>
+                {t('common.retry')}
+              </Button>
+            }
+          />
+        ) : (
+          <TableContainer bare maxHeightClass="max-h-[70vh]">
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th>{t('ddsPage.col_tx')}</Th>
+                  <Th>{t('ddsPage.col_datetime')}</Th>
+                  <Th>{t('common.type')}</Th>
+                  <Th>{t('accounts.label')}</Th>
+                  <Th>{t('common.category')}</Th>
+                  <Th>{t('ddsPage.col_source')}</Th>
+                  <Th>{t('ddsPage.col_person')}</Th>
+                  <Th align="right">{t('common.amount')}</Th>
+                  <Th>{t('common.comment')}</Th>
+                  {canDelete && <Th align="center">{t('common.actions')}</Th>}
+                </Tr>
+              </Thead>
+              <Tbody>
+                {transactions.length === 0 && (
+                  <TableEmpty
+                    colSpan={colCount}
+                    icon={<ArrowDownUp />}
+                    title={hasFilters ? t('ddsPage.empty_filtered') : t('ddsPage.empty')}
+                    description={!hasFilters && canWrite ? t('ddsPage.empty_hint') : undefined}
                   />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Operatsiya turi</label>
-                  <select
-                    value={form.type}
-                    onChange={(e) => setForm({ ...form, type: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-bold"
-                  >
-                    <option value="EXPENSE">Xarajat (Расход)</option>
-                    <option value="INCOME">Daromad (Доход)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Hisob / Hamyon</label>
-                  <select
-                    value={form.account}
-                    onChange={(e) => setForm({ ...form, account: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  >
-                    <option value="CASH">Kassa (Naqd)</option>
-                    <option value="BANK_CARD">Bank karta</option>
-                    <option value="SETTLEMENT_ACCOUNT">Hisob-raqam</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Xarajat toifasi (Kriteriyasi)</label>
-                <select
-                  value={form.expenseType}
-                  onChange={(e) => setForm({ ...form, expenseType: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                >
-                  <option value="COGS">O'zgaruvchan (COGS - Mahsulot tannarxi)</option>
-                  <option value="OPEX">Operatsion (OPEX - Doimiy xarajat)</option>
-                  <option value="INCOME_TRANSFER">Daromad / Pul o'tkazmasi</option>
-                </select>
-              </div>
-
-              {/* Dynamic Categories with "+ Yangi qo'shish" feature */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-slate-700 dark:text-slate-300">
-                    Xarajat / Daromad Kriteriyasi (Kategoriya)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setIsAddingNewCategory(!isAddingNewCategory)}
-                    className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    <span>{isAddingNewCategory ? 'Mavjudlardan tanlash' : '+ Yangi tur qo\'shish'}</span>
-                  </button>
-                </div>
-
-                {isAddingNewCategory ? (
-                  <input
-                    type="text"
-                    required
-                    placeholder="Yangi xarajat yoki daromad turini yozing..."
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-emerald-500 rounded-xl text-slate-900 dark:text-white font-bold focus:ring-2 focus:ring-emerald-500"
-                  />
-                ) : (
-                  <select
-                    value={form.categoryName}
-                    onChange={(e) => setForm({ ...form, categoryName: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  >
-                    {categories.map((c, i) => (
-                      <option key={i} value={c}>{c}</option>
-                    ))}
-                  </select>
                 )}
-              </div>
+                {transactions.map((tx) => {
+                  const isIncome = tx.type === 'INCOME';
+                  const source = (tx.source || 'MANUAL') as DdsSource;
+                  return (
+                    <Tr key={tx.id}>
+                      <Td numeric className="font-medium text-fg-secondary">
+                        {tx.txNumber}
+                      </Td>
+                      <Td numeric className="text-fg-secondary">
+                        {tx.dateTimeLabel || formatDateTime(tx.dateTime)}
+                      </Td>
+                      <Td>
+                        <Badge tone={isIncome ? 'success' : 'danger'} size="sm">
+                          {isIncome ? t('common.income') : t('common.expense')}
+                        </Badge>
+                      </Td>
+                      <Td className="whitespace-nowrap">{t(`accounts.${tx.account}`)}</Td>
+                      <Td className="whitespace-nowrap font-medium">{tx.categoryName}</Td>
+                      <Td>
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
+                          <Badge tone={SOURCE_TONE[source] || 'neutral'} size="sm">
+                            {t(`ddsPage.source_${source}`)}
+                          </Badge>
+                          {tx.deal && (
+                            <span className="text-xs tabular-nums text-fg-muted">{t('ddsPage.deal_no', { number: tx.deal.dealNumber })}</span>
+                          )}
+                        </div>
+                      </Td>
+                      <Td className="whitespace-nowrap text-fg-secondary">{tx.sourcePerson || '-'}</Td>
+                      <Td align="right" numeric className={cn('font-semibold', isIncome ? 'text-success' : 'text-fg')}>
+                        {isIncome ? '+' : '−'}
+                        {formatMoney(tx.amount)}
+                      </Td>
+                      <Td className="max-w-[18rem] text-fg-muted">
+                        <span className="block truncate" title={tx.description || ''}>
+                          {tx.description || '-'}
+                        </span>
+                      </Td>
+                      {canDelete && (
+                        <Td align="center">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-danger hover:bg-danger-soft hover:text-danger"
+                            aria-label={t('ddsPage.delete_aria', { tx: tx.txNumber })}
+                            title={t('common.delete')}
+                            onClick={() => {
+                              setDeleteError(null);
+                              setDeleteTarget(tx);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </Td>
+                      )}
+                    </Tr>
+                  );
+                })}
+              </Tbody>
+            </Table>
+          </TableContainer>
+        )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Zero-clearing AmountInput */}
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Summa (UZS) *
-                  </label>
-                  <AmountInput
-                    value={form.amount}
-                    onChange={(val) => setForm({ ...form, amount: val })}
-                    placeholder="Masalan: 5 000 000"
-                    required
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-black text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Mas'ul shaxs (Kim kiritdi)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={form.sourcePerson}
-                    onChange={(e) => setForm({ ...form, sourcePerson: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
+        {!loadError && totalCount > 0 && (
+          <p className="border-t border-line px-4 py-2.5 text-xs tabular-nums text-fg-muted sm:px-5">
+            {totalOnServer > totalCount
+              ? t('ddsPage.rows_partial', { shown: formatNumber(totalCount), total: formatNumber(totalOnServer) })
+              : t('ddsPage.rows', { count: formatNumber(totalCount) })}
+          </p>
+        )}
+      </Card>
 
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Tavsif / Izoh</label>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  rows={2}
-                  placeholder="Xarajat yoki daromad maqsadi..."
-                />
-              </div>
+      <DdsFormModal
+        open={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        categories={categories}
+        defaultPerson={user?.fullName || ''}
+        onSaved={handleCreated}
+      />
 
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="btn-3d px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-500 shadow-md shadow-emerald-600/30"
-                >
-                  Saqlash
-                </button>
+      {/* O'chirishni tasdiqlash */}
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        closeOnBackdrop={!deleting}
+        size="sm"
+        title={t('ddsPage.delete_title')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="danger" onClick={handleDelete} loading={deleting}>
+              {t('common.delete')}
+            </Button>
+          </>
+        }
+      >
+        {deleteTarget && (
+          <div className="space-y-3 text-sm">
+            <p className="text-fg-secondary">{t('ddsPage.delete_text')}</p>
+            <dl className="rounded-control border border-line bg-surface-2 px-3 py-2.5">
+              <div className="flex justify-between gap-3">
+                <dt className="text-fg-muted">{deleteTarget.txNumber}</dt>
+                <dd className="font-semibold tabular-nums text-fg">
+                  {deleteTarget.type === 'INCOME' ? '+' : '−'}
+                  {formatMoney(deleteTarget.amount)}
+                </dd>
               </div>
-            </form>
+              <div className="mt-1 text-xs text-fg-muted">
+                {deleteTarget.categoryName}, {t(`accounts.${deleteTarget.account}`)}
+              </div>
+            </dl>
+            {deleteTarget.source === 'TRUST_PAYMENT' && (
+              <p className="flex items-start gap-2 rounded-control bg-warning-soft px-3 py-2 text-xs text-warning">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{t('ddsPage.delete_trust_note')}</span>
+              </p>
+            )}
+            {deleteError && (
+              <p role="alert" className="rounded-control bg-danger-soft px-3 py-2 text-sm text-danger">
+                {deleteError}
+              </p>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
+
+      {/* Hammasini tozalash (faqat ADMIN + tasdiqlash kodi) */}
+      <Modal
+        open={clearOpen}
+        onClose={() => !clearing && setClearOpen(false)}
+        closeOnBackdrop={!clearing}
+        size="sm"
+        title={t('ddsPage.clear_title')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setClearOpen(false)} disabled={clearing}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="danger" type="submit" form="dds-clear-form" loading={clearing} disabled={!clearCode}>
+              {t('ddsPage.clear_confirm')}
+            </Button>
+          </>
+        }
+      >
+        <form id="dds-clear-form" onSubmit={handleClearAll} className="space-y-3">
+          <p className="text-sm text-fg-secondary">{t('ddsPage.clear_text')}</p>
+          <Field label={t('ddsPage.clear_code')} htmlFor="dds-clear-code" error={clearError} required>
+            <Input
+              id="dds-clear-code"
+              type="password"
+              autoComplete="off"
+              autoFocus
+              value={clearCode}
+              onChange={(e) => setClearCode(e.target.value)}
+              invalid={!!clearError}
+              disabled={clearing}
+            />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 };

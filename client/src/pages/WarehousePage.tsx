@@ -1,26 +1,40 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
-  Package,
   Search,
   Camera,
   CheckCircle2,
   Clock,
   AlertTriangle,
-  X,
-  RefreshCw,
   ArrowRightLeft,
   FileCheck2,
   Warehouse,
-  Truck,
-  Plus,
   RotateCcw,
   BookOpen,
 } from 'lucide-react';
-import { formatMoney, formatPercent, formatDate } from '../utils/format';
+import { formatMoney, formatDate } from '../utils/format';
 import { useTranslation } from '../context/LanguageContext';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
 import { Store } from '../types';
+import {
+  Button, Card, Modal, PageHeader, StatCard, Badge, Field, Input, Select, Textarea,
+  TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, LoadingBlock, SegmentedControl, cn,
+} from '../components/ui';
+import type { Tone } from '../components/ui/StatCard';
+
+// Belgilash katagi (checkbox) uchun umumiy klass
+const checkboxClass = 'h-4 w-4 shrink-0 rounded border-line-strong accent-brand';
+
+// Ombor holati -> Badge rangi
+const STATUS_TONE: Record<string, Tone> = {
+  IN_WAREHOUSE: 'success',
+  IN_TRANSIT: 'info',
+  PENDING: 'warning',
+  NEED_TO_BUY: 'danger',
+  PARTIAL_AMOUNT: 'info',
+  MONEY_RECEIVED: 'success',
+  SOLD: 'neutral',
+};
 
 export const WarehousePage: React.FC = () => {
   const { t } = useTranslation();
@@ -28,28 +42,29 @@ export const WarehousePage: React.FC = () => {
   const [items, setItems] = useState<any[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [storeFilter, setStoreFilter] = useState('');
   const [daftarFilter, setDaftarFilter] = useState<'ALL' | 'DAFTAR' | 'STANDARD'>('ALL');
 
-  // Scanner Prixod modal state
+  // Skaner / prixod oynasi
   const [scanModalItem, setScanModalItem] = useState<any | null>(null);
 
-  // Status edit modal (with mandatory reason)
+  // Holatni o'zgartirish oynasi (sabab majburiy)
   const [statusEditItem, setStatusEditItem] = useState<any | null>(null);
   const [newStatus, setNewStatus] = useState('IN_WAREHOUSE');
   const [statusReason, setStatusReason] = useState('');
   const [statusSubmitting, setStatusSubmitting] = useState(false);
 
-  // Inter-store transfer state
+  // Filiallararo ko'chirish
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [selectedForTransfer, setSelectedForTransfer] = useState<string[]>([]);
   const [targetStoreId, setTargetStoreId] = useState('');
   const [transferReason, setTransferReason] = useState('');
   const [transferring, setTransferring] = useState(false);
 
-  // Audit / Fast Inventory Modal state
+  // Tezkor inventarizatsiya (audit)
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [auditScannedImeis, setAuditScannedImeis] = useState<string[]>([]);
   const [auditInputImei, setAuditInputImei] = useState('');
@@ -74,29 +89,31 @@ export const WarehousePage: React.FC = () => {
   const fetchInventory = async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const params = new URLSearchParams();
       if (search) params.append('search', search);
-      // Warehouse view defaults to non-sold items if no statusFilter is set
+      // Ombor ko'rinishi: holat filtri bo'lmasa sotilmaganlar ko'rsatiladi
       if (statusFilter) {
         params.append('status', statusFilter);
       }
       params.append('limit', '1000');
       const res = await axios.get(`/api/inventory?${params.toString()}`);
-      // Exclude SOLD by default from pure warehouse view unless explicitly searched
+      // Aniq filtr bo'lmasa SOLD ombor ko'rinishidan chiqariladi
       const allItems = res.data.items || [];
       if (!statusFilter) {
         setItems(allItems.filter((it: any) => it.status !== 'SOLD'));
       } else {
         setItems(allItems);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fetch inventory error:', err);
+      setLoadError(err.response?.data?.error || t('common.load_error'));
     } finally {
       setLoading(false);
     }
   };
 
-  // Filter items by store and daftar mode if selected
+  // Do'kon va daftar rejimi bo'yicha filtr
   const filteredItems = items.filter((it) => {
     if (storeFilter && it.storeId !== storeFilter && it.storeName !== storeFilter) return false;
     if (daftarFilter === 'DAFTAR' && !it.isDaftar) return false;
@@ -104,16 +121,15 @@ export const WarehousePage: React.FC = () => {
     return true;
   });
 
-  // Calculate dynamic KPIs on active filtered items
+  // Faol filtrlangan tovarlar bo'yicha KPI
   const totalItemsCount = filteredItems.length;
   const totalWarehouseCost = filteredItems.reduce((sum, it) => sum + (Number(it.purchaseCost) || 0), 0);
-  const avgCheck = totalItemsCount > 0 ? Math.round(totalWarehouseCost / totalItemsCount) : 0;
   const inWarehouseCount = filteredItems.filter((it) => it.status === 'IN_WAREHOUSE').length;
   const inTransitCount = filteredItems.filter((it) => it.status === 'IN_TRANSIT').length;
   const pendingCount = filteredItems.filter((it) => it.status === 'PENDING').length;
   const needToBuyCount = filteredItems.filter((it) => it.status === 'NEED_TO_BUY' || it.status === 'PARTIAL_AMOUNT').length;
 
-  // Daftar specific analytics
+  // Daftar bo'yicha tahlil
   const daftarItems = items.filter((it) => it.isDaftar);
   const totalDaftarCount = daftarItems.length;
   const daftarInWarehouseCount = daftarItems.filter((it) => it.status === 'IN_WAREHOUSE').length;
@@ -124,7 +140,7 @@ export const WarehousePage: React.FC = () => {
     e.preventDefault();
     if (!statusEditItem) return;
     if (!statusReason.trim()) {
-      alert('Iltimos, holat o\'zgartirish sababini (izohini) yozing!');
+      alert(t('warehouse.statusModal.reasonRequired'));
       return;
     }
 
@@ -138,7 +154,7 @@ export const WarehousePage: React.FC = () => {
       setStatusReason('');
       fetchInventory();
     } catch (err: any) {
-      alert('Xatolik: ' + (err.response?.data?.error || err.message));
+      alert(`${t('common.error')}: ${err.response?.data?.error || err.message}`);
     } finally {
       setStatusSubmitting(false);
     }
@@ -147,11 +163,11 @@ export const WarehousePage: React.FC = () => {
   const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedForTransfer.length === 0) {
-      alert('Kamida bitta tovarni tanlang!');
+      alert(t('warehouse.transferModal.pickItem'));
       return;
     }
     if (!targetStoreId) {
-      alert('Qabul qiluvchi filialni tanlang!');
+      alert(t('warehouse.transferModal.pickStore'));
       return;
     }
 
@@ -160,380 +176,222 @@ export const WarehousePage: React.FC = () => {
       await axios.post('/api/inventory/transfer', {
         dealIds: selectedForTransfer,
         targetStoreId,
-        reason: transferReason.trim() || 'Filiallararo tovar o\'tkazish',
+        reason: transferReason.trim() || t('warehouse.transferModal.defaultReason'),
       });
       setIsTransferModalOpen(false);
       setSelectedForTransfer([]);
       setTransferReason('');
       fetchInventory();
-      alert('Tovarlar muvaffaqiyatli "Yo\'lda" holatiga o\'tkazildi!');
+      alert(t('warehouse.transferModal.done'));
     } catch (err: any) {
-      alert('Xatolik: ' + (err.response?.data?.error || err.message));
+      alert(`${t('common.error')}: ${err.response?.data?.error || err.message}`);
     } finally {
       setTransferring(false);
     }
   };
 
   const handleAcceptTransfer = async (dealId: string, currentStoreId?: string) => {
-    if (!window.confirm('Haqiqatan ham ushbu tovarni qabul qilib, omborga kirim qilmoqchimisiz?')) return;
+    if (!window.confirm(t('warehouse.acceptConfirm'))) return;
     try {
       await axios.post('/api/inventory/transfer/accept', {
         dealId,
         receivedStoreId: currentStoreId,
       });
       fetchInventory();
-      alert('Tovar omborga muvaffaqiyatli qabul qilindi (Omborda)!');
+      alert(t('warehouse.acceptDone'));
     } catch (err: any) {
-      alert('Xatolik: ' + (err.response?.data?.error || err.message));
+      alert(`${t('common.error')}: ${err.response?.data?.error || err.message}`);
     }
   };
 
-  const renderStatusPill = (status: string) => {
-    switch (status) {
-      case 'IN_WAREHOUSE':
-        return (
-          <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-            Omborda
-          </span>
-        );
-      case 'IN_TRANSIT':
-        return (
-          <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30 animate-pulse">
-            Yo'lda
-          </span>
-        );
-      case 'PENDING':
-        return (
-          <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-            Kutilmoqda
-          </span>
-        );
-      case 'NEED_TO_BUY':
-        return (
-          <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-            Sotib olish kerak
-          </span>
-        );
-      case 'PARTIAL_AMOUNT':
-        return (
-          <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
-            Qisman to'langan
-          </span>
-        );
-      case 'MONEY_RECEIVED':
-        return (
-          <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
-            Pul tushgan
-          </span>
-        );
-      case 'SOLD':
-        return (
-          <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30">
-            Sotilgan
-          </span>
-        );
-      default:
-        return (
-          <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-500/15 text-slate-700 dark:text-slate-300 border border-slate-500/30">
-            {status}
-          </span>
-        );
-    }
-  };
+  const renderStatusPill = (status: string) => (
+    <Badge tone={STATUS_TONE[status] || 'neutral'} size="sm">
+      {STATUS_TONE[status] ? t(`dealStatus.${status}`) : status}
+    </Badge>
+  );
 
   return (
-    <div className="space-y-6 text-slate-900 dark:text-slate-100">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-            <Warehouse className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
-            <span>Ombor (Sklad) Nazorati</span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Qurilmalar ombori qoldig'i, Dual IMEI, Prixod skaneri, filiallararo ko'chirish va audit
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsTransferModalOpen(true)}
-            className="btn-3d py-2 px-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-purple-600/20 active:translate-y-[1px] transition"
-          >
-            <ArrowRightLeft className="w-3.5 h-3.5" />
-            <span>Filiallararo Ko'chirish</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsAuditModalOpen(true)}
-            className="btn-3d py-2 px-3.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-600/20 active:translate-y-[1px] transition"
-          >
-            <FileCheck2 className="w-3.5 h-3.5" />
-            <span>Tezkor Inventarizatsiya (Audit)</span>
-          </button>
-        </div>
-      </div>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        icon={<Warehouse className="h-5 w-5" />}
+        title={t('warehouse.title')}
+        description={t('warehouse.subtitle')}
+        actions={
+          <>
+            <Button variant="secondary" leftIcon={<ArrowRightLeft className="h-4 w-4" />} onClick={() => setIsTransferModalOpen(true)}>
+              {t('warehouse.transfer')}
+            </Button>
+            <Button leftIcon={<FileCheck2 className="h-4 w-4" />} onClick={() => setIsAuditModalOpen(true)}>
+              {t('warehouse.audit')}
+            </Button>
+          </>
+        }
+      />
 
-      {/* Real-time Dynamic KPI Summary Banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-            Jami Qoldiq (Itogo)
-          </span>
-          <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
-            {formatMoney(totalWarehouseCost)}
-          </p>
-          <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-semibold">Tannarx qiymati</span>
+      {loadError && (
+        <div role="alert" className="rounded-control border border-danger/30 bg-danger-soft p-3 text-sm text-danger">
+          {loadError}
         </div>
+      )}
 
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-            Soni (Kolichestvo)
-          </span>
-          <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
-            {totalItemsCount} ta
-          </p>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Barcha qurilmalar</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
-            Omborda Tayyor
-          </span>
-          <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
-            {inWarehouseCount} ta
-          </p>
-          <span className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 font-medium">Sotuvga tayyor</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider block">
-            Yo'lda (Tranzit)
-          </span>
-          <p className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 mt-1">
-            {inTransitCount} ta
-          </p>
-          <span className="text-[10px] text-purple-600/80 dark:text-purple-400/80 font-medium">Filialga borayotgan</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
-            Kutilmoqda / Sotib olish
-          </span>
-          <p className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 mt-1">
-            {pendingCount + needToBuyCount} ta
-          </p>
-          <span className="text-[10px] text-amber-600/80 dark:text-amber-400/80 font-medium">Prixod / Xarid</span>
-        </div>
-
-        <div
+      {/* Real vaqt KPI */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
+        <StatCard
+          title={t('warehouse.kpi.balance')}
+          value={<span className="text-base sm:text-lg">{formatMoney(totalWarehouseCost)}</span>}
+          hint={t('warehouse.kpi.balanceHint')}
+        />
+        <StatCard
+          title={t('warehouse.kpi.count')}
+          value={t('common.items_count', { count: totalItemsCount })}
+          hint={t('warehouse.kpi.countHint')}
+        />
+        <StatCard
+          title={t('warehouse.kpi.ready')}
+          value={t('common.items_count', { count: inWarehouseCount })}
+          hint={t('warehouse.kpi.readyHint')}
+          tone="success"
+        />
+        <StatCard
+          title={t('warehouse.kpi.transit')}
+          value={t('common.items_count', { count: inTransitCount })}
+          hint={t('warehouse.kpi.transitHint')}
+          tone="info"
+        />
+        <StatCard
+          title={t('warehouse.kpi.pending')}
+          value={t('common.items_count', { count: pendingCount + needToBuyCount })}
+          hint={t('warehouse.kpi.pendingHint')}
+          tone="warning"
+        />
+        <StatCard
+          title={t('warehouse.kpi.daftar')}
+          value={t('common.items_count', { count: totalDaftarCount })}
+          hint={formatMoney(daftarTotalCost)}
+          tone="warning"
+          icon={<BookOpen className="h-4 w-4" />}
+          active={daftarFilter === 'DAFTAR'}
           onClick={() => setDaftarFilter(daftarFilter === 'DAFTAR' ? 'ALL' : 'DAFTAR')}
-          className={`card-3d p-4 rounded-2xl shadow-sm dark:shadow-md cursor-pointer transition border ${
-            daftarFilter === 'DAFTAR'
-              ? 'bg-gradient-to-br from-amber-500/20 to-orange-500/20 border-amber-500 ring-2 ring-amber-500/30'
-              : 'bg-white dark:bg-slate-900/90 border-amber-300 dark:border-amber-700/60 hover:border-amber-500'
-          }`}
-          title="Faqat Daftar tovarlarini filtrlash uchun bosing"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-extrabold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>Daftar Tovarlari</span>
-            </span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-              daftarFilter === 'DAFTAR' ? 'bg-amber-600 text-white' : 'bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300'
-            }`}>
-              {daftarFilter === 'DAFTAR' ? 'Faol' : 'Filtr'}
-            </span>
-          </div>
-          <p className="text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 mt-1">
-            {totalDaftarCount} ta
-          </p>
-          <span className="text-[10px] text-amber-700/90 dark:text-amber-300/90 font-semibold block truncate">
-            {formatMoney(daftarTotalCost)}
-          </span>
-        </div>
+         
+        />
       </div>
 
-      {/* Daftar Quick Filter Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-2.5 rounded-2xl shadow-sm">
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setDaftarFilter('ALL')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-              daftarFilter === 'ALL'
-                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Barcha tovarlar</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold">
-              {items.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setDaftarFilter('DAFTAR')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-              daftarFilter === 'DAFTAR'
-                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/20'
-                : 'text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 border border-amber-300 dark:border-amber-800'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>📒 Faqat Daftar tovarlari (Daftar orqali)</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-              daftarFilter === 'DAFTAR' ? 'bg-white/20 text-white' : 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200'
-            }`}>
-              {totalDaftarCount} ta
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setDaftarFilter('STANDARD')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-              daftarFilter === 'STANDARD'
-                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>Oddiy (Bank / Provayder) tovarlar</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold">
-              {items.length - totalDaftarCount}
-            </span>
-          </button>
+      {/* Daftar tezkor filtrlari */}
+      <Card padding="sm" className="flex flex-wrap items-center justify-between gap-3">
+        <div className="max-w-full overflow-x-auto">
+          <SegmentedControl
+            value={daftarFilter}
+            onChange={(v) => setDaftarFilter(v as 'ALL' | 'DAFTAR' | 'STANDARD')}
+            items={[
+              { value: 'ALL', label: t('warehouse.tab.all'), count: items.length },
+              { value: 'DAFTAR', label: t('warehouse.tab.daftar'), icon: <BookOpen className="h-3.5 w-3.5" />, count: totalDaftarCount },
+              { value: 'STANDARD', label: t('warehouse.tab.standard'), count: items.length - totalDaftarCount },
+            ]}
+          />
         </div>
 
         {daftarFilter === 'DAFTAR' && (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-amber-700 dark:text-amber-300 font-bold text-[11px] bg-amber-50 dark:bg-amber-950/50 px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-800">
-              Omborda tayyor: <b>{daftarInWarehouseCount} ta</b> | Sotib olish kerak: <b>{daftarNeedToBuyCount} ta</b>
-            </span>
-          </div>
+          <Badge tone="warning" className="tabular-nums">
+            {t('warehouse.daftarStats', { ready: daftarInWarehouseCount, buy: daftarNeedToBuyCount })}
+          </Badge>
         )}
-      </div>
+      </Card>
 
-      {/* Filter and Search Bar */}
-      <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm dark:shadow-lg">
-        <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input
+      {/* Qidiruv va filtrlar */}
+      <Card padding="sm" className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+        <div className="flex-1">
+          <Input
             type="text"
-            placeholder={t('common.search', 'Qidiruv: mahsulot, IMEI, do\'kon, xaridor...')}
+            leftIcon={<Search />}
+            placeholder={t('warehouse.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 shadow-inner"
           />
         </div>
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto">
-          {/* Store Filter */}
-          <select
-            value={storeFilter}
-            onChange={(e) => setStoreFilter(e.target.value)}
-            className="w-full sm:w-auto px-4 py-2.5 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 cursor-pointer shadow-sm"
-          >
-            <option value="" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Barcha filiallar</option>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)} className="sm:w-48">
+            <option value="">{t('warehouse.allStores')}</option>
             {stores.map((s) => (
-              <option key={s.id} value={s.id} className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+              <option key={s.id} value={s.id}>
                 {s.name}
               </option>
             ))}
-          </select>
+          </Select>
 
-          {/* Status Filter */}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full sm:w-auto px-4 py-2.5 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 cursor-pointer shadow-sm"
-          >
-            <option value="" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Barcha ombor holatlari</option>
-            <option value="IN_WAREHOUSE" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Omborda</option>
-            <option value="IN_TRANSIT" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Yo'lda</option>
-            <option value="PENDING" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Kutilmoqda</option>
-            <option value="NEED_TO_BUY" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Sotib olish kerak</option>
-            <option value="PARTIAL_AMOUNT" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Qisman to'langan</option>
-            <option value="MONEY_RECEIVED" className="bg-white dark:bg-slate-800 text-slate-900 dark:text-white">Pul tushgan</option>
-          </select>
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="sm:w-52">
+            <option value="">{t('warehouse.allStatuses')}</option>
+            <option value="IN_WAREHOUSE">{t('dealStatus.IN_WAREHOUSE')}</option>
+            <option value="IN_TRANSIT">{t('dealStatus.IN_TRANSIT')}</option>
+            <option value="PENDING">{t('dealStatus.PENDING')}</option>
+            <option value="NEED_TO_BUY">{t('dealStatus.NEED_TO_BUY')}</option>
+            <option value="PARTIAL_AMOUNT">{t('dealStatus.PARTIAL_AMOUNT')}</option>
+            <option value="MONEY_RECEIVED">{t('dealStatus.MONEY_RECEIVED')}</option>
+          </Select>
 
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="icon"
             onClick={() => {
               setSearch('');
               setStatusFilter('');
               setStoreFilter('');
             }}
-            className="btn-3d p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs transition"
-            title="Filtrni tozalash"
+            title={t('common.clear_filter')}
+            aria-label={t('common.clear_filter')}
           >
-            <RotateCcw className="w-4 h-4" />
-          </button>
+            <RotateCcw className="h-4 w-4" />
+          </Button>
         </div>
-      </div>
+      </Card>
 
-      {/* 3D Warehouse Inventory Table */}
-      <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm dark:shadow-xl overflow-hidden flex flex-col">
-        <div className="lg:hidden px-3.5 py-2 bg-slate-100 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-          <span className="flex items-center gap-1 font-medium">👉 Jadvalni ko'rish uchun o'ngga suring</span>
-          <span className="font-bold text-cyan-600 dark:text-cyan-400">{filteredItems.length} ta tovar</span>
+      {/* Ombor jadvali */}
+      <Card padding="none">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 text-xs text-fg-muted lg:hidden">
+          <span>{t('warehouse.swipeHint')}</span>
+          <span className="font-semibold tabular-nums text-accent">{t('warehouse.itemsCount', { count: filteredItems.length })}</span>
         </div>
-        <div className="table-scroll-container custom-scrollbar">
-          <table className="w-full text-xs text-left">
-            <thead className="table-sticky-head bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200 dark:border-slate-800 shadow-sm">
-              <tr>
-                <th className="px-3 py-3.5 text-center bg-slate-100 dark:bg-slate-950 whitespace-nowrap">
+        <TableContainer bare>
+          <Table>
+            <Thead>
+              <Tr>
+                <Th align="center">
                   <input
                     type="checkbox"
+                    aria-label={t('common.all')}
                     onChange={(e) => {
                       if (e.target.checked) setSelectedForTransfer(filteredItems.map((it) => it.id));
                       else setSelectedForTransfer([]);
                     }}
                     checked={selectedForTransfer.length === filteredItems.length && filteredItems.length > 0}
-                    className="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-cyan-500"
+                    className={checkboxClass}
                   />
-                </th>
-                <th className="px-3 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">№</th>
-                <th className="px-3 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Kelgan sana</th>
-                <th className="px-3 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Filial / Do'kon</th>
-                <th className="px-3 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Mahsulot nomi</th>
-                <th className="px-3 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">IMEI 1 / Shtrix</th>
-                <th className="px-3 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">IMEI 2</th>
-                <th className="px-3 py-3.5 text-center bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Holati</th>
-                <th className="px-3 py-3.5 text-right bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Xarid narxi (Tannarx)</th>
-                <th className="px-3 py-3.5 text-center sticky right-0 top-0 bg-slate-100 dark:bg-slate-950 z-30 shadow-md whitespace-nowrap">
-                  Ombor amallari
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                </Th>
+                <Th>№</Th>
+                <Th>{t('warehouse.col.arrival')}</Th>
+                <Th>{t('warehouse.col.store')}</Th>
+                <Th>{t('common.product_name')}</Th>
+                <Th>{t('warehouse.col.imei1')}</Th>
+                <Th>{t('warehouse.col.imei2')}</Th>
+                <Th align="center">{t('common.status')}</Th>
+                <Th align="right">{t('warehouse.col.cost')}</Th>
+                <Th align="center" className="sticky right-0 z-20">{t('warehouse.col.actions')}</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-cyan-500" />
-                    Ombor ma'lumotlari yuklanmoqda...
+                  <td colSpan={10}>
+                    <LoadingBlock label={t('warehouse.loading')} />
                   </td>
                 </tr>
               ) : filteredItems.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
-                    Omborda tovar topilmadi
-                  </td>
-                </tr>
+                <TableEmpty colSpan={10} title={t('warehouse.empty')} />
               ) : (
                 filteredItems.map((it) => {
                   const isChecked = selectedForTransfer.includes(it.id);
                   return (
-                    <tr
-                      key={it.id}
-                      className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition ${
-                        it.isDaftar
-                          ? 'bg-amber-50/40 dark:bg-amber-950/20 border-l-4 border-l-amber-500'
-                          : ''
-                      }`}
-                    >
-                      <td className="px-3 py-3 text-center">
+                    <Tr key={it.id} className={cn(it.isDaftar && 'bg-warning-soft/40')}>
+                      <Td align="center" className={cn(it.isDaftar && 'border-l-4 border-l-warning')}>
                         <input
                           type="checkbox"
                           checked={isChecked}
@@ -541,54 +399,45 @@ export const WarehousePage: React.FC = () => {
                             if (e.target.checked) setSelectedForTransfer((prev) => [...prev, it.id]);
                             else setSelectedForTransfer((prev) => prev.filter((id) => id !== it.id));
                           }}
-                          className="rounded bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-cyan-500"
+                          className={checkboxClass}
                         />
-                      </td>
-                      <td className="px-3 py-3 font-mono font-bold text-cyan-600 dark:text-cyan-400">
+                      </Td>
+                      <Td numeric className="font-mono font-semibold text-accent">
                         №{it.dealNumber}
-                      </td>
-                      <td className="px-3 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                      </Td>
+                      <Td numeric className="text-fg-muted">
                         {formatDate(it.date)}
-                      </td>
-                      <td className="px-3 py-3 text-slate-700 dark:text-slate-300 font-medium whitespace-nowrap">
-                        {it.storeName}
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-bold text-slate-900 dark:text-white text-xs">
-                            {it.productName}
-                          </span>
+                      </Td>
+                      <Td className="whitespace-nowrap font-medium text-fg-secondary">{it.storeName}</Td>
+                      <Td>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs font-semibold text-fg">{it.productName}</span>
                           {it.isDaftar && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs">
-                              <BookOpen className="w-3 h-3" />
-                              <span>DAFTAR</span>
+                            <Badge tone="warning" size="sm" icon={<BookOpen className="h-3 w-3" />}>
+                              DAFTAR
                               {it.extraDaftar > 0 && (
-                                <span className="opacity-95 font-mono text-[9px] font-semibold">
-                                  (+{formatMoney(it.extraDaftar)})
-                                </span>
+                                <span className="font-mono tabular-nums">(+{formatMoney(it.extraDaftar)})</span>
                               )}
-                            </span>
+                            </Badge>
                           )}
                         </div>
                         {(it.color !== '-' || it.storageGb !== '-' || (it.providerName && it.providerName !== '-')) && (
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
+                          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-muted">
                             {it.providerName && it.providerName !== '-' && (
-                              <span className="text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-50 dark:bg-indigo-950/40 px-1.5 py-0.2 rounded">
-                                {it.providerName}
-                              </span>
+                              <Badge tone="brand" size="sm">{it.providerName}</Badge>
                             )}
-                            {it.color !== '-' && <span className="text-cyan-600 dark:text-cyan-300 font-semibold">{it.color}</span>}
-                            {it.storageGb !== '-' && <span className="text-purple-600 dark:text-purple-300 font-semibold">{it.storageGb}</span>}
+                            {it.color !== '-' && <span className="font-medium text-fg-secondary">{it.color}</span>}
+                            {it.storageGb !== '-' && <span className="font-medium text-fg-secondary">{it.storageGb}</span>}
                           </div>
                         )}
-                      </td>
-                      <td className="px-3 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                      </Td>
+                      <Td className="whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-secondary">
                         {it.imeiBarcode || '-'}
-                      </td>
-                      <td className="px-3 py-3 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                      </Td>
+                      <Td className="whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-muted">
                         {it.imei2 && it.imei2 !== '-' ? it.imei2 : '-'}
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                      </Td>
+                      <Td align="center" className="whitespace-nowrap">
                         <div className="inline-flex flex-col items-center gap-1">
                           {renderStatusPill(it.status)}
                           <button
@@ -598,82 +447,80 @@ export const WarehousePage: React.FC = () => {
                               setNewStatus(it.status);
                               setStatusReason('');
                             }}
-                            className="text-[10px] text-cyan-600 dark:text-cyan-400 hover:underline font-medium"
+                            className="text-[11px] font-medium text-accent hover:underline"
                           >
-                            O'zgartirish
+                            {t('warehouse.change')}
                           </button>
                         </div>
-                      </td>
-                      <td className="px-3 py-3 text-right font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                      </Td>
+                      <Td align="right" numeric className="font-semibold text-fg">
                         {formatMoney(it.purchaseCost)}
-                      </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap sticky right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md z-10 shadow-sm">
+                      </Td>
+                      <Td align="center" className="sticky right-0 z-10 whitespace-nowrap bg-surface">
                         <div className="inline-flex items-center gap-1.5">
                           {/* Skaner / Prixod tugmasi */}
                           {it.status === 'PENDING' && (
-                            <button
-                              type="button"
+                            <Button
+                              size="sm"
+                              leftIcon={<Camera className="h-3.5 w-3.5" />}
                               onClick={() => setScanModalItem(it)}
-                              className="btn-3d py-1.5 px-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-md shadow-cyan-600/20 active:translate-y-[1px] transition"
-                              title="Skaner orqali qabul qilish (Prixod)"
+                              title={t('warehouse.scanTooltip')}
                             >
-                              <Camera className="w-3.5 h-3.5" />
-                              <span>Skaner / Prixod</span>
-                            </button>
+                              {t('warehouse.scan')}
+                            </Button>
                           )}
 
-                          {/* Yo'lda holatidagi tovar uchun Qabul qilish */}
+                          {/* Yo'lda holatidagi tovar uchun qabul qilish */}
                           {it.status === 'IN_TRANSIT' && (
-                            <button
-                              type="button"
+                            <Button
+                              size="sm"
+                              leftIcon={<CheckCircle2 className="h-3.5 w-3.5" />}
                               onClick={() => handleAcceptTransfer(it.id, it.storeId)}
-                              className="btn-3d py-1.5 px-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-md shadow-purple-600/20 active:translate-y-[1px] transition"
-                              title="Ko'chirilgan tovarni filialda qabul qilish"
+                              title={t('warehouse.acceptTooltip')}
                             >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Qabul qilish</span>
-                            </button>
+                              {t('warehouse.accept')}
+                            </Button>
                           )}
 
                           {it.status === 'IN_WAREHOUSE' && (
-                            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {it.isDaftar ? 'Omborda mavjud (Daftar)' : 'Omborda mavjud'}
+                            <span className="flex items-center gap-1 text-[11px] font-medium text-success">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              {it.isDaftar ? t('warehouse.inStockDaftar') : t('warehouse.inStock')}
                             </span>
                           )}
 
                           {it.status === 'NEED_TO_BUY' && (
-                            <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                              <AlertTriangle className="w-3.5 h-3.5" />
-                              {it.isDaftar ? 'Daftardan xarid qilish kerak' : 'Sotib olinishi kerak'}
+                            <span className="flex items-center gap-1 text-[11px] font-medium text-danger">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              {it.isDaftar ? t('warehouse.mustBuyDaftar') : t('warehouse.mustBuy')}
                             </span>
                           )}
 
                           {it.status === 'PARTIAL_AMOUNT' && (
-                            <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5" />
-                              Qisman to'langan
+                            <span className="flex items-center gap-1 text-[11px] font-medium text-info">
+                              <Clock className="h-3.5 w-3.5" />
+                              {t('dealStatus.PARTIAL_AMOUNT')}
                             </span>
                           )}
 
                           {it.status === 'MONEY_RECEIVED' && (
-                            <span className="text-[11px] font-semibold text-teal-600 dark:text-teal-400 flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Pul tushgan
+                            <span className="flex items-center gap-1 text-[11px] font-medium text-success">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              {t('dealStatus.MONEY_RECEIVED')}
                             </span>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </Td>
+                    </Tr>
                   );
                 })
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </Tbody>
+          </Table>
+        </TableContainer>
+      </Card>
 
-      {/* Skaner / Prixod Modal */}
+      {/* Skaner / Prixod oynasi */}
       {scanModalItem && (
         <BarcodeScannerModal
           item={scanModalItem}
@@ -685,241 +532,183 @@ export const WarehousePage: React.FC = () => {
         />
       )}
 
-      {/* Status change modal with mandatory reason */}
-      {statusEditItem && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="w-full sm:max-w-md bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl p-5 sm:p-6 text-xs text-slate-800 dark:text-slate-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                Holatni o'zgartirish: №{statusEditItem.dealNumber}
-              </h3>
-              <button
-                onClick={() => setStatusEditItem(null)}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* Holatni o'zgartirish (sabab majburiy) */}
+      <Modal
+        open={!!statusEditItem}
+        onClose={() => setStatusEditItem(null)}
+        size="md"
+        title={t('warehouse.statusModal.title', { number: statusEditItem?.dealNumber ?? '' })}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setStatusEditItem(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form="warehouse-status-form" loading={statusSubmitting}>
+              {statusSubmitting ? t('common.saving') : t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <form id="warehouse-status-form" onSubmit={handleUpdateStatus} className="space-y-4">
+          <Field label={t('warehouse.statusModal.newStatus')}>
+            <Select value={newStatus} onChange={(e) => setNewStatus(e.target.value)}>
+              <option value="IN_WAREHOUSE">{t('dealStatus.IN_WAREHOUSE')}</option>
+              <option value="PENDING">{t('dealStatus.PENDING')}</option>
+              <option value="IN_TRANSIT">{t('dealStatus.IN_TRANSIT')}</option>
+              <option value="NEED_TO_BUY">{t('dealStatus.NEED_TO_BUY')}</option>
+            </Select>
+          </Field>
 
-            <form onSubmit={handleUpdateStatus} className="mt-4 space-y-4">
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Yangi holatni tanlang:
-                </label>
-                <select
-                  value={newStatus}
-                  onChange={(e) => setNewStatus(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs outline-none"
-                >
-                  <option value="IN_WAREHOUSE">Omborda</option>
-                  <option value="PENDING">Kutilmoqda</option>
-                  <option value="IN_TRANSIT">Yo'lda</option>
-                  <option value="NEED_TO_BUY">Sotib olish kerak</option>
-                </select>
-              </div>
+          <Field label={t('warehouse.statusModal.reason')} required hint={t('common.required')}>
+            <Textarea
+              required
+              rows={3}
+              value={statusReason}
+              onChange={(e) => setStatusReason(e.target.value)}
+              placeholder={t('warehouse.statusModal.reasonPlaceholder')}
+            />
+          </Field>
+        </form>
+      </Modal>
 
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                  <span>O'zgartirish sababi (Izoh) *</span>
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400">(Majburiy)</span>
-                </label>
-                <textarea
-                  required
-                  rows={3}
-                  value={statusReason}
-                  onChange={(e) => setStatusReason(e.target.value)}
-                  placeholder="Nima sababdan holat o'zgartirilmoqda? (Masalan: Tovar filiali o'zgardi, qaytib keldi...)"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-cyan-500"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setStatusEditItem(null)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  disabled={statusSubmitting}
-                  className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold disabled:opacity-50"
-                >
-                  {statusSubmitting ? 'Saqlanmoqda...' : 'Saqlash'}
-                </button>
-              </div>
-            </form>
+      {/* Filiallararo tovar o'tkazish */}
+      <Modal
+        open={isTransferModalOpen}
+        onClose={() => setIsTransferModalOpen(false)}
+        size="md"
+        title={
+          <span className="flex items-center gap-2">
+            <ArrowRightLeft className="h-4 w-4 text-accent" />
+            {t('warehouse.transferModal.title')}
+          </span>
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsTransferModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="submit"
+              form="warehouse-transfer-form"
+              loading={transferring}
+              disabled={selectedForTransfer.length === 0}
+            >
+              {transferring ? t('warehouse.transferModal.sending') : t('warehouse.transferModal.send')}
+            </Button>
+          </>
+        }
+      >
+        <form id="warehouse-transfer-form" onSubmit={handleTransferSubmit} className="space-y-4">
+          <div className="rounded-control border border-line bg-surface-2 p-3 text-xs text-fg-secondary">
+            <span className="font-semibold tabular-nums text-fg">
+              {t('warehouse.transferModal.selected', { count: selectedForTransfer.length })}
+            </span>
+            {selectedForTransfer.length === 0 && (
+              <span className="mt-1 block text-[11px] text-danger">{t('warehouse.transferModal.selectFirst')}</span>
+            )}
           </div>
-        </div>
-      )}
 
-      {/* Filiallararo tovar o'tkazish Modal */}
-      {isTransferModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="w-full sm:max-w-lg bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl p-5 sm:p-6 text-xs text-slate-800 dark:text-slate-200 overflow-y-auto max-h-[92vh]">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <ArrowRightLeft className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span>Filiallararo Tovar O'tkazish (Перемещение)</span>
-              </h3>
-              <button
-                onClick={() => setIsTransferModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+          <Field label={t('warehouse.transferModal.target')} required>
+            <Select required value={targetStoreId} onChange={(e) => setTargetStoreId(e.target.value)}>
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
 
-            <form onSubmit={handleTransferSubmit} className="mt-4 space-y-4">
-              <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/40 rounded-xl text-purple-800 dark:text-purple-300">
-                Tanlangan tovarlar: <b>{selectedForTransfer.length} ta</b>
-                {selectedForTransfer.length === 0 && (
-                  <span className="block text-rose-500 text-[11px] mt-1">
-                    Avval jadvaldan ko'chirmoqchi bo'lgan tovarlarni checkbox orqali tanlang!
-                  </span>
-                )}
-              </div>
+          <Field label={t('warehouse.transferModal.reason')}>
+            <Input
+              type="text"
+              value={transferReason}
+              onChange={(e) => setTransferReason(e.target.value)}
+              placeholder={t('warehouse.transferModal.reasonPlaceholder')}
+            />
+          </Field>
+        </form>
+      </Modal>
 
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Qaysi filialga yuborilmoqda? *
-                </label>
-                <select
-                  required
-                  value={targetStoreId}
-                  onChange={(e) => setTargetStoreId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs outline-none"
-                >
-                  {stores.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+      {/* Tezkor inventarizatsiya (audit) */}
+      <Modal
+        open={isAuditModalOpen}
+        onClose={() => setIsAuditModalOpen(false)}
+        size="lg"
+        title={
+          <span className="flex items-center gap-2">
+            <FileCheck2 className="h-4 w-4 text-accent" />
+            {t('warehouse.auditModal.title')}
+          </span>
+        }
+        footer={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setAuditScannedImeis([]);
+              setIsAuditModalOpen(false);
+            }}
+          >
+            {t('common.close')}
+          </Button>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          <p className="text-fg-secondary">{t('warehouse.auditModal.intro')}</p>
 
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Ko'chirish sababi / Izoh:
-                </label>
-                <input
-                  type="text"
-                  value={transferReason}
-                  onChange={(e) => setTransferReason(e.target.value)}
-                  placeholder="Masalan: Green Bazar filialiga talab bo'yicha..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs outline-none"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsTransferModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  disabled={transferring || selectedForTransfer.length === 0}
-                  className="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold disabled:opacity-50"
-                >
-                  {transferring ? 'Yuborilmoqda...' : 'Yuborish (Yo\'lda)'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Tezkor Inventarizatsiya (Audit) Modal */}
-      {isAuditModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="w-full sm:max-w-2xl bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl p-5 sm:p-6 text-xs text-slate-800 dark:text-slate-200 flex flex-col h-[92vh] sm:h-auto sm:max-h-[90vh]">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <FileCheck2 className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                <span>Tezkor Inventarizatsiya va Audit</span>
-              </h3>
-              <button
-                onClick={() => setIsAuditModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 dark:hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-4 overflow-y-auto flex-1">
-              <p className="text-slate-600 dark:text-slate-400">
-                Skanerni ulab yoki kameradan foydalanib tovarlarning IMEI/Shtrix kodini ketma-ket o'qing:
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  placeholder="IMEI yoki shtrix-kodni o'qing va Enter bosing..."
-                  value={auditInputImei}
-                  onChange={(e) => setAuditInputImei(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && auditInputImei.trim()) {
-                      e.preventDefault();
-                      if (!auditScannedImeis.includes(auditInputImei.trim())) {
-                        setAuditScannedImeis([...auditScannedImeis, auditInputImei.trim()]);
-                      }
-                      setAuditInputImei('');
-                    }
-                  }}
-                  className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-cyan-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (auditInputImei.trim() && !auditScannedImeis.includes(auditInputImei.trim())) {
+          {/* Apparat skaneri Enter yuboradi: faqat mahalliy ro'yxatga qo'shiladi, serverga hech narsa saqlanmaydi */}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              type="text"
+              className="flex-1"
+              placeholder={t('warehouse.auditModal.placeholder')}
+              value={auditInputImei}
+              onChange={(e) => setAuditInputImei(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (auditInputImei.trim()) {
+                    if (!auditScannedImeis.includes(auditInputImei.trim())) {
                       setAuditScannedImeis([...auditScannedImeis, auditInputImei.trim()]);
-                      setAuditInputImei('');
                     }
-                  }}
-                  className="btn-3d px-4 py-2 bg-cyan-600 text-white rounded-xl font-bold"
-                >
-                  Qo'shish
-                </button>
-              </div>
+                    setAuditInputImei('');
+                  }
+                }
+              }}
+            />
+            <Button
+              onClick={() => {
+                if (auditInputImei.trim() && !auditScannedImeis.includes(auditInputImei.trim())) {
+                  setAuditScannedImeis([...auditScannedImeis, auditInputImei.trim()]);
+                  setAuditInputImei('');
+                }
+              }}
+            >
+              {t('common.add')}
+            </Button>
+          </div>
 
-              {/* Audit Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
-                <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800">
-                  <span className="text-slate-500 dark:text-slate-400 block">Bazadagi tovarlar</span>
-                  <span className="text-base font-bold text-slate-900 dark:text-white">{filteredItems.length} ta</span>
-                </div>
-                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40">
-                  <span className="text-emerald-700 dark:text-emerald-400 block">Skaner qilingan</span>
-                  <span className="text-base font-bold text-emerald-700 dark:text-emerald-400">{auditScannedImeis.length} ta</span>
-                </div>
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40">
-                  <span className="text-rose-700 dark:text-rose-400 block">Topilmagan (Kamomad)</span>
-                  <span className="text-base font-bold text-rose-700 dark:text-rose-400">
-                    {Math.max(0, filteredItems.length - auditScannedImeis.length)} ta
-                  </span>
-                </div>
-              </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-control bg-surface-2 p-3">
+              <span className="block text-fg-muted">{t('warehouse.auditModal.dbItems')}</span>
+              <span className="text-base font-semibold tabular-nums text-fg">
+                {t('common.items_count', { count: filteredItems.length })}
+              </span>
             </div>
-
-            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800 mt-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuditScannedImeis([]);
-                  setIsAuditModalOpen(false);
-                }}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold"
-              >
-                Yopish
-              </button>
+            <div className="rounded-control bg-success-soft p-3">
+              <span className="block text-success">{t('warehouse.auditModal.scanned')}</span>
+              <span className="text-base font-semibold tabular-nums text-success">
+                {t('common.items_count', { count: auditScannedImeis.length })}
+              </span>
+            </div>
+            <div className="rounded-control bg-danger-soft p-3">
+              <span className="block text-danger">{t('warehouse.auditModal.missing')}</span>
+              <span className="text-base font-semibold tabular-nums text-danger">
+                {t('common.items_count', { count: Math.max(0, filteredItems.length - auditScannedImeis.length) })}
+              </span>
             </div>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 };

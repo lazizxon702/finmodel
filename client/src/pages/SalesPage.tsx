@@ -3,26 +3,23 @@ import axios from 'axios';
 import {
   BadgeDollarSign,
   Search,
-  CheckCircle2,
   AlertTriangle,
   Plus,
-  RefreshCw,
   ShoppingBag,
-  Percent,
   Calendar,
-  Lock,
-  ArrowUpRight,
-  User,
-  Store as StoreIcon,
   X,
   Edit3,
   Trash2,
   RotateCcw,
 } from 'lucide-react';
-import { formatMoney, formatPercent, formatDate } from '../utils/format';
+import { formatMoney, formatPercent, formatDate, todayYmd, toYmdTashkent, addDaysYmd } from '../utils/format';
 import { useTranslation } from '../context/LanguageContext';
 import { Store } from '../types';
 import { AmountInput } from '../components/AmountInput';
+import {
+  Button, Card, Modal, PageHeader, StatCard, Badge, Field, Input, Select,
+  TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, LoadingBlock, controlClass, cn,
+} from '../components/ui';
 
 export const SalesPage: React.FC = () => {
   const { t } = useTranslation();
@@ -31,16 +28,17 @@ export const SalesPage: React.FC = () => {
   const [availableStock, setAvailableStock] = useState<any[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [storeFilter, setStoreFilter] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  // Sell Modal State
+  // Yangi sotuv oynasi
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
   const [selectedStockId, setSelectedStockId] = useState('');
   const [saleForm, setSaleForm] = useState({
-    saleDate: new Date().toISOString().slice(0, 10),
+    saleDate: todayYmd(),
     salePrice: 0,
     buyerName: '',
     paidAmount: 0,
@@ -54,10 +52,10 @@ export const SalesPage: React.FC = () => {
   const [requiresOverride, setRequiresOverride] = useState(false);
   const [existingDebtNotice, setExistingDebtNotice] = useState(0);
 
-  // Edit Sale Modal State
+  // Sotuvni tahrirlash oynasi
   const [editingSale, setEditingSale] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({
-    saleDate: new Date().toISOString().slice(0, 10),
+    saleDate: todayYmd(),
     salePrice: 0,
     buyerName: '',
     paidAmount: 0,
@@ -67,7 +65,7 @@ export const SalesPage: React.FC = () => {
   });
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Delete / Revert Modal State
+  // O'chirish / bekor qilish oynasi
   const [deletingSale, setDeletingSale] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -89,6 +87,7 @@ export const SalesPage: React.FC = () => {
   const fetchSales = async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (startDate) params.append('startDate', startDate);
@@ -96,8 +95,9 @@ export const SalesPage: React.FC = () => {
       params.append('status', 'SOLD');
       const res = await axios.get(`/api/inventory?${params.toString()}`);
       setSalesItems(res.data.items || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fetch sales error:', err);
+      setLoadError(err.response?.data?.error || t('common.load_error'));
     } finally {
       setLoading(false);
     }
@@ -112,20 +112,25 @@ export const SalesPage: React.FC = () => {
     }
   };
 
-  // Filter items by store
+  // Do'kon bo'yicha filtr
   const filteredSales = salesItems.filter((it) => {
     if (storeFilter && it.storeId !== storeFilter && it.storeName !== storeFilter) return false;
     return true;
   });
 
-  // Dynamic KPI calculations
+  // KPI hisob-kitoblari
   const totalSalesCount = filteredSales.length;
   const totalSalesVolume = filteredSales.reduce((sum, it) => sum + (Number(it.salePrice) || 0), 0);
-  const totalPurchaseCost = filteredSales.reduce((sum, it) => sum + (Number(it.purchaseCost) || 0), 0);
   const totalProfit = filteredSales.reduce((sum, it) => sum + (Number(it.profit) || 0), 0);
   const avgCheck = totalSalesCount > 0 ? Math.round(totalSalesVolume / totalSalesCount) : 0;
   const totalMarginSum = filteredSales.reduce((sum, it) => sum + (Number(it.marginPercent) || 0), 0);
   const avgMargin = totalSalesCount > 0 ? totalMarginSum / totalSalesCount : 0;
+
+  // Haridor ismi: server buyerName (xaridor yoki mijoz) qaytaradi; "-" bo'lsa mijoz ismi
+  const buyerOf = (item: any): string => {
+    const b = item.buyerName && item.buyerName !== '-' ? item.buyerName : '';
+    return b || item.customerName || '';
+  };
 
   const handleOpenNewSale = () => {
     setIsSellModalOpen(true);
@@ -133,7 +138,7 @@ export const SalesPage: React.FC = () => {
     const firstItem = availableStock[0];
     const initialPrice = firstItem ? (firstItem.salePrice > 0 ? firstItem.salePrice : Math.round(firstItem.purchaseCost * 1.12)) : 0;
     setSaleForm({
-      saleDate: new Date().toISOString().slice(0, 10),
+      saleDate: todayYmd(),
       salePrice: initialPrice,
       buyerName: '',
       paidAmount: initialPrice,
@@ -163,11 +168,11 @@ export const SalesPage: React.FC = () => {
   const handleSaleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStockId) {
-      alert('Iltimos, sotiladigan qurilmani tanlang!');
+      alert(t('sales.form.pickDevice'));
       return;
     }
     if (!saleForm.buyerName.trim()) {
-      alert('Haridor ismini kiriting!');
+      alert(t('sales.form.buyerRequired'));
       return;
     }
 
@@ -178,7 +183,7 @@ export const SalesPage: React.FC = () => {
       setIsSellModalOpen(false);
       fetchSales();
       fetchAvailableStock();
-      alert('Sotuv muvaffaqiyatli amalga oshirildi!');
+      alert(t('sales.form.done'));
     } catch (err: any) {
       if (err.response?.data?.requiresOverride) {
         setRequiresOverride(true);
@@ -196,12 +201,12 @@ export const SalesPage: React.FC = () => {
     const debt = Number(item.debtRemainder) || 0;
     const paid = Number(item.receivedFromBuyer) || (sPrice - debt);
     setEditForm({
-      saleDate: item.saleDate ? new Date(item.saleDate).toISOString().slice(0, 10) : (item.dealDate ? new Date(item.dealDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)),
+      saleDate: item.saleDate ? toYmdTashkent(item.saleDate) : (item.dealDate ? toYmdTashkent(item.dealDate) : todayYmd()),
       salePrice: sPrice,
-      buyerName: item.buyerName || item.customerName || '',
+      buyerName: buyerOf(item),
       paidAmount: Math.max(0, paid),
       paymentType: debt > 0 ? 'INSTALLMENT' : 'CASH',
-      dueDate: item.debtDueDate ? new Date(item.debtDueDate).toISOString().split('T')[0] : '',
+      dueDate: item.debtDueDate ? toYmdTashkent(item.debtDueDate) : '',
       note: item.note || '',
     });
   };
@@ -210,11 +215,11 @@ export const SalesPage: React.FC = () => {
     e.preventDefault();
     if (!editingSale) return;
     if (!editForm.buyerName.trim()) {
-      alert('Iltimos, haridor ismini kiriting!');
+      alert(t('sales.edit.buyerRequired'));
       return;
     }
     if (editForm.salePrice <= 0) {
-      alert('Sotuv narxi 0 dan katta bo\'lishi kerak!');
+      alert(t('sales.edit.priceRequired'));
       return;
     }
 
@@ -224,16 +229,16 @@ export const SalesPage: React.FC = () => {
       setEditingSale(null);
       fetchSales();
       fetchAvailableStock();
-      alert('Sotuv ma\'lumotlari muvaffaqiyatli yangilandi!');
+      alert(t('sales.edit.done'));
     } catch (err: any) {
-      alert('Xatolik: ' + (err.response?.data?.error || err.message));
+      alert(`${t('common.error')}: ${err.response?.data?.error || err.message}`);
     } finally {
       setSavingEdit(false);
     }
   };
 
   const handleRevertSaleToWarehouse = async (dealId: string) => {
-    if (!confirm('Ushbu sotuvni bekor qilib, tovarni yana omborga qaytarishni xohlaysizmi?')) return;
+    if (!confirm(t('sales.revert.confirm'))) return;
     try {
       setDeleting(true);
       await axios.put(`/api/inventory/${dealId}/sale`, { returnToWarehouse: true });
@@ -241,663 +246,565 @@ export const SalesPage: React.FC = () => {
       setDeletingSale(null);
       fetchSales();
       fetchAvailableStock();
-      alert('Tovar muvaffaqiyatli omborga qaytarildi (Omborda)!');
+      alert(t('sales.revert.done'));
     } catch (err: any) {
-      alert('Xatolik: ' + (err.response?.data?.error || err.message));
+      alert(`${t('common.error')}: ${err.response?.data?.error || err.message}`);
     } finally {
       setDeleting(false);
     }
   };
 
   const handleDeleteSalePermanently = async (dealId: string) => {
-    if (!confirm('DIQQAT! Ushbu bitim butunlay o\'chiriladi. Rozimisiz?')) return;
+    if (!confirm(t('sales.delete.confirm'))) return;
     try {
       setDeleting(true);
       await axios.delete(`/api/inventory/${dealId}/sale?deletePermanently=true`);
       setDeletingSale(null);
       fetchSales();
       fetchAvailableStock();
-      alert('Bitim butunlay o\'chirildi!');
+      alert(t('sales.delete.done'));
     } catch (err: any) {
-      alert('Xatolik: ' + (err.response?.data?.error || err.message));
+      alert(`${t('common.error')}: ${err.response?.data?.error || err.message}`);
     } finally {
       setDeleting(false);
     }
   };
 
+  // Tez sana tugmalari (Toshkent kuni bo'yicha)
+  const presets: { key: string; label: string; apply: () => void }[] = [
+    {
+      key: 'today',
+      label: t('common.today'),
+      apply: () => {
+        const today = todayYmd();
+        setStartDate(today);
+        setEndDate(today);
+      },
+    },
+    {
+      key: 'yesterday',
+      label: t('sales.yesterday'),
+      apply: () => {
+        const yest = addDaysYmd(todayYmd(), -1);
+        setStartDate(yest);
+        setEndDate(yest);
+      },
+    },
+    {
+      key: 'last7',
+      label: t('sales.last7'),
+      apply: () => {
+        const today = todayYmd();
+        setStartDate(addDaysYmd(today, -7));
+        setEndDate(today);
+      },
+    },
+    {
+      key: 'month',
+      label: t('sales.thisMonth'),
+      apply: () => {
+        const today = todayYmd();
+        const [y, m] = today.split('-').map(Number);
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        setStartDate(`${today.slice(0, 8)}01`);
+        setEndDate(`${today.slice(0, 8)}${String(lastDay).padStart(2, '0')}`);
+      },
+    },
+  ];
+
+  const paymentOptions = (
+    <>
+      <option value="CASH">{t('sales.pay.CASH')}</option>
+      <option value="CARD">{t('sales.pay.CARD')}</option>
+      <option value="INSTALLMENT">{t('sales.pay.INSTALLMENT')}</option>
+    </>
+  );
+
+  const amountClass = cn(controlClass, 'font-semibold tabular-nums');
+
   return (
-    <div className="space-y-6 text-slate-900 dark:text-slate-100">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-            <BadgeDollarSign className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-            <span>Sotuvlar va Bitimlar Hisobi</span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Sotilgan qurilmalar arxivi, haridorlar, foyda, marja foizi va nasiya qarzdorlik nazorati
-          </p>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        icon={<BadgeDollarSign className="h-5 w-5" />}
+        title={t('sales.title')}
+        description={t('sales.subtitle')}
+        actions={
+          <Button leftIcon={<Plus className="h-4 w-4" />} onClick={handleOpenNewSale}>
+            {t('sales.newSale')}
+          </Button>
+        }
+      />
+
+      {loadError && (
+        <div role="alert" className="rounded-control border border-danger/30 bg-danger-soft p-3 text-sm text-danger">
+          {loadError}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleOpenNewSale}
-            className="btn-3d py-2 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 active:translate-y-[1px] transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Yangi Sotuv Rasmiylashtirish</span>
-          </button>
-        </div>
+      )}
+
+      {/* KPI */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+        <StatCard
+          title={t('sales.kpi.total')}
+          value={<span className="text-base sm:text-lg">{formatMoney(totalSalesVolume)}</span>}
+          hint={t('sales.kpi.totalHint')}
+          tone="success"
+        />
+        <StatCard
+          title={t('sales.kpi.count')}
+          value={t('sales.kpi.countValue', { count: totalSalesCount })}
+          hint={t('sales.kpi.countHint')}
+        />
+        <StatCard
+          title={t('sales.kpi.avgCheck')}
+          value={<span className="text-base sm:text-lg">{formatMoney(avgCheck)}</span>}
+          hint={t('sales.kpi.avgCheckHint')}
+          tone="info"
+        />
+        <StatCard
+          title={t('sales.kpi.profit')}
+          value={<span className="text-base sm:text-lg">{formatMoney(totalProfit)}</span>}
+          hint={t('sales.kpi.profitHint')}
+          tone="success"
+        />
+        <StatCard
+          title={t('sales.kpi.margin')}
+          value={formatPercent(avgMargin)}
+          hint={t('sales.kpi.marginHint')}
+          tone="brand"
+          className="col-span-2 sm:col-span-1"
+        />
       </div>
 
-      {/* Dynamic KPI Summary Banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-            Jami Sotuv (Itogo)
-          </span>
-          <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
-            {formatMoney(totalSalesVolume)}
-          </p>
-          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Tushum summasi</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-            Soni (Kolichestvo)
-          </span>
-          <p className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
-            {totalSalesCount} dona
-          </p>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Bajarilgan sotuvlar</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
-            O'rtacha Chek
-          </span>
-          <p className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400 mt-1">
-            {formatMoney(avgCheck)}
-          </p>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">1 bitim tushumi</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md">
-          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
-            Jami Sof Foyda
-          </span>
-          <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
-            {formatMoney(totalProfit)}
-          </p>
-          <span className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 font-medium">Tannarxdan qolgan</span>
-        </div>
-
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm dark:shadow-md col-span-2 sm:col-span-1">
-          <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider block">
-            O'rtacha Marja %
-          </span>
-          <p className="text-base sm:text-lg font-black text-purple-600 dark:text-purple-400 mt-1">
-            {formatPercent(avgMargin)}
-          </p>
-          <span className="text-[10px] text-purple-600/80 dark:text-purple-400/80 font-medium">Foydalilik darajasi</span>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-3">
-        <div className="flex flex-col md:flex-row items-center gap-3">
-          <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-            <input
+      {/* Qidiruv va filtrlar */}
+      <Card padding="sm" className="space-y-3">
+        <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-center">
+          <div className="flex-1">
+            <Input
               type="text"
+              leftIcon={<Search />}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Qidiruv: mahsulot, IMEI, haridor yoki do'kon..."
-              className="w-full pl-10 pr-4 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              placeholder={t('sales.searchPlaceholder')}
             />
           </div>
 
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <select
-              value={storeFilter}
-              onChange={(e) => setStoreFilter(e.target.value)}
-              className="w-full md:w-56 px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Barcha filiallar (Magazin)</option>
+          <div className="flex items-center gap-2">
+            <Select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)} className="md:w-56">
+              <option value="">{t('sales.allStores')}</option>
               {stores.map((s) => (
-                <option key={s.id} value={s.name} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                <option key={s.id} value={s.name}>
                   {s.name}
                 </option>
               ))}
-            </select>
+            </Select>
 
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="icon"
               onClick={() => {
                 setSearch('');
                 setStoreFilter('');
                 setStartDate('');
                 setEndDate('');
               }}
-              className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition"
-              title="Tozalash"
+              title={t('common.reset')}
+              aria-label={t('common.reset')}
             >
-              <RotateCcw className="w-4 h-4" />
-            </button>
+              <RotateCcw className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
-        {/* Date Range Filter Row */}
-        <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+        {/* Sana oralig'i */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3 text-xs">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 shrink-0">
-              <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Sana bo'yicha:</span>
+            <span className="flex shrink-0 items-center gap-1.5 font-medium text-fg-secondary">
+              <Calendar className="h-3.5 w-3.5 text-accent" />
+              <span>{t('sales.byDate')}:</span>
             </span>
 
-            <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 shadow-inner">
-              <span className="text-[11px] font-semibold text-slate-500">Dan:</span>
-              <input
+            <label className="flex items-center gap-1.5">
+              <span className="text-[11px] text-fg-muted">{t('common.from')}:</span>
+              <Input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="bg-transparent text-slate-900 dark:text-white text-xs outline-none cursor-pointer font-medium"
+                className="w-auto min-w-0 tabular-nums"
               />
-            </div>
+            </label>
 
-            <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 shadow-inner">
-              <span className="text-[11px] font-semibold text-slate-500">Gacha:</span>
-              <input
+            <label className="flex items-center gap-1.5">
+              <span className="text-[11px] text-fg-muted">{t('common.to')}:</span>
+              <Input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="bg-transparent text-slate-900 dark:text-white text-xs outline-none cursor-pointer font-medium"
+                className="w-auto min-w-0 tabular-nums"
               />
-            </div>
+            </label>
 
             {(startDate || endDate) && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-danger"
+                leftIcon={<X className="h-3.5 w-3.5" />}
                 onClick={() => {
                   setStartDate('');
                   setEndDate('');
                 }}
-                className="px-2 py-1.5 rounded-xl text-rose-500 hover:bg-rose-500/10 flex items-center gap-1 font-bold text-[11px] transition"
-                title="Sanani tozalash"
+                title={t('sales.clearDates')}
               >
-                <X className="w-3.5 h-3.5" />
-                <span>Bekor qilish</span>
-              </button>
+                {t('common.cancel')}
+              </Button>
             )}
           </div>
 
-          {/* Quick Presets */}
+          {/* Tez tugmalar */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                const today = new Date().toISOString().slice(0, 10);
-                setStartDate(today);
-                setEndDate(today);
-              }}
-              className="px-2.5 py-1 rounded-xl text-xs font-bold bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition"
-            >
-              Bugun
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const d = new Date();
-                d.setDate(d.getDate() - 1);
-                const yest = d.toISOString().slice(0, 10);
-                setStartDate(yest);
-                setEndDate(yest);
-              }}
-              className="px-2.5 py-1 rounded-xl text-xs font-bold bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition"
-            >
-              Kecha
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                const past7 = new Date();
-                past7.setDate(now.getDate() - 7);
-                setStartDate(past7.toISOString().slice(0, 10));
-                setEndDate(now.toISOString().slice(0, 10));
-              }}
-              className="px-2.5 py-1 rounded-xl text-xs font-bold bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition"
-            >
-              7 kun
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-                const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-                setStartDate(firstDay);
-                setEndDate(lastDay);
-              }}
-              className="px-2.5 py-1 rounded-xl text-xs font-bold bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition"
-            >
-              Shu oy
-            </button>
+            {presets.map((p) => (
+              <Button key={p.key} size="sm" variant="secondary" onClick={p.apply}>
+                {p.label}
+              </Button>
+            ))}
           </div>
         </div>
-      </div>
+      </Card>
 
-      {/* Sales Table */}
-      <div className="table-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm flex flex-col">
-        <div className="lg:hidden px-3.5 py-2 bg-slate-100 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-          <span className="flex items-center gap-1 font-medium">👉 Jadvalni ko'rish uchun o'ngga suring</span>
-          <span className="font-bold text-emerald-600 dark:text-emerald-400">{filteredSales.length} ta sotuv</span>
+      {/* Sotuvlar jadvali */}
+      <Card padding="none">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 text-xs text-fg-muted lg:hidden">
+          <span>{t('sales.swipeHint')}</span>
+          <span className="font-semibold tabular-nums text-success">{t('sales.listCount', { count: filteredSales.length })}</span>
         </div>
-        <div className="table-scroll-container custom-scrollbar">
-          <table className="w-full text-left text-xs text-slate-700 dark:text-slate-200">
-            <thead className="table-sticky-head bg-slate-100 dark:bg-slate-950 text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 shadow-sm">
-              <tr>
-                <th className="px-4 py-3 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">№</th>
-                <th className="px-4 py-3 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Sana</th>
-                <th className="px-4 py-3 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Filial / Do'kon</th>
-                <th className="px-4 py-3 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Mahsulot Nomi</th>
-                <th className="px-4 py-3 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">IMEI / Shtrix</th>
-                <th className="px-4 py-3 text-right bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Xarid Summasi</th>
-                <th className="px-4 py-3 text-right bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Sotuv Narxi</th>
-                <th className="px-4 py-3 text-right bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Sof Foyda</th>
-                <th className="px-4 py-3 text-center bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Marja %</th>
-                <th className="px-4 py-3 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Haridor</th>
-                <th className="px-4 py-3 text-center bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Holat</th>
-                <th className="px-4 py-3 text-center sticky right-0 top-0 bg-slate-100 dark:bg-slate-950 z-30 shadow-md whitespace-nowrap">
-                  Amallar
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+        <TableContainer bare>
+          <Table>
+            <Thead>
+              <Tr>
+                <Th>№</Th>
+                <Th>{t('common.date')}</Th>
+                <Th>{t('sales.col.store')}</Th>
+                <Th>{t('common.product_name')}</Th>
+                <Th>{t('sales.col.imei')}</Th>
+                <Th align="right">{t('sales.col.purchase')}</Th>
+                <Th align="right">{t('sales.col.salePrice')}</Th>
+                <Th align="right">{t('sales.col.profit')}</Th>
+                <Th align="center">{t('common.margin')}</Th>
+                <Th>{t('sales.col.buyer')}</Th>
+                <Th align="center">{t('common.status')}</Th>
+                <Th align="center" className="sticky right-0 z-20">{t('common.actions')}</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="text-center py-12 text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
-                    Sotuvlar ma'lumotlari yuklanmoqda...
+                  <td colSpan={12}>
+                    <LoadingBlock label={t('sales.loading')} />
                   </td>
                 </tr>
               ) : filteredSales.length === 0 ? (
-                <tr>
-                  <td colSpan={12} className="text-center py-12 text-slate-400">
-                    <ShoppingBag className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                    Sotilgan tovarlar topilmadi
-                  </td>
-                </tr>
+                <TableEmpty colSpan={12} title={t('sales.empty')} icon={<ShoppingBag />} />
               ) : (
                 filteredSales.map((item, idx) => (
-                  <tr
-                    key={item.id}
-                    className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
-                  >
-                    <td className="px-4 py-3 font-bold text-slate-400">{idx + 1}</td>
-                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                      {formatDate(item.dealDate)}
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
-                      {item.storeName || '-'}
-                    </td>
-                    <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
-                      <div>{item.productName}</div>
+                  <Tr key={item.id}>
+                    <Td numeric className="font-semibold text-fg-muted">{idx + 1}</Td>
+                    <Td numeric className="text-fg-secondary">{formatDate(item.dealDate)}</Td>
+                    <Td className="font-medium text-fg-secondary">{item.storeName || '—'}</Td>
+                    <Td>
+                      <div className="font-semibold text-fg">{item.productName}</div>
                       {item.isDaftar && (
-                        <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/25">
-                          📒 Daftar
-                        </span>
+                        <Badge tone="warning" size="sm" className="mt-0.5">Daftar</Badge>
                       )}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                      {item.imei || '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                      {formatMoney(item.purchaseCost)}
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <div className="font-bold text-slate-900 dark:text-white">
-                        {formatMoney(item.salePrice)}
-                      </div>
+                    </Td>
+                    <Td className="font-mono text-[11px] tabular-nums text-fg-muted">{item.imei || '-'}</Td>
+                    <Td align="right" numeric className="text-fg-secondary">{formatMoney(item.purchaseCost)}</Td>
+                    <Td align="right" numeric>
+                      <div className="font-semibold text-fg">{formatMoney(item.salePrice)}</div>
                       {Number(item.debtRemainder) > 0 ? (
-                        <div className="text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-0.5">
-                          Qarz: {formatMoney(item.debtRemainder)}
+                        <div className="mt-0.5 text-[11px] font-semibold text-danger">
+                          {t('sales.debt', { amount: formatMoney(item.debtRemainder) })}
                         </div>
                       ) : Number(item.salePrice) > 0 ? (
-                        <div className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                          To'liq to'langan
-                        </div>
+                        <div className="mt-0.5 text-[11px] font-medium text-success">{t('sales.fullyPaid')}</div>
                       ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold whitespace-nowrap">
-                      <span className={Number(item.profit) >= 0 ? 'text-teal-600 dark:text-teal-400' : 'text-rose-600 dark:text-rose-400'}>
+                    </Td>
+                    <Td align="right" numeric className="font-semibold">
+                      <span className={Number(item.profit) >= 0 ? 'text-success' : 'text-danger'}>
                         {formatMoney(item.profit)}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap">
-                      <span className="pill-3d px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/20">
-                        {formatPercent(item.marginPercent)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
-                      <div>{item.buyerName || '-'}</div>
+                    </Td>
+                    <Td align="center" numeric>
+                      <Badge tone="brand" size="sm">{formatPercent(item.marginPercent)}</Badge>
+                    </Td>
+                    <Td>
+                      <div className="font-medium text-fg">{buyerOf(item) || '—'}</div>
                       {item.debtDueDate && Number(item.debtRemainder) > 0 && (
-                        <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium whitespace-nowrap">
-                          Muddat: {formatDate(item.debtDueDate)}
+                        <div className="whitespace-nowrap text-[11px] font-medium tabular-nums text-warning">
+                          {t('sales.dueDate', { date: formatDate(item.debtDueDate) })}
                         </div>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap">
-                      <span className="pill-3d px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                        Sotilgan
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap sticky right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md z-10 shadow-sm">
+                    </Td>
+                    <Td align="center">
+                      <Badge tone="success" size="sm">{t('dealStatus.SOLD')}</Badge>
+                    </Td>
+                    <Td align="center" className="sticky right-0 z-10 whitespace-nowrap bg-surface">
                       <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          leftIcon={<Edit3 className="h-3.5 w-3.5" />}
                           onClick={() => handleOpenEditSale(item)}
-                          className="btn-3d px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-xs"
-                          title="Sotuv ma'lumotlarini tahrirlash (Narx, Haridor, Qarz)"
+                          title={t('sales.editTooltip')}
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>O'zgartirish</span>
-                        </button>
-                        <button
-                          type="button"
+                          {t('sales.change')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="text-danger"
+                          leftIcon={<Trash2 className="h-3.5 w-3.5" />}
                           onClick={() => setDeletingSale(item)}
-                          className="btn-3d px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-xs"
-                          title="Sotuvni bekor qilish yoki o'chirish"
+                          title={t('sales.deleteTooltip')}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>O'chirish</span>
-                        </button>
+                          {t('common.delete')}
+                        </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </Td>
+                  </Tr>
                 ))
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </Tbody>
+          </Table>
+        </TableContainer>
+      </Card>
 
-      {/* New Sale Modal */}
-      {isSellModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 max-w-lg w-full shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto custom-scrollbar">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <BadgeDollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                <h3 className="font-black text-base text-slate-900 dark:text-white">
-                  Yangi Sotuv Rasmiylashtirish
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSellModalOpen(false)}
-                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaleSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                  Ombordagi Qurilmani Tanlang *
-                </label>
-                <select
-                  value={selectedStockId}
-                  onChange={(e) => handleStockSelectChange(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
-                  required
-                >
-                  {availableStock.length === 0 ? (
-                    <option value="" className="bg-white dark:bg-slate-900">Omborda tayyor mahsulot yo'q</option>
-                  ) : (
-                    availableStock.map((st) => (
-                      <option key={st.id} value={st.id} className="bg-white dark:bg-slate-900">
-                        {st.productName} — IMEI: {st.imei || 'Yo\'q'} ({st.storeName})
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Sotuv / Chek Sanasi *</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={saleForm.saleDate}
-                    onChange={(e) => setSaleForm({ ...saleForm, saleDate: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 cursor-pointer font-medium"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    Haridor F.I.O yoki Nomi *
-                  </label>
-                  <input
-                    type="text"
-                    value={saleForm.buyerName}
-                    onChange={(e) => setSaleForm({ ...saleForm, buyerName: e.target.value })}
-                    placeholder="Masalan: Dilshod Rustamov"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    Sotuv Narxi (UZS) *
-                  </label>
-                  <AmountInput
-                    value={saleForm.salePrice}
-                    onChange={(val) => {
-                      if (saleForm.paymentType === 'INSTALLMENT') {
-                        setSaleForm({ ...saleForm, salePrice: val });
-                      } else {
-                        setSaleForm({ ...saleForm, salePrice: val, paidAmount: val });
-                      }
-                    }}
-                    placeholder="Masalan: 8 500 000"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-bold focus:ring-2 focus:ring-emerald-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    To'langan Summa (UZS)
-                  </label>
-                  <AmountInput
-                    value={saleForm.paidAmount}
-                    onChange={(val) => setSaleForm({ ...saleForm, paidAmount: val })}
-                    placeholder="0"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-bold focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    To'lov Shakli
-                  </label>
-                  <select
-                    value={saleForm.paymentType}
-                    onChange={(e) => {
-                      const pType = e.target.value;
-                      if (pType === 'INSTALLMENT') {
-                        setSaleForm({ ...saleForm, paymentType: pType, paidAmount: 0 });
-                      } else {
-                        setSaleForm({ ...saleForm, paymentType: pType, paidAmount: saleForm.salePrice });
-                      }
-                    }}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  >
-                    <option value="CASH" className="bg-white dark:bg-slate-900">Naqd pul (Kassa)</option>
-                    <option value="CARD" className="bg-white dark:bg-slate-900">Karta / Perevod</option>
-                    <option value="INSTALLMENT" className="bg-white dark:bg-slate-900">Nasiya / Qarz (Qarzdorlarga tushadi)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    Qarz Muddat Sanasi
-                  </label>
-                  <input
-                    type="date"
-                    value={saleForm.dueDate}
-                    onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              {/* Real-time Debt indicator */}
-              {saleForm.salePrice > 0 && (
-                <div className="p-3 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/80 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="text-slate-500 dark:text-slate-400 block text-[10px]">Qarzdorlik summasi:</span>
-                    <span className={`font-black text-sm ${saleForm.salePrice - saleForm.paidAmount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                      {formatMoney(Math.max(0, saleForm.salePrice - saleForm.paidAmount))}
-                    </span>
-                  </div>
-                  {saleForm.salePrice - saleForm.paidAmount > 0 ? (
-                    <span className="text-[10px] px-2.5 py-1 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 font-bold border border-rose-500/30">
-                      Srazi "Qarzdorlar" ro'yxatiga tushadi
-                    </span>
-                  ) : (
-                    <span className="text-[10px] px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-500/30">
-                      To'liq to'langan
-                    </span>
-                  )}
-                </div>
+      {/* Yangi sotuv oynasi */}
+      <Modal
+        open={isSellModalOpen}
+        onClose={() => setIsSellModalOpen(false)}
+        size="md"
+        title={
+          <span className="flex items-center gap-2">
+            <BadgeDollarSign className="h-5 w-5 text-accent" />
+            {t('sales.newSale')}
+          </span>
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsSellModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form="sale-new-form" loading={selling}>
+              {selling ? t('sales.form.submitting') : t('sales.form.submit')}
+            </Button>
+          </>
+        }
+      >
+        <form id="sale-new-form" onSubmit={handleSaleSubmit} className="space-y-4">
+          <Field label={t('sales.form.stock')} required>
+            <Select value={selectedStockId} onChange={(e) => handleStockSelectChange(e.target.value)} required>
+              {availableStock.length === 0 ? (
+                <option value="">{t('sales.form.noStock')}</option>
+              ) : (
+                availableStock.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.productName} — IMEI: {st.imei || t('sales.form.noImei')} ({st.storeName})
+                  </option>
+                ))
               )}
+            </Select>
+          </Field>
 
-              {/* Debt Notice and Override Password Prompt */}
-              {requiresOverride && (
-                <div className="p-3.5 bg-rose-500/15 border border-rose-500/40 rounded-2xl space-y-2">
-                  <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-bold">
-                    <AlertTriangle className="w-4 h-4" />
-                    <span>Mijozning muddati o'tgan qarzi bor ({formatMoney(existingDebtNotice)})!</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 dark:text-slate-300">
-                    Ushbu bitimni tasdiqlash uchun boshqaruvchi (admin) maxsus parolini kiriting:
-                  </p>
-                  <input
-                    type="password"
-                    placeholder="Administrator kodi"
-                    value={saleForm.adminOverrideCode}
-                    onChange={(e) => setSaleForm({ ...saleForm, adminOverrideCode: e.target.value })}
-                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-rose-300 dark:border-rose-700 rounded-xl text-rose-600 font-bold"
-                  />
-                </div>
-              )}
-
-              {saleError && (
-                <p className="text-xs text-rose-600 dark:text-rose-400 font-semibold">{saleError}</p>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsSellModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  disabled={selling}
-                  className="btn-3d px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-md shadow-emerald-600/30 transition disabled:opacity-50"
-                >
-                  {selling ? 'Rasmiylashtirilmoqda...' : 'Sotuvni Saqlash'}
-                </button>
-              </div>
-            </form>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('sales.form.saleDate')} required>
+              <Input
+                type="date"
+                value={saleForm.saleDate}
+                onChange={(e) => setSaleForm({ ...saleForm, saleDate: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label={t('sales.form.buyer')} required>
+              <Input
+                type="text"
+                value={saleForm.buyerName}
+                onChange={(e) => setSaleForm({ ...saleForm, buyerName: e.target.value })}
+                placeholder={t('sales.form.buyerPlaceholder')}
+                required
+              />
+            </Field>
           </div>
-        </div>
-      )}
 
-      {/* Edit Sale Modal */}
-      {editingSale && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 max-w-lg w-full shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto custom-scrollbar">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                <h3 className="font-black text-base text-slate-900 dark:text-white">
-                  Sotuvni Tahrirlash (№{editingSale.dealNumber})
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingSale(null)}
-                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white"
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('sales.form.salePrice')} required>
+              <AmountInput
+                value={saleForm.salePrice}
+                onChange={(val) => {
+                  if (saleForm.paymentType === 'INSTALLMENT') {
+                    setSaleForm({ ...saleForm, salePrice: val });
+                  } else {
+                    setSaleForm({ ...saleForm, salePrice: val, paidAmount: val });
+                  }
+                }}
+                placeholder={t('sales.form.salePricePlaceholder')}
+                className={amountClass}
+                required
+              />
+            </Field>
+            <Field label={t('sales.form.paid')}>
+              <AmountInput
+                value={saleForm.paidAmount}
+                onChange={(val) => setSaleForm({ ...saleForm, paidAmount: val })}
+                placeholder="0"
+                className={amountClass}
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('sales.form.payType')}>
+              <Select
+                value={saleForm.paymentType}
+                onChange={(e) => {
+                  const pType = e.target.value;
+                  if (pType === 'INSTALLMENT') {
+                    setSaleForm({ ...saleForm, paymentType: pType, paidAmount: 0 });
+                  } else {
+                    setSaleForm({ ...saleForm, paymentType: pType, paidAmount: saleForm.salePrice });
+                  }
+                }}
               >
-                <X className="w-5 h-5" />
-              </button>
+                {paymentOptions}
+              </Select>
+            </Field>
+            <Field label={t('sales.form.dueDate')}>
+              <Input
+                type="date"
+                value={saleForm.dueDate}
+                onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          {/* Qarz ko'rsatkichi */}
+          {saleForm.salePrice > 0 && (
+            <div className="flex items-center justify-between gap-2 rounded-card border border-line bg-surface-2 p-3 text-xs">
+              <div>
+                <span className="block text-[11px] text-fg-muted">{t('sales.form.debtAmount')}:</span>
+                <span
+                  className={cn(
+                    'text-sm font-semibold tabular-nums',
+                    saleForm.salePrice - saleForm.paidAmount > 0 ? 'text-danger' : 'text-success'
+                  )}
+                >
+                  {formatMoney(Math.max(0, saleForm.salePrice - saleForm.paidAmount))}
+                </span>
+              </div>
+              {saleForm.salePrice - saleForm.paidAmount > 0 ? (
+                <Badge tone="danger" size="sm">{t('sales.form.goesToDebtors')}</Badge>
+              ) : (
+                <Badge tone="success" size="sm">{t('sales.fullyPaid')}</Badge>
+              )}
+            </div>
+          )}
+
+          {/* Qarz haqida ogohlantirish va admin kodi */}
+          {requiresOverride && (
+            <div className="space-y-2 rounded-card border border-danger/30 bg-danger-soft p-3.5">
+              <div className="flex items-center gap-2 text-xs font-semibold text-danger">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>{t('sales.form.overdueDebt', { amount: formatMoney(existingDebtNotice) })}</span>
+              </div>
+              <p className="text-[11px] text-fg-secondary">{t('sales.form.overrideHint')}</p>
+              <Input
+                type="password"
+                placeholder={t('sales.form.adminCode')}
+                value={saleForm.adminOverrideCode}
+                onChange={(e) => setSaleForm({ ...saleForm, adminOverrideCode: e.target.value })}
+              />
+            </div>
+          )}
+
+          {saleError && (
+            <p role="alert" className="text-xs font-semibold text-danger">{saleError}</p>
+          )}
+        </form>
+      </Modal>
+
+      {/* Sotuvni tahrirlash oynasi */}
+      <Modal
+        open={!!editingSale}
+        onClose={() => setEditingSale(null)}
+        size="md"
+        title={
+          <span className="flex items-center gap-2">
+            <Edit3 className="h-5 w-5 text-accent" />
+            {t('sales.edit.title', { number: editingSale?.dealNumber ?? '' })}
+          </span>
+        }
+        footer={
+          editingSale ? (
+            <>
+              <Button
+                variant="secondary"
+                className="sm:mr-auto"
+                leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
+                onClick={() => handleRevertSaleToWarehouse(editingSale.id)}
+                title={t('sales.revert.tooltip')}
+              >
+                {t('sales.revert.button')}
+              </Button>
+              <Button variant="secondary" onClick={() => setEditingSale(null)}>
+                {t('common.close')}
+              </Button>
+              <Button type="submit" form="sale-edit-form" loading={savingEdit}>
+                {savingEdit ? t('common.saving') : t('sales.edit.save')}
+              </Button>
+            </>
+          ) : undefined
+        }
+      >
+        {editingSale && (
+          <div className="space-y-4">
+            {/* Mahsulot xulosasi */}
+            <div className="space-y-1 rounded-card border border-line bg-surface-2 p-3 text-xs">
+              <div className="flex justify-between gap-3">
+                <span className="text-fg-muted">{t('sales.edit.product')}:</span>
+                <span className="font-semibold text-fg">{editingSale.productName}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-fg-muted">{t('sales.edit.store')}:</span>
+                <span className="font-medium text-fg-secondary">{editingSale.storeName}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-fg-muted">{t('sales.edit.cost')}:</span>
+                <span className="font-semibold tabular-nums text-fg">{formatMoney(editingSale.purchaseCost)}</span>
+              </div>
             </div>
 
-            {/* Product Summary banner */}
-            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-xs space-y-1">
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400 font-medium">Mahsulot:</span>
-                <span className="font-bold text-slate-900 dark:text-white">{editingSale.productName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400 font-medium">Filial:</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{editingSale.storeName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400 font-medium">Xarid tannarxi:</span>
-                <span className="font-bold text-slate-900 dark:text-white">{formatMoney(editingSale.purchaseCost)}</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Sotuv / Chek Sanasi *</span>
-                  </label>
-                  <input
+            <form id="sale-edit-form" onSubmit={handleSaveEdit} className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label={t('sales.form.saleDate')} required>
+                  <Input
                     type="date"
                     value={editForm.saleDate}
                     onChange={(e) => setEditForm({ ...editForm, saleDate: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 cursor-pointer font-medium"
                     required
                   />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    Haridor F.I.O yoki Nomi *
-                  </label>
-                  <input
+                </Field>
+                <Field label={t('sales.form.buyer')} required>
+                  <Input
                     type="text"
                     value={editForm.buyerName}
                     onChange={(e) => setEditForm({ ...editForm, buyerName: e.target.value })}
-                    placeholder="Masalan: Sardor Aliyev"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    placeholder={t('sales.form.buyerPlaceholder')}
                     required
                   />
-                </div>
+                </Field>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    Sotuv Narxi (UZS) *
-                  </label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label={t('sales.form.salePrice')} required>
                   <AmountInput
                     value={editForm.salePrice}
                     onChange={(val) => {
@@ -907,31 +814,24 @@ export const SalesPage: React.FC = () => {
                         setEditForm({ ...editForm, salePrice: val, paidAmount: val });
                       }
                     }}
-                    placeholder="Masalan: 5 000 000"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-bold focus:ring-2 focus:ring-indigo-500"
+                    placeholder={t('sales.form.salePricePlaceholder')}
+                    className={amountClass}
                     required
                   />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    To'langan Summa (UZS)
-                  </label>
+                </Field>
+                <Field label={t('sales.form.paid')}>
                   <AmountInput
                     value={editForm.paidAmount}
                     onChange={(val) => setEditForm({ ...editForm, paidAmount: val })}
                     placeholder="0"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-bold focus:ring-2 focus:ring-indigo-500"
+                    className={amountClass}
                   />
-                </div>
+                </Field>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    To'lov Shakli
-                  </label>
-                  <select
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label={t('sales.form.payType')}>
+                  <Select
                     value={editForm.paymentType}
                     onChange={(e) => {
                       const pType = e.target.value;
@@ -941,166 +841,116 @@ export const SalesPage: React.FC = () => {
                         setEditForm({ ...editForm, paymentType: pType, paidAmount: editForm.salePrice });
                       }
                     }}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                   >
-                    <option value="CASH" className="bg-white dark:bg-slate-900">Naqd pul (Kassa)</option>
-                    <option value="CARD" className="bg-white dark:bg-slate-900">Karta / Perevod</option>
-                    <option value="INSTALLMENT" className="bg-white dark:bg-slate-900">Nasiya / Qarz (Qarzdorlarga tushadi)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    Qarz Muddat Sanasi
-                  </label>
-                  <input
+                    {paymentOptions}
+                  </Select>
+                </Field>
+                <Field label={t('sales.form.dueDate')}>
+                  <Input
                     type="date"
                     value={editForm.dueDate}
                     onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
                   />
-                </div>
+                </Field>
               </div>
 
-              {/* Live debt and profit calculation */}
-              <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200/60 dark:border-indigo-800/40 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-600 dark:text-slate-400 font-medium">Kutilayotgan Sof Foyda:</span>
-                  <span className={`font-black ${editForm.salePrice - editingSale.purchaseCost >= 0 ? 'text-teal-600 dark:text-teal-400' : 'text-rose-600 dark:text-rose-400'}`}>
+              {/* Jonli foyda va qarz hisobi */}
+              <div className="space-y-2 rounded-card border border-line bg-surface-2 p-3 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-fg-muted">{t('sales.edit.expectedProfit')}:</span>
+                  <span
+                    className={cn(
+                      'font-semibold tabular-nums',
+                      editForm.salePrice - editingSale.purchaseCost >= 0 ? 'text-success' : 'text-danger'
+                    )}
+                  >
                     {formatMoney(editForm.salePrice - editingSale.purchaseCost)}
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-indigo-200/40 dark:border-indigo-800/30 pt-1.5">
-                  <span className="text-slate-600 dark:text-slate-400 font-medium">Qarz qoldig'i (Debitorlik):</span>
-                  <span className={`font-black ${editForm.salePrice - editForm.paidAmount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                <div className="flex items-center justify-between gap-2 border-t border-line pt-1.5">
+                  <span className="text-fg-muted">{t('sales.edit.debtBalance')}:</span>
+                  <span
+                    className={cn(
+                      'font-semibold tabular-nums',
+                      editForm.salePrice - editForm.paidAmount > 0 ? 'text-danger' : 'text-success'
+                    )}
+                  >
                     {formatMoney(Math.max(0, editForm.salePrice - editForm.paidAmount))}
                   </span>
                 </div>
 
                 {editForm.salePrice - editForm.paidAmount > 0 && (
-                  <div className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/60 dark:bg-amber-900/40 p-2 rounded-xl flex items-center gap-1.5">
-                    <span>⚠️ Ushbu summa to'g'ridan-to'g'ri "Qarzdorlar" ro'yxatiga tushadi!</span>
+                  <div className="flex items-center gap-1.5 rounded-control bg-warning-soft p-2 text-[11px] font-medium text-warning">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>{t('sales.edit.goesToDebtors')}</span>
                   </div>
                 )}
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                  Izoh (Izoh yoki qarz shartlari)
-                </label>
-                <input
+              <Field label={t('sales.edit.note')}>
+                <Input
                   type="text"
                   value={editForm.note}
                   onChange={(e) => setEditForm({ ...editForm, note: e.target.value })}
-                  placeholder="Qo'shimcha izoh..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
+                  placeholder={t('sales.edit.notePlaceholder')}
                 />
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => handleRevertSaleToWarehouse(editingSale.id)}
-                  className="w-full sm:w-auto px-3.5 py-2 text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 border border-amber-500/30 rounded-xl transition flex items-center justify-center gap-1.5"
-                  title="Sotuvni bekor qilib, tovarni yana omborga qaytarish"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Omborga qaytarish</span>
-                </button>
-
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setEditingSale(null)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
-                  >
-                    Yopish
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={savingEdit}
-                    className="btn-3d px-5 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-md shadow-indigo-600/30 transition disabled:opacity-50"
-                  >
-                    {savingEdit ? 'Saqlanmoqda...' : 'O\'zgarishlarni Saqlash'}
-                  </button>
-                </div>
-              </div>
+              </Field>
             </form>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
-      {/* Delete / Revert Modal */}
-      {deletingSale && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400">
-              <div className="p-3 bg-rose-500/15 rounded-2xl">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="font-black text-base text-slate-900 dark:text-white">
-                  Sotuvni O'chirish yoki Bekor qilish
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  №{deletingSale.dealNumber} — {deletingSale.productName}
-                </p>
-              </div>
-            </div>
+      {/* O'chirish / bekor qilish oynasi */}
+      <Modal
+        open={!!deletingSale}
+        onClose={() => setDeletingSale(null)}
+        size="sm"
+        title={
+          <span className="flex items-center gap-2 text-danger">
+            <Trash2 className="h-5 w-5" />
+            {t('sales.delete.title')}
+          </span>
+        }
+        description={deletingSale ? `№${deletingSale.dealNumber} — ${deletingSale.productName}` : undefined}
+        footer={
+          <Button variant="secondary" onClick={() => setDeletingSale(null)}>
+            {t('common.cancel')}
+          </Button>
+        }
+      >
+        {deletingSale && (
+          <div className="space-y-3">
+            <p className="text-xs leading-relaxed text-fg-secondary">{t('sales.delete.question')}</p>
 
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Ushbu sotuv bo'yicha qanday amal bajarmoqchisiz?
-            </p>
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => handleRevertSaleToWarehouse(deletingSale.id)}
+              className="flex min-h-touch w-full flex-col rounded-card border border-success/30 bg-success-soft p-3 text-left transition-colors hover:bg-success-soft/70 disabled:opacity-60"
+            >
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-success">
+                <RotateCcw className="h-4 w-4" />
+                {t('sales.delete.option1')}
+              </span>
+              <span className="mt-0.5 pl-5 text-[11px] text-fg-muted">{t('sales.delete.option1Hint')}</span>
+            </button>
 
-            <div className="space-y-2.5 pt-2">
-              <button
-                type="button"
-                disabled={deleting}
-                onClick={() => handleRevertSaleToWarehouse(deletingSale.id)}
-                className="w-full p-3 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl text-left transition flex items-center justify-between group"
-              >
-                <div>
-                  <div className="font-bold text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
-                    <RotateCcw className="w-4 h-4 text-emerald-600" />
-                    <span>1. Tovarni omborga qaytarish (Tavsiya etiladi)</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 pl-5">
-                    Sotuv bekor qilinadi, tovar yana omborda sotuvga tayyor bo'ladi va barcha qarzlar bekor bo'ladi.
-                  </p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                disabled={deleting}
-                onClick={() => handleDeleteSalePermanently(deletingSale.id)}
-                className="w-full p-3 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800/60 rounded-2xl text-left transition flex items-center justify-between group"
-              >
-                <div>
-                  <div className="font-bold text-xs text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
-                    <Trash2 className="w-4 h-4 text-rose-600" />
-                    <span>2. Butunlay o'chirish</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 pl-5">
-                    Ushbu bitim tizimdan va barcha hisobotlardan butunlay o'chiriladi.
-                  </p>
-                </div>
-              </button>
-            </div>
-
-            <div className="pt-2 flex justify-end border-t border-slate-200 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setDeletingSale(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
-              >
-                Bekor qilish
-              </button>
-            </div>
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => handleDeleteSalePermanently(deletingSale.id)}
+              className="flex min-h-touch w-full flex-col rounded-card border border-danger/30 bg-danger-soft p-3 text-left transition-colors hover:bg-danger-soft/70 disabled:opacity-60"
+            >
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-danger">
+                <Trash2 className="h-4 w-4" />
+                {t('sales.delete.option2')}
+              </span>
+              <span className="mt-0.5 pl-5 text-[11px] text-fg-muted">{t('sales.delete.option2Hint')}</span>
+            </button>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 };

@@ -1,39 +1,69 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import {
-  Bot,
-  X,
-  Send,
-  Sparkles,
-  HelpCircle,
-  TrendingUp,
-  Package,
-  Layers,
-  ArrowDownUp,
-  CreditCard,
-  ShieldAlert,
-  Coins,
-  ChevronRight,
-  Maximize2,
-  Minimize2,
-  KeyRound,
-  Trash2,
-  Check,
-  ExternalLink,
-  Cpu
-} from 'lucide-react';
-import { formatMoney } from '../utils/format';
+import { AlertTriangle, Bot, Gauge, KeyRound, RefreshCw, Send, ShieldAlert, Trash2, WifiOff, type LucideIcon } from 'lucide-react';
 import { useTranslation } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { formatTime } from '../utils/format';
+import { Button, Input, Modal, Spinner, cn } from './ui';
+
+// Kalit FAQAT serverda saqlanadi (GEMINI_API_KEY). Klient kalitni so'ramaydi, saqlamaydi va yubormaydi.
+
+type ErrorKind = 'key' | 'quota' | 'network' | 'blocked' | 'other';
 
 interface Message {
   id: string;
-  sender: 'user' | 'agent';
+  sender: 'user' | 'assistant' | 'error';
   text: string;
-  timestamp: string;
-  source?: 'gemini' | 'knowledge_base';
+  time: string;
+  /** Javob bergan model nomi (faqat assistant) */
   model?: string;
+  /** Xato turi — ikonka va rang uchun (faqat error) */
+  kind?: ErrorKind;
+  /** Qayta urinishda yuboriladigan savol (faqat error) */
+  retryText?: string;
 }
+
+interface AiStatus {
+  configured: boolean;
+  model: string;
+}
+
+// Server xato kodi → ko'rinish (server/src/routes/ai.routes.ts dagi AiErrorCode)
+const ERROR_KIND: Record<string, ErrorKind> = {
+  NO_KEY: 'key',
+  INVALID_KEY: 'key',
+  MODEL_NOT_FOUND: 'key',
+  QUOTA_EXCEEDED: 'quota',
+  TIMEOUT: 'network',
+  NETWORK: 'network',
+  UPSTREAM_ERROR: 'network',
+  EMPTY_RESPONSE: 'network',
+  BLOCKED: 'blocked',
+};
+
+const ERROR_VIEW: Record<ErrorKind, { icon: LucideIcon; className: string }> = {
+  key: { icon: KeyRound, className: 'bg-warning-soft text-warning' },
+  quota: { icon: Gauge, className: 'bg-warning-soft text-warning' },
+  network: { icon: WifiOff, className: 'bg-danger-soft text-danger' },
+  blocked: { icon: ShieldAlert, className: 'bg-info-soft text-info' },
+  other: { icon: AlertTriangle, className: 'bg-danger-soft text-danger' },
+};
+
+// OPERATOR va AGENT faqat o'z bitimlarini ko'radi — ularga moliya savollari taklif qilinmaydi
+const SCOPED_ROLES = ['OPERATOR', 'AGENT'];
+// Kassa va Trust raqamlarini ko'ra oladigan rollar (serverdagi FINANCE_ROLES bilan bir xil)
+const FINANCE_ROLES = ['ADMIN', 'MANAGER', 'CFO', 'COO', 'CASHIER', 'VIEWER'];
+
+function quickQuestionKeys(role?: string): string[] {
+  if (!role || SCOPED_ROLES.includes(role)) return ['deals_today', 'my_pending', 'my_month'];
+  if (FINANCE_ROLES.includes(role)) return ['deals_today', 'trust', 'cash', 'debtors'];
+  return ['deals_today', 'debtors'];
+}
+
+const HISTORY_LIMIT = 10;
+const MAX_MESSAGE_CHARS = 4000;
+let messageSeq = 0;
+const nextId = () => `m${Date.now()}-${++messageSeq}`;
 
 export const AIAssistantModal: React.FC = () => {
   const { t, language } = useTranslation();
@@ -41,369 +71,295 @@ export const AIAssistantModal: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [geminiApiKey, setGeminiApiKey] = useState(() => {
-    return localStorage.getItem('finmodel_gemini_api_key') || '';
-  });
-  const [tempApiKey, setTempApiKey] = useState(geminiApiKey);
-  const [keySaved, setKeySaved] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [sending, setSending] = useState(false);
+  const [status, setStatus] = useState<AiStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusError, setStatusError] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
+  // Bir vaqtda faqat bitta so'rov (tugma bloklanishidan tashqari qo'shimcha himoya)
+  const sendingRef = useRef(false);
 
-  // Listen for open event from Header or Sidebar
+  // Yuqori panel yoki yon menyudan ochish
   useEffect(() => {
     const handleOpen = () => setIsOpen(true);
     window.addEventListener('open-ai-assistant', handleOpen);
     return () => window.removeEventListener('open-ai-assistant', handleOpen);
   }, []);
 
-  // Initial welcome message
+  // Eski versiya brauzerda saqlab qo'ygan kalit qoldig'ini o'chiramiz
   useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([
-        {
-          id: 'welcome',
-          sender: 'agent',
-          text:
-            language === 'ru'
-              ? 'Здравствуйте! Я ваш официальный интеллектуальный AI Ассистент Macmobi ERP на базе Google Gemini. Я знаю всё о сделках, складе, ДДС, расчетах Кодир ака, командах Жахонгира и Фариды и формулах от А до Я. Чем могу помочь?'
-              : 'Assalomu alaykum! Men Macmobi ERP tizimining rasmiy Intellektual AI Maslahatchisiman (Google Gemini quvvatida). Tizimdagi barcha sahifalar, formulalar, ombor, DDS, Qodir aka hisoblari va bitimlar bo\'yicha barcha savollaringizga to\'liq javob beraman. Qanday yordam bera olaman?',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          source: geminiApiKey ? 'gemini' : 'knowledge_base',
-          model: geminiApiKey ? 'Google Gemini 1.5 Flash' : 'Macmobi AI Engine'
-        },
-      ]);
+    try {
+      localStorage.removeItem('finmodel_gemini_api_key');
+    } catch {
+      // e'tiborsiz
     }
-  }, [language]);
+  }, []);
+
+  const loadStatus = useCallback(async () => {
+    setStatusLoading(true);
+    setStatusError('');
+    try {
+      const res = await axios.get<AiStatus>('/api/ai/status');
+      setStatus(res.data);
+    } catch (e: any) {
+      setStatus(null);
+      setStatusError(e?.response?.data?.error || t('aiAssistant.status_error'));
+    } finally {
+      setStatusLoading(false);
+    }
+  }, [t]);
+
+  // Har ochilganda: sozlanganmi va qaysi model
+  useEffect(() => {
+    if (isOpen) void loadStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // Boshqa foydalanuvchi kirsa suhbat tozalanadi
+  useEffect(() => {
+    setMessages([]);
+    setInput('');
+  }, [user?.id]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, sending]);
 
-  const handleSaveApiKey = () => {
-    localStorage.setItem('finmodel_gemini_api_key', tempApiKey.trim());
-    setGeminiApiKey(tempApiKey.trim());
-    setKeySaved(true);
-    setTimeout(() => {
-      setKeySaved(false);
-      setShowKeyModal(false);
-    }, 1200);
-  };
+  const notConfigured = status?.configured === false;
+  const canSend = !sending && !notConfigured;
 
-  const handleClearChat = () => {
-    setMessages([
-      {
-        id: 'welcome-reset',
-        sender: 'agent',
-        text:
-          language === 'ru'
-            ? 'Чат очищен. Я готов ответить на любые вопросы по системе FinModel ERP!'
-            : 'Suhbat tozalandi. FinModel ERP bo\'yicha yangi savollaringizni berishingiz mumkin!',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        source: geminiApiKey ? 'gemini' : 'knowledge_base'
-      }
-    ]);
-  };
+  /**
+   * Savolni yuboradi. `retryOf` berilsa — o'sha xato xabari o'chiriladi va savol qayta yuboriladi
+   * (foydalanuvchi xabari takror qo'shilmaydi).
+   */
+  const sendQuery = async (rawText: string, retryOf?: string) => {
+    const text = rawText.trim().slice(0, MAX_MESSAGE_CHARS);
+    if (!text || sendingRef.current || notConfigured) return;
+    sendingRef.current = true;
+    setSending(true);
 
-  const handleSendQuery = async (queryText?: string) => {
-    const textToSend = (queryText !== undefined ? queryText : input).trim();
-    if (!textToSend || isTyping) return;
+    // Tarix: faqat haqiqiy savol-javoblar (xato xabarlari va joriy savol kirmaydi)
+    const base = retryOf ? messages.filter((m) => m.id !== retryOf) : messages;
+    const dialog = base.filter((m) => m.sender !== 'error');
+    const prior = retryOf ? dialog.slice(0, -1) : dialog;
+    const history = prior.slice(-HISTORY_LIMIT).map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', text: m.text }));
 
-    const userMsg: Message = {
-      id: String(Date.now()),
-      sender: 'user',
-      text: textToSend,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    if (queryText === undefined) {
-      setInput('');
-    }
-    setIsTyping(true);
+    const time = formatTime(new Date());
+    setMessages(retryOf ? base : [...base, { id: nextId(), sender: 'user', text, time }]);
 
     try {
-      // Call backend AI endpoint connected to Google Gemini
-      const res = await axios.post('/api/ai/chat', {
-        message: textToSend,
-        history: messages.slice(-6).map((m) => ({
-          role: m.sender === 'user' ? 'user' : 'model',
-          text: m.text
-        })),
-        userRole: user?.role || 'ADMIN',
-        apiKey: geminiApiKey || undefined,
-        language
-      });
-
-      const replyText = res.data?.reply || 'Javob olindi.';
-      const agentMsg: Message = {
-        id: String(Date.now() + 1),
-        sender: 'agent',
-        text: replyText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        source: res.data?.source,
-        model: res.data?.model
-      };
-      setMessages((prev) => [...prev, agentMsg]);
+      const res = await axios.post('/api/ai/chat', { message: text, history, language });
+      const reply = typeof res.data?.reply === 'string' ? res.data.reply : '';
+      if (!reply) throw Object.assign(new Error('empty'), { response: { status: 502, data: {} } });
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), sender: 'assistant', text: reply, time: formatTime(new Date()), model: res.data?.model || status?.model },
+      ]);
     } catch (err: any) {
-      console.error('AI chat error:', err);
-      const fallbackMsg: Message = {
-        id: String(Date.now() + 1),
-        sender: 'agent',
-        text:
-          language === 'ru'
-            ? '⚠️ Произошла ошибка при обращении к серверу. Попробуйте еще раз или проверьте подключение.'
-            : '⚠️ Serverga ulanishda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, fallbackMsg]);
+      const data = err?.response?.data;
+      const httpStatus = err?.response?.status;
+      // Server qaytargan matn AYNAN ko'rsatiladi; javob umuman kelmagan bo'lsa — tarmoq xatosi
+      const errorText =
+        (typeof data?.error === 'string' && data.error) ||
+        (err?.response ? t('aiAssistant.error_unknown', { status: httpStatus ?? '?' }) : t('aiAssistant.error_no_response'));
+      const kind: ErrorKind = err?.response ? ERROR_KIND[String(data?.code || '')] || 'other' : 'network';
+      setMessages((prev) => [
+        ...prev,
+        { id: nextId(), sender: 'error', text: errorText, time: formatTime(new Date()), kind, retryText: text },
+      ]);
+      // Kalit bilan bog'liq xato — holat yozuvini ham yangilaymiz
+      if (data?.code === 'NO_KEY') setStatus((prev) => (prev ? { ...prev, configured: false } : prev));
     } finally {
-      setIsTyping(false);
+      sendingRef.current = false;
+      setSending(false);
     }
   };
 
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const text = input.trim();
+    if (!text || !canSend) return;
+    setInput('');
+    void sendQuery(text);
+  };
+
+  const quickKeys = quickQuestionKeys(user?.role);
+  const lastMessageId = messages[messages.length - 1]?.id;
+
   return (
-    <>
-      {/* Interactive Chat Modal (Triggered from Top Header and Sidebar) */}
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-end sm:p-6 bg-slate-950/60 backdrop-blur-sm animate-fade-in pb-[env(safe-area-inset-bottom)] sm:pb-0">
-          <div className="w-full sm:w-[500px] h-[92vh] sm:h-[680px] bg-white dark:bg-slate-900 border-t sm:border border-slate-200 dark:border-slate-800 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="px-5 py-3.5 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/30 border border-white/20">
-                  <Bot className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="font-extrabold text-sm leading-tight text-white flex items-center gap-1.5">
-                      <span>Macmobi AI Agent</span>
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    </h3>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[10px]">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-emerald-400 font-bold">
-                      {geminiApiKey ? 'Google Gemini 1.5 Pro/Flash' : 'Google Gemini AI Integratsiyasi'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1">
-                {/* Gemini API Key configuration button */}
-                <button
-                  type="button"
-                  onClick={() => setShowKeyModal(true)}
-                  title="Google Gemini API kalitini kiritish (ixtiyoriy)"
-                  className="p-2 rounded-xl text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition"
-                >
-                  <KeyRound className="w-4 h-4" />
-                </button>
-
-                {/* Clear Chat */}
-                <button
-                  type="button"
-                  onClick={handleClearChat}
-                  title="Suhbatni tozalash"
-                  className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-
-                {/* Close */}
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Topic Chips */}
-            <div className="px-4 py-2 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-100 dark:border-slate-800/80 flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
-              <button
-                onClick={() => handleSendQuery('FinModel sayti o\'zi nima va qanday ishlaydi? Barcha sahifalarni tushuntir')}
-                className="whitespace-nowrap px-2.5 py-1 text-[11px] font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-500/25 transition border border-indigo-500/20"
-              >
-                🌟 Sayt qanday ishlaydi?
-              </button>
-              <button
-                onClick={() => handleSendQuery('Bugungi jami foyda, yechilgan limit va umumiy statistika qancha?')}
-                className="whitespace-nowrap px-2.5 py-1 text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 rounded-lg hover:bg-emerald-500/25 transition border border-emerald-500/20"
-              >
-                📊 Hozirgi statistika
-              </button>
-              <button
-                onClick={() => handleSendQuery('Qodir aka bilan hisob-kitob, 5% bonus va chek xarajati qanday hisoblanadi?')}
-                className="whitespace-nowrap px-2.5 py-1 text-[11px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-500/25 transition border border-amber-500/20"
-              >
-                🧾 Qodir aka 5% bonusi
-              </button>
-              <button
-                onClick={() => handleSendQuery('Omborda qancha tovar bor va IMEI skaneridan qanday kirim qilinadi?')}
-                className="whitespace-nowrap px-2.5 py-1 text-[11px] font-bold bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 rounded-lg hover:bg-cyan-500/25 transition border border-cyan-500/20"
-              >
-                📦 Ombor va IMEI
-              </button>
-              <button
-                onClick={() => handleSendQuery('Jahongir va Farida jamoalari lidlari va agentlar reytingi haqida tushuntir')}
-                className="whitespace-nowrap px-2.5 py-1 text-[11px] font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 rounded-lg hover:bg-purple-500/25 transition border border-purple-500/20"
-              >
-                👥 Jamoalar & Lidlar
-              </button>
-            </div>
-
-            {/* Messages Body */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-3.5 custom-scrollbar bg-slate-50/50 dark:bg-slate-900/60">
-              {messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'}`}
-                >
-                  <div
-                    className={`max-w-[88%] px-4 py-3 rounded-2xl text-xs leading-relaxed ${
-                      m.sender === 'user'
-                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-br-none shadow-md shadow-emerald-600/20'
-                        : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-bl-none border border-slate-200 dark:border-slate-700 shadow-sm whitespace-pre-line'
-                    }`}
-                  >
-                    {m.text}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1 px-1">
-                    <span className="text-[9px] text-slate-400">{m.timestamp}</span>
-                    {m.source === 'gemini' && (
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-500 dark:text-indigo-400 font-bold">
-                        ✨ Gemini Flash
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {isTyping && (
-                <div className="flex items-center gap-1.5 p-3 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 w-28">
-                  <Cpu className="w-3.5 h-3.5 text-emerald-500 animate-spin" />
-                  <span className="text-[10px] text-slate-400 font-medium animate-pulse">Gemini o'ylamoqda...</span>
-                </div>
+    <Modal
+      open={isOpen}
+      onClose={() => setIsOpen(false)}
+      flush
+      title={
+        <span className="flex items-center gap-2">
+          <Bot className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
+          {t('aiAssistant.title')}
+        </span>
+      }
+      description={
+        statusLoading && !status
+          ? t('aiAssistant.checking')
+          : status?.configured
+            ? t('aiAssistant.model', { model: status.model })
+            : t('aiAssistant.subtitle')
+      }
+    >
+      <div className="flex h-[min(72dvh,36rem)] flex-col">
+        {/* Sozlanmagan / holat xatosi */}
+        {(notConfigured || statusError) && (
+          <div
+            role="alert"
+            className={cn(
+              'flex flex-col gap-2 border-b border-line px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-5',
+              notConfigured ? 'bg-warning-soft text-warning' : 'bg-danger-soft text-danger'
+            )}
+          >
+            <span className="flex items-start gap-2">
+              {notConfigured ? (
+                <KeyRound className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              ) : (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               )}
-              <div ref={messagesEndRef} />
-            </div>
+              <span>{notConfigured ? t('aiAssistant.not_configured') : statusError}</span>
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0"
+              leftIcon={<RefreshCw className="h-4 w-4" />}
+              onClick={() => void loadStatus()}
+              loading={statusLoading}
+            >
+              {t('aiAssistant.check_again')}
+            </Button>
+          </div>
+        )}
 
-            {/* Input Bar */}
-            <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2">
-              <input
-                type="text"
-                placeholder={
-                  language === 'ru'
-                    ? 'Спросите об ERP, сделках, формулах, складе или ДДС...'
-                    : 'Sayt, bitimlar, formulalar, ombor yoki DDS bo\'yicha so\'rang...'
-                }
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendQuery()}
-                className="flex-1 px-4 py-2.5 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
+        {/* Tez savollar — rolga mos */}
+        <div className="flex items-center gap-2 border-b border-line px-4 py-2 sm:px-5">
+          <div className="no-scrollbar flex min-w-0 flex-1 gap-1.5 overflow-x-auto" role="group" aria-label={t('aiAssistant.quick_label')}>
+            {quickKeys.map((key) => (
               <button
+                key={key}
                 type="button"
-                onClick={() => handleSendQuery()}
-                disabled={!input.trim() || isTyping}
-                className="p-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 text-white shadow-md shadow-emerald-600/30 transition active:scale-95"
+                disabled={!canSend}
+                onClick={() => void sendQuery(t(`aiAssistant.q_${key}_text`))}
+                className="inline-flex min-h-[2.25rem] shrink-0 items-center whitespace-nowrap rounded-full border border-line bg-surface px-3 text-xs font-medium text-fg-secondary transition-colors hover:border-line-strong hover:bg-surface-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Send className="w-4 h-4" />
+                {t(`aiAssistant.q_${key}`)}
               </button>
-            </div>
+            ))}
           </div>
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMessages([])}
+              disabled={sending}
+              aria-label={t('aiAssistant.clear')}
+              title={t('aiAssistant.clear')}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-fg-muted transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
-      )}
 
-      {/* Gemini API Key Configuration Drawer / Modal */}
-      {showKeyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                  <KeyRound className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="font-extrabold text-sm text-slate-800 dark:text-white">Google Gemini API Kaliti</h4>
-                  <p className="text-[11px] text-slate-500">Shaxsiy bepul kalitni ulash</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowKeyModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        {/* Xabarlar */}
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-surface px-4 py-4 sm:px-5" aria-live="polite">
+          {messages.length === 0 && !sending && (
+            <div className="flex h-full flex-col items-center justify-center px-2 text-center">
+              <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-brand-soft text-accent">
+                <Bot className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <p className="text-sm font-semibold text-fg">{t('aiAssistant.intro_title')}</p>
+              <p className="mt-1 max-w-xs text-sm leading-relaxed text-fg-muted">{t('aiAssistant.intro')}</p>
             </div>
+          )}
 
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-3">
-              Google AI Studio’dan bepul olingan API kalitingizni kiritsangiz, FinModel AI Agenti to'g'ridan-to'g'ri 
-              <strong className="text-emerald-500"> Google Gemini 1.5/2.0 Flash</strong> neyrotarmog'i orqali javob beradi.
-            </p>
-
-            <div className="space-y-3 mb-4">
-              <input
-                type="password"
-                placeholder="AIzaSy..."
-                value={tempApiKey}
-                onChange={(e) => setTempApiKey(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-xs bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-              <div className="flex items-center justify-between text-[11px]">
-                <a
-                  href="https://aistudio.google.com/app/apikey"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-cyan-600 dark:text-cyan-400 hover:underline inline-flex items-center gap-1 font-semibold"
+          {messages.map((m) => {
+            if (m.sender === 'error') {
+              const view = ERROR_VIEW[m.kind || 'other'];
+              const Icon = view.icon;
+              return (
+                <div key={m.id} role="alert" className={cn('max-w-[92%] rounded-card px-3 py-2.5 text-sm', view.className)}>
+                  <p className="flex items-center gap-2 text-xs font-semibold">
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {t(`aiAssistant.error_title_${m.kind || 'other'}`)}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{m.text}</p>
+                  {m.retryText && m.id === lastMessageId && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2"
+                      leftIcon={<RefreshCw className="h-4 w-4" />}
+                      disabled={!canSend}
+                      onClick={() => void sendQuery(m.retryText!, m.id)}
+                    >
+                      {t('aiAssistant.retry')}
+                    </Button>
+                  )}
+                </div>
+              );
+            }
+            const mine = m.sender === 'user';
+            return (
+              <div key={m.id} className={cn('flex flex-col', mine ? 'items-end' : 'items-start')}>
+                <div
+                  className={cn(
+                    'max-w-[88%] whitespace-pre-wrap break-words rounded-card px-3 py-2 text-sm leading-relaxed',
+                    mine ? 'bg-brand text-brand-fg' : 'border border-line bg-surface-2 text-fg'
+                  )}
                 >
-                  <span>Google AI Studio'dan bepul kalit olish</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-                {geminiApiKey && (
-                  <button
-                    onClick={() => {
-                      setTempApiKey('');
-                      setGeminiApiKey('');
-                      localStorage.removeItem('finmodel_gemini_api_key');
-                    }}
-                    className="text-rose-500 hover:underline"
-                  >
-                    O'chirish
-                  </button>
-                )}
+                  {m.text}
+                </div>
+                <p className="mt-1 px-1 text-[11px] tabular-nums text-fg-muted">
+                  {m.time}
+                  {!mine && m.model ? `, ${m.model}` : ''}
+                </p>
               </div>
-            </div>
+            );
+          })}
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowKeyModal(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-              >
-                Bekor qilish
-              </button>
-              <button
-                onClick={handleSaveApiKey}
-                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-xs font-black shadow-md hover:from-emerald-500 hover:to-teal-500 transition flex items-center justify-center gap-1.5"
-              >
-                {keySaved ? (
-                  <>
-                    <Check className="w-4 h-4 text-white" />
-                    <span>Saqlandi!</span>
-                  </>
-                ) : (
-                  <span>Saqlash</span>
-                )}
-              </button>
+          {sending && (
+            <div className="flex items-center gap-2 text-xs text-fg-muted" role="status">
+              <Spinner size="sm" className="text-accent" />
+              {t('aiAssistant.thinking')}
             </div>
-          </div>
+          )}
+          <div ref={endRef} />
         </div>
-      )}
-    </>
+
+        {/* Savol kiritish */}
+        <form
+          onSubmit={submit}
+          className="flex shrink-0 items-center gap-2 border-t border-line bg-surface px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5 sm:pb-3"
+        >
+          <div className="min-w-0 flex-1">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={t('aiAssistant.placeholder')}
+              aria-label={t('aiAssistant.placeholder')}
+              maxLength={MAX_MESSAGE_CHARS}
+              disabled={notConfigured}
+              enterKeyHint="send"
+            />
+          </div>
+          <Button
+            type="submit"
+            size="icon"
+            loading={sending}
+            disabled={!input.trim() || !canSend}
+            aria-label={t('aiAssistant.send')}
+            title={t('aiAssistant.send')}
+          >
+            {!sending && <Send className="h-4 w-4" />}
+          </Button>
+        </form>
+      </div>
+    </Modal>
   );
 };
 export default AIAssistantModal;

@@ -1,25 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Users, 
-  PhoneCall, 
-  UserPlus, 
-  Search, 
-  CheckCircle2, 
-  Clock, 
-  ArrowRight, 
-  AlertTriangle, 
-  ShieldCheck, 
-  Layers, 
-  X, 
-  Calendar,
-  Sparkles,
+import {
+  Users,
+  UserPlus,
+  Search,
+  ArrowRight,
+  AlertTriangle,
   Trophy,
-  Filter
 } from 'lucide-react';
-import { useLanguage } from '../context/LanguageContext';
+import { useTranslation } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { formatNumber } from '../utils/format';
+import {
+  Button, Card, Modal, PageHeader, StatCard, Badge, Field, Input, Select, Textarea,
+  TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, LoadingBlock, Tabs,
+} from '../components/ui';
+import type { Tone } from '../components/ui/StatCard';
 
 interface Lead {
   id: string;
@@ -52,20 +49,46 @@ interface TeamStat {
   conversionRate: string;
 }
 
+// Server kodlari (API qiymatlari) — tarjima qilinmaydi, faqat yorliqlar tarjima qilinadi
+const LEAD_STATUSES = ['YANGI', 'BOGLANILDI', 'LIMIT_TEKSHIRILDI', 'OFISGA_BELGILANDI', 'BITIMGA_OTDI', 'BEKOR_QILINDI'];
+
+const STATUS_TONE: Record<string, Tone> = {
+  YANGI: 'info',
+  BOGLANILDI: 'brand',
+  LIMIT_TEKSHIRILDI: 'warning',
+  OFISGA_BELGILANDI: 'info',
+  BITIMGA_OTDI: 'success',
+  BEKOR_QILINDI: 'danger',
+};
+
+// Bank / hamkor nomlari — ma'lumot qiymatlari (serverga shu holda yuboriladi)
+const PROVIDERS = ['Imanium', 'Alif online', 'Alif offline', 'Infin Bank', 'Payme', 'Trust 1', 'Variant', 'Paylater online', 'Paylater offline'];
+const PARTNERS = ['Qodir aka', 'Planet phone', 'Green bazar', 'Denov', 'Angren', 'Samarqand', 'Media park Angren', 'Trust', 'Jizzax'];
+const TEAMS = ['Jahongir', 'Farida'];
+
+// Murojaat manbasi: `value` serverga yuboriladigan qiymat, yorliq tarjima kaliti
+const SOURCES = [
+  { value: "Qo'ng'iroq", labelKey: 'leads.source.call' },
+  { value: 'Instagram', labelKey: 'leads.source.instagram' },
+  { value: 'Telegram', labelKey: 'leads.source.telegram' },
+  { value: 'Tavsiya', labelKey: 'leads.source.referral' },
+];
+
 export const LeadsPage: React.FC = () => {
-  const { t } = useLanguage();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [teamStats, setTeamStats] = useState<TeamStat[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [teamFilter, setTeamFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'leads' | 'teams'>('leads');
 
-  // New Lead Modal state
+  // Yangi lid oynasi
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     fullName: '',
@@ -84,17 +107,20 @@ export const LeadsPage: React.FC = () => {
     notes: '',
   });
 
-  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  // Takror telefon haqida ogohlantirish (matn render paytida tarjima qilinadi)
+  const [duplicate, setDuplicate] = useState<{ name: string; agent: string } | null>(null);
 
   const fetchLeads = async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const res = await axios.get('/api/leads', {
         params: { status: statusFilter, team: teamFilter, search },
       });
       setLeads(res.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching leads:', err);
+      setLoadError(err.response?.data?.error || t('common.load_error'));
     } finally {
       setLoading(false);
     }
@@ -123,15 +149,16 @@ export const LeadsPage: React.FC = () => {
       try {
         const res = await axios.get('/api/leads/check-duplicate', { params: { phone: val } });
         if (res.data.isDuplicate) {
-          setDuplicateWarning(
-            `Diqqat: Ushbu telefon raqami bazada mavjud (${res.data.existingLead?.fullName} - ${res.data.existingLead?.agentName})`
-          );
+          setDuplicate({
+            name: res.data.existingLead?.fullName ?? '',
+            agent: res.data.existingLead?.agentName ?? '',
+          });
         } else {
-          setDuplicateWarning(null);
+          setDuplicate(null);
         }
       } catch (err) {}
     } else {
-      setDuplicateWarning(null);
+      setDuplicate(null);
     }
   };
 
@@ -158,8 +185,8 @@ export const LeadsPage: React.FC = () => {
       });
       fetchLeads();
       fetchTeams();
-    } catch (err) {
-      alert('Lid yaratishda xatolik yuz berdi');
+    } catch (err: any) {
+      alert(err.response?.data?.error || t('leads.createError'));
     }
   };
 
@@ -168,12 +195,12 @@ export const LeadsPage: React.FC = () => {
       await axios.put(`/api/leads/${id}`, { status: newStatus });
       fetchLeads();
       fetchTeams();
-    } catch (err) {
-      alert('Statusni o\'zgartirishda xatolik');
+    } catch (err: any) {
+      alert(err.response?.data?.error || t('leads.statusError'));
     }
   };
 
-  // Convert Lead to Deal (Navigates to /deals with state)
+  // Lidni bitimga aylantirish (/deals sahifasiga state bilan o'tadi)
   const handleConvertToDeal = (lead: Lead) => {
     navigate('/deals', {
       state: {
@@ -190,551 +217,399 @@ export const LeadsPage: React.FC = () => {
     });
   };
 
-  // KPI calculations
+  // KPI hisob-kitoblari
   const totalLeads = leads.length;
   const convertedLeads = leads.filter((l) => l.status === 'BITIMGA_OTDI').length;
   const visitScheduled = leads.filter((l) => l.status === 'OFISGA_BELGILANDI').length;
   const totalLimit = leads.reduce((acc, curr) => acc + Number(curr.approvedLimit || 0), 0);
   const conversionRate = totalLeads > 0 ? ((convertedLeads / totalLeads) * 100).toFixed(1) : '0';
 
-  const formatNumber = (num: number) => {
-    return new Intl.NumberFormat('uz-UZ').format(num);
-  };
-
-  const getStatusBadge = (st: string) => {
-    switch (st) {
-      case 'YANGI':
-        return <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">Yangi</span>;
-      case 'BOGLANILDI':
-        return <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">Bog'lanildi</span>;
-      case 'LIMIT_TEKSHIRILDI':
-        return <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">Limit tekshirildi</span>;
-      case 'OFISGA_BELGILANDI':
-        return <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300">Ofisga keladi</span>;
-      case 'BITIMGA_OTDI':
-        return <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">Bitimga o'tdi</span>;
-      case 'BEKOR_QILINDI':
-        return <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300">Bekor qilindi</span>;
-      default:
-        return <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300">{st}</span>;
-    }
-  };
+  const getStatusBadge = (st: string) =>
+    STATUS_TONE[st] ? (
+      <Badge tone={STATUS_TONE[st]} size="sm">{t(`leads.status.${st}`)}</Badge>
+    ) : (
+      <Badge size="sm">{st}</Badge>
+    );
 
   return (
-    <div className="space-y-6">
-      {/* Top Header & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white tracking-tight">
-              Lidlar va Koll-markaz (CRM)
-            </h1>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase">
-              TZ 5.0
-            </span>
-          </div>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Mijoz murojaatlari, koll-markaz jamoalari (Jahongir & Farida) va konversiya nazorati
-          </p>
-        </div>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        title={t('leads.title')}
+        description={t('leads.subtitle')}
+        actions={
+          <Button leftIcon={<UserPlus className="h-4 w-4" />} onClick={() => setIsModalOpen(true)}>
+            {t('leads.new')}
+          </Button>
+        }
+      />
 
-        <div className="flex items-center gap-2">
-          {/* Tab switcher: Leads vs Rankings */}
-          <div className="p-1 bg-slate-200/70 dark:bg-slate-900 rounded-xl flex items-center shadow-inner">
-            <button
-              onClick={() => setActiveTab('leads')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                activeTab === 'leads'
-                  ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>Lidlar ro'yxati</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('teams')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                activeTab === 'teams'
-                  ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
-            >
-              <Trophy className="w-3.5 h-3.5 text-amber-400" />
-              <span>Jamoalar reytingi</span>
-            </button>
-          </div>
+      <Tabs
+        value={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { value: 'leads', label: t('leads.tab.leads'), icon: <Users /> },
+          { value: 'teams', label: t('leads.tab.teams'), icon: <Trophy /> },
+        ]}
+      />
 
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="btn-3d py-2 px-3.5 rounded-xl font-bold text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md shadow-purple-600/30 flex items-center gap-1.5 active:scale-95"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span className="hidden sm:inline">Yangi Lid</span>
-          </button>
+      {loadError && (
+        <div role="alert" className="rounded-control border border-danger/30 bg-danger-soft p-3 text-sm text-danger">
+          {loadError}
         </div>
-      </div>
+      )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">Jami Lidlar</p>
-          <p className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white mt-1">{totalLeads}</p>
-          <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">Barcha murojaatlar</span>
-        </div>
-
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">Ofisga BelGilandi</p>
-          <p className="text-xl sm:text-2xl font-black text-cyan-600 dark:text-cyan-400 mt-1">{visitScheduled}</p>
-          <span className="text-[10px] text-slate-500 font-semibold">Tashrif kutilmoqda</span>
-        </div>
-
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">Bitimga O'tgan</p>
-          <p className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{convertedLeads}</p>
-          <span className="text-[10px] text-emerald-600 font-semibold">Muvaffaqiyatli</span>
-        </div>
-
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">Konversiya %</p>
-          <p className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">{conversionRate}%</p>
-          <span className="text-[10px] text-indigo-500 font-semibold">Lid → Bitim ulushi</span>
-        </div>
-
-        <div className="card-3d p-4 rounded-2xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 shadow-sm col-span-2 lg:col-span-1">
-          <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase">Tasdiqlangan Limit</p>
-          <p className="text-lg sm:text-xl font-black text-purple-600 dark:text-purple-400 mt-1 truncate">
-            {formatNumber(totalLimit)} <span className="text-xs font-normal">UZS</span>
-          </p>
-          <span className="text-[10px] text-slate-500 font-semibold">Mavjud summa</span>
-        </div>
+      {/* KPI kartalar */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+        <StatCard title={t('leads.kpi.total')} value={totalLeads} hint={t('leads.kpi.totalHint')} />
+        <StatCard title={t('leads.kpi.visit')} value={visitScheduled} hint={t('leads.kpi.visitHint')} tone="info" />
+        <StatCard title={t('leads.kpi.converted')} value={convertedLeads} hint={t('leads.kpi.convertedHint')} tone="success" />
+        <StatCard title={t('leads.kpi.conversion')} value={`${conversionRate}%`} hint={t('leads.kpi.conversionHint')} tone="brand" />
+        <StatCard
+          title={t('leads.kpi.limit')}
+          value={<span className="text-lg sm:text-xl">{formatNumber(totalLimit)} <span className="text-xs font-normal">UZS</span></span>}
+          hint={t('leads.kpi.limitHint')}
+          className="col-span-2 lg:col-span-1"
+        />
       </div>
 
       {activeTab === 'teams' ? (
-        /* Team Rankings View (TZ 5.1) */
+        /* Jamoalar reytingi */
         <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/40 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-purple-600 text-white shadow-md">
-                <Trophy className="w-5 h-5 text-amber-300" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-white text-sm">
-                  Koll-markaz Jamoalari Samaradorligi (TZ 5.1)
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Jahongir va Farida jamoalari bo'yicha cheklar soni, konversiya va umumiy limit aylanmasi
-                </p>
-              </div>
+          <Card className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-brand-soft text-accent">
+              <Trophy className="h-5 w-5" />
             </div>
-          </div>
+            <div>
+              <h3 className="text-sm font-semibold text-fg">{t('leads.teams.title')}</h3>
+              <p className="text-xs text-fg-muted">{t('leads.teams.subtitle')}</p>
+            </div>
+          </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
             {teamStats.map((team, idx) => (
-              <div
-                key={team.id}
-                className="card-3d p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4"
-              >
-                <div className="flex items-center justify-between">
+              <Card key={team.id} className="space-y-4">
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 text-white flex items-center justify-center font-black text-base shadow-md">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-control bg-brand-soft text-base font-semibold tabular-nums text-accent">
                       #{idx + 1}
                     </div>
                     <div>
-                      <h4 className="font-black text-base text-slate-800 dark:text-white">
-                        {team.leaderName} Jamoasi
-                      </h4>
-                      <p className="text-xs text-purple-600 dark:text-purple-400 font-bold">
-                        Rahbar: {team.leaderName}
-                      </p>
+                      <h4 className="text-base font-semibold text-fg">{t('leads.teams.name', { name: team.leaderName })}</h4>
+                      <p className="text-xs text-fg-muted">{t('leads.teams.leader', { name: team.leaderName })}</p>
                     </div>
                   </div>
-                  <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                    Konversiya: {team.conversionRate}
-                  </span>
+                  <Badge tone="success">{t('leads.teams.conversion', { value: team.conversionRate })}</Badge>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 text-center">
+                <div className="grid grid-cols-3 gap-2 rounded-card bg-surface-2 p-3 text-center">
                   <div>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Lidlar</span>
-                    <p className="text-base font-black text-slate-800 dark:text-white">{team.totalLeads}</p>
+                    <span className="text-xs text-fg-muted">{t('leads.teams.leads')}</span>
+                    <p className="text-base font-semibold tabular-nums text-fg">{team.totalLeads}</p>
                   </div>
-                  <div className="border-x border-slate-200 dark:border-slate-700">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Bitimlar</span>
-                    <p className="text-base font-black text-emerald-600">{team.convertedLeads}</p>
+                  <div className="border-x border-line">
+                    <span className="text-xs text-fg-muted">{t('leads.teams.deals')}</span>
+                    <p className="text-base font-semibold tabular-nums text-success">{team.convertedLeads}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">Bekor</span>
-                    <p className="text-base font-black text-rose-500">{team.cancelledLeads}</p>
+                    <span className="text-xs text-fg-muted">{t('leads.teams.cancelled')}</span>
+                    <p className="text-base font-semibold tabular-nums text-danger">{team.cancelledLeads}</p>
                   </div>
                 </div>
 
                 <div>
-                  <p className="text-[11px] font-bold text-slate-400 uppercase mb-2">Jamoa A'zolari:</p>
+                  <p className="mb-2 text-xs font-medium text-fg-muted">{t('leads.teams.members')}:</p>
                   <div className="flex flex-wrap gap-1.5">
                     {team.members.map((m, mIdx) => (
-                      <span
-                        key={mIdx}
-                        className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
-                      >
-                        {m}
-                      </span>
+                      <Badge key={mIdx}>{m}</Badge>
                     ))}
                   </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         </div>
       ) : (
-        /* Leads List View */
+        /* Lidlar ro'yxati */
         <div className="space-y-4">
-          {/* Filters Bar */}
-          <div className="card-3d p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 flex-1">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Lid qidirish: F.I.Sh, telefon, agent..."
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-
-              {/* Status filter dropdown */}
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="py-2 px-3 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none"
-              >
-                <option value="ALL">Barcha statuslar</option>
-                <option value="YANGI">Yangi</option>
-                <option value="BOGLANILDI">Bog'lanildi</option>
-                <option value="LIMIT_TEKSHIRILDI">Limit tekshirildi</option>
-                <option value="OFISGA_BELGILANDI">Ofisga belgilandi</option>
-                <option value="BITIMGA_OTDI">Bitimga o'tdi</option>
-                <option value="BEKOR_QILINDI">Bekor qilindi</option>
-              </select>
-
-              {/* Team filter dropdown */}
-              <select
-                value={teamFilter}
-                onChange={(e) => setTeamFilter(e.target.value)}
-                className="py-2 px-3 text-xs font-semibold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none hidden sm:block"
-              >
-                <option value="ALL">Barcha jamoalar</option>
-                <option value="Jahongir">Jahongir jamoasi</option>
-                <option value="Farida">Farida jamoasi</option>
-              </select>
+          {/* Filtrlar */}
+          <Card padding="sm" className="flex flex-col items-stretch gap-3 md:flex-row md:items-center">
+            <div className="flex-1 md:max-w-sm">
+              <Input
+                type="text"
+                leftIcon={<Search />}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('leads.searchPlaceholder')}
+              />
             </div>
-          </div>
 
-          {/* Leads Table */}
-          <div className="card-3d rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px]">
-                  <tr>
-                    <th className="py-3 px-4">№ / ID</th>
-                    <th className="py-3 px-4">Mijoz F.I.Sh</th>
-                    <th className="py-3 px-4">Telefon</th>
-                    <th className="py-3 px-4">Limit / So'ralgan</th>
-                    <th className="py-3 px-4">Bank & Do'kon</th>
-                    <th className="py-3 px-4">Holati</th>
-                    <th className="py-3 px-4">Mas'ul Agent</th>
-                    <th className="py-3 px-4 text-right">Amallar</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium text-slate-700 dark:text-slate-200">
+            <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="md:w-52">
+              <option value="ALL">{t('leads.allStatuses')}</option>
+              {LEAD_STATUSES.map((s) => (
+                <option key={s} value={s}>{t(`leads.status.${s}`)}</option>
+              ))}
+            </Select>
+
+            <Select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} className="md:w-52">
+              <option value="ALL">{t('leads.allTeams')}</option>
+              {TEAMS.map((tm) => (
+                <option key={tm} value={tm}>{t('leads.teamOf', { name: tm })}</option>
+              ))}
+            </Select>
+          </Card>
+
+          {/* Lidlar jadvali */}
+          <Card padding="none">
+            <TableContainer bare>
+              <Table>
+                <Thead>
+                  <Tr>
+                    <Th>{t('leads.col.id')}</Th>
+                    <Th>{t('leads.col.name')}</Th>
+                    <Th>{t('common.phone')}</Th>
+                    <Th>{t('leads.col.limit')}</Th>
+                    <Th>{t('leads.col.bankStore')}</Th>
+                    <Th>{t('common.status')}</Th>
+                    <Th>{t('leads.col.agent')}</Th>
+                    <Th align="right">{t('common.actions')}</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-400">
-                        Lidlar yuklanmoqda...
+                      <td colSpan={8}>
+                        <LoadingBlock label={t('leads.loading')} />
                       </td>
                     </tr>
                   ) : leads.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-400">
-                        Lidlar topilmadi
-                      </td>
-                    </tr>
+                    <TableEmpty colSpan={8} title={t('leads.empty')} />
                   ) : (
                     leads.map((l) => (
-                      <tr key={l.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3 px-4 font-mono font-bold text-purple-600 dark:text-purple-400">
-                          #{l.leadNumber}
-                        </td>
-                        <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">
+                      <Tr key={l.id}>
+                        <Td numeric className="font-mono font-semibold text-accent">#{l.leadNumber}</Td>
+                        <Td className="font-semibold text-fg">
                           {l.fullName}
                           {l.passportMasked && (
-                            <span className="block text-[10px] text-slate-400 font-normal">
-                              Pasport: {l.passportMasked}
+                            <span className="block text-[11px] font-normal text-fg-muted">
+                              {t('leads.passport', { value: l.passportMasked })}
                             </span>
                           )}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-slate-600 dark:text-slate-300">
-                          {l.phone}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                        </Td>
+                        <Td numeric className="font-mono text-fg-secondary">{l.phone}</Td>
+                        <Td numeric>
+                          <span className="font-semibold text-success">
                             {formatNumber(l.approvedLimit || l.requestedAmount)} UZS
                           </span>
-                          <span className="block text-[10px] text-slate-400">
-                            So'rov: {formatNumber(l.requestedAmount)} UZS
+                          <span className="block text-[11px] text-fg-muted">
+                            {t('leads.requested', { amount: formatNumber(l.requestedAmount) })}
                           </span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-semibold">{l.providerName}</span>
-                          <span className="block text-[10px] text-slate-400">{l.partnerName}</span>
-                        </td>
-                        <td className="py-3 px-4">
-                          {getStatusBadge(l.status)}
-                        </td>
-                        <td className="py-3 px-4">
-                          <span className="font-bold">{l.agentName}</span>
-                          <span className="block text-[10px] text-slate-400">{l.teamName} jamoasi</span>
-                        </td>
-                        <td className="py-3 px-4 text-right">
+                        </Td>
+                        <Td>
+                          <span className="font-medium text-fg">{l.providerName}</span>
+                          <span className="block text-[11px] text-fg-muted">{l.partnerName}</span>
+                        </Td>
+                        <Td>{getStatusBadge(l.status)}</Td>
+                        <Td>
+                          <span className="font-medium text-fg">{l.agentName}</span>
+                          <span className="block text-[11px] text-fg-muted">{t('leads.teamOf', { name: l.teamName })}</span>
+                        </Td>
+                        <Td align="right">
                           <div className="flex items-center justify-end gap-1.5">
                             {l.status !== 'BITIMGA_OTDI' && (
-                              <button
+                              <Button
+                                size="sm"
+                                variant="success"
+                                rightIcon={<ArrowRight className="h-3 w-3" />}
                                 onClick={() => handleConvertToDeal(l)}
-                                title="Bitimga o'tkazish"
-                                className="py-1 px-2.5 rounded-lg font-bold text-[11px] bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1 shadow-sm transition active:scale-95"
+                                title={t('leads.toDealTooltip')}
                               >
-                                <span>Bitimga</span>
-                                <ArrowRight className="w-3 h-3" />
-                              </button>
+                                {t('leads.toDeal')}
+                              </Button>
                             )}
 
-                            <select
+                            <Select
                               value={l.status}
                               onChange={(e) => handleStatusChange(l.id, e.target.value)}
-                              className="py-1 px-2 text-[10px] font-bold rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200"
+                              className="min-w-[9rem] text-xs"
+                              aria-label={t('common.status')}
                             >
-                              <option value="YANGI">Yangi</option>
-                              <option value="BOGLANILDI">Bog'lanildi</option>
-                              <option value="LIMIT_TEKSHIRILDI">Limit tekshirildi</option>
-                              <option value="OFISGA_BELGILANDI">Ofisga keladi</option>
-                              <option value="BITIMGA_OTDI">Bitimga o'tdi</option>
-                              <option value="BEKOR_QILINDI">Bekor</option>
-                            </select>
+                              {LEAD_STATUSES.map((s) => (
+                                <option key={s} value={s}>{t(`leads.status.${s}`)}</option>
+                              ))}
+                            </Select>
                           </div>
-                        </td>
-                      </tr>
+                        </Td>
+                      </Tr>
                     ))
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                </Tbody>
+              </Table>
+            </TableContainer>
+          </Card>
         </div>
       )}
 
-      {/* New Lead Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-black tracking-tight">Yangi Lid Qo'shish</h3>
-                <p className="text-xs text-purple-100">Koll-markaz mijoz murojaatini ro'yxatga olish</p>
-              </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition"
+      {/* Yangi lid oynasi */}
+      <Modal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        size="md"
+        title={t('leads.modal.title')}
+        description={t('leads.modal.subtitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form="lead-new-form">
+              {t('leads.modal.save')}
+            </Button>
+          </>
+        }
+      >
+        <form id="lead-new-form" onSubmit={handleCreateLead} className="space-y-3.5">
+          {duplicate && (
+            <div className="flex items-center gap-2 rounded-control border border-warning/30 bg-warning-soft p-3 text-xs font-medium text-warning">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{t('leads.modal.duplicate', { name: duplicate.name, agent: duplicate.agent })}</span>
+            </div>
+          )}
+
+          <Field label={t('leads.modal.fullName')} required>
+            <Input
+              type="text"
+              required
+              value={formData.fullName}
+              onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+              placeholder={t('leads.modal.fullNamePlaceholder')}
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('leads.modal.phone')} required>
+              <Input
+                type="tel"
+                inputMode="tel"
+                required
+                value={formData.phone}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                placeholder="+998 90 123 45 67"
+                className="font-mono"
+              />
+            </Field>
+            <Field label={t('leads.modal.extraPhone')}>
+              <Input
+                type="tel"
+                inputMode="tel"
+                value={formData.additionalPhone}
+                onChange={(e) => setFormData({ ...formData, additionalPhone: e.target.value })}
+                placeholder="+998 99..."
+                className="font-mono"
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('leads.modal.requested')}>
+              <Input
+                type="number"
+                inputMode="numeric"
+                value={formData.requestedAmount}
+                onChange={(e) => setFormData({ ...formData, requestedAmount: e.target.value })}
+                placeholder="10000000"
+                className="tabular-nums"
+              />
+            </Field>
+            <Field label={t('leads.modal.approved')}>
+              <Input
+                type="number"
+                inputMode="numeric"
+                value={formData.approvedLimit}
+                onChange={(e) => setFormData({ ...formData, approvedLimit: e.target.value })}
+                placeholder="8000000"
+                className="tabular-nums"
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('leads.modal.provider')}>
+              <Select
+                value={formData.providerName}
+                onChange={(e) => setFormData({ ...formData, providerName: e.target.value })}
               >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateLead} className="p-5 overflow-y-auto space-y-3.5 text-xs">
-              {duplicateWarning && (
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2 font-medium">
-                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
-                  <span>{duplicateWarning}</span>
-                </div>
-              )}
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Mijoz F.I.Sh *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.fullName}
-                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                  placeholder="Misol: Abdullayev Botir Alisherovich"
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Telefon raqami *</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.phone}
-                    onChange={(e) => handlePhoneChange(e.target.value)}
-                    placeholder="+998 90 123 45 67"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Qo'shimcha tel</label>
-                  <input
-                    type="text"
-                    value={formData.additionalPhone}
-                    onChange={(e) => setFormData({ ...formData, additionalPhone: e.target.value })}
-                    placeholder="+998 99..."
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">So'ralgan summa (UZS)</label>
-                  <input
-                    type="number"
-                    value={formData.requestedAmount}
-                    onChange={(e) => setFormData({ ...formData, requestedAmount: e.target.value })}
-                    placeholder="10000000"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Tasdiqlangan limit</label>
-                  <input
-                    type="number"
-                    value={formData.approvedLimit}
-                    onChange={(e) => setFormData({ ...formData, approvedLimit: e.target.value })}
-                    placeholder="8000000"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Bank / Platforma (TZ 4.1)</label>
-                  <select
-                    value={formData.providerName}
-                    onChange={(e) => setFormData({ ...formData, providerName: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  >
-                    <option value="Imanium">Imanium (25% - Daftar)</option>
-                    <option value="Alif online">Alif online</option>
-                    <option value="Alif offline">Alif offline</option>
-                    <option value="Infin Bank">Infin Bank</option>
-                    <option value="Payme">Payme</option>
-                    <option value="Trust 1">Trust 1</option>
-                    <option value="Variant">Variant</option>
-                    <option value="Paylater online">Paylater online</option>
-                    <option value="Paylater offline">Paylater offline</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Hamkor Do'kon (TZ 4.2)</label>
-                  <select
-                    value={formData.partnerName}
-                    onChange={(e) => setFormData({ ...formData, partnerName: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  >
-                    <option value="Qodir aka">Qodir aka (5% foyda)</option>
-                    <option value="Planet phone">Planet phone</option>
-                    <option value="Green bazar">Green bazar</option>
-                    <option value="Denov">Denov</option>
-                    <option value="Angren">Angren</option>
-                    <option value="Samarqand">Samarqand</option>
-                    <option value="Media park Angren">Media park Angren</option>
-                    <option value="Trust">Trust</option>
-                    <option value="Jizzax">Jizzax</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Jamoa (TZ 5.1)</label>
-                  <select
-                    value={formData.teamName}
-                    onChange={(e) => setFormData({ ...formData, teamName: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-bold"
-                  >
-                    <option value="Jahongir">Jahongir Jamoasi</option>
-                    <option value="Farida">Farida Jamoasi</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Mas'ul Agent</label>
-                  <input
-                    type="text"
-                    value={formData.agentName}
-                    onChange={(e) => setFormData({ ...formData, agentName: e.target.value })}
-                    placeholder="Agent ismi"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Murojaat Manbasi</label>
-                  <select
-                    value={formData.source}
-                    onChange={(e) => setFormData({ ...formData, source: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  >
-                    <option value="Qo'ng'iroq">Qo'ng'iroq</option>
-                    <option value="Instagram">Instagram</option>
-                    <option value="Telegram">Telegram</option>
-                    <option value="Tavsiya">Tavsiya</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Ofisga tashrif sanasi</label>
-                  <input
-                    type="date"
-                    value={formData.visitDate}
-                    onChange={(e) => setFormData({ ...formData, visitDate: e.target.value })}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Qo'shimcha izoh</label>
-                <textarea
-                  rows={2}
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Mijoz ehtiyoji, shartlar..."
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="btn-3d py-2 px-5 rounded-xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30"
-                >
-                  Lidni Saqlash
-                </button>
-              </div>
-            </form>
+                {PROVIDERS.map((p) => (
+                  <option key={p} value={p}>
+                    {p === 'Imanium' ? `${p} (${t('leads.modal.daftar25')})` : p}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t('leads.modal.partner')}>
+              <Select
+                value={formData.partnerName}
+                onChange={(e) => setFormData({ ...formData, partnerName: e.target.value })}
+              >
+                {PARTNERS.map((p) => (
+                  <option key={p} value={p}>
+                    {p === 'Qodir aka' ? `${p} (${t('leads.modal.profit5')})` : p}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
-        </div>
-      )}
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('leads.modal.team')}>
+              <Select
+                value={formData.teamName}
+                onChange={(e) => setFormData({ ...formData, teamName: e.target.value })}
+              >
+                {TEAMS.map((tm) => (
+                  <option key={tm} value={tm}>{t('leads.teamOf', { name: tm })}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t('leads.modal.agent')}>
+              <Input
+                type="text"
+                value={formData.agentName}
+                onChange={(e) => setFormData({ ...formData, agentName: e.target.value })}
+                placeholder={t('leads.modal.agentPlaceholder')}
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label={t('leads.modal.source')}>
+              <Select
+                value={formData.source}
+                onChange={(e) => setFormData({ ...formData, source: e.target.value })}
+              >
+                {SOURCES.map((s) => (
+                  <option key={s.value} value={s.value}>{t(s.labelKey)}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={t('leads.modal.visitDate')}>
+              <Input
+                type="date"
+                value={formData.visitDate}
+                onChange={(e) => setFormData({ ...formData, visitDate: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <Field label={t('leads.modal.notes')}>
+            <Textarea
+              rows={2}
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              placeholder={t('leads.modal.notesPlaceholder')}
+            />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 };

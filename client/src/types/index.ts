@@ -107,6 +107,8 @@ export interface DealItem {
   imei2?: string | null;
   quantity: number;
   price: number;
+  /** Server imei1 ni eski nom bilan ham qaytaradi */
+  imeiBarcode?: string | null;
 }
 
 export interface Deal {
@@ -173,6 +175,22 @@ export interface Deal {
   imei2?: string | null;
   items?: DealItem[];
   createdBy?: { id: string; fullName: string; role: Role } | null;
+  // --- Bitimlar sahifasi uchun qo'shimcha (server serializeDeal qaytaradi) ---
+  /** Bitim kuni "YYYY-MM-DD" (Asia/Tashkent) — tahrir formasi uchun */
+  dateYmd?: string;
+  approvedBy?: { id: string; fullName: string; role: Role } | null;
+  /** DDS'ga yozilgan chek xarajati (yo'q bo'lsa null) */
+  checkExpense?: {
+    id: string;
+    txNumber: string;
+    amount: number;
+    account: 'CASH' | 'BANK_CARD' | 'SETTLEMENT_ACCOUNT';
+    dateTime: string;
+  } | null;
+  color?: string | null;
+  statusChangeReason?: string | null;
+  debtDueDate?: string | null;
+  createdAt?: string;
 }
 
 export interface DdsTransaction {
@@ -186,6 +204,13 @@ export interface DdsTransaction {
   sourcePerson: string;
   amount: number;
   description?: string;
+  // Server qo'shimcha maydonlari (GET /api/dds)
+  /** DD.MM.YYYY HH:mm (Asia/Tashkent) */
+  dateTimeLabel?: string;
+  /** Yozuv manbasi */
+  source?: 'MANUAL' | 'DEAL_CHECK' | 'TRUST_PAYMENT' | 'SYNC';
+  dealId?: string | null;
+  deal?: { id: string; dealNumber: number | string } | null;
 }
 
 export interface DebtRecord {

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import axios from 'axios';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -24,9 +25,10 @@ import {
   Handshake,
   UsersRound,
   FileSpreadsheet,
+  Bell,
   type LucideIcon,
 } from 'lucide-react';
-import { useSocket } from '../context/SocketContext';
+import { useRealtime, useSocket } from '../context/SocketContext';
 import { useTranslation } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/cn';
@@ -136,14 +138,30 @@ interface SidebarProps {
   onClose: () => void;
   onOpenInstall?: () => void;
   onOpenExport?: () => void;
+  onOpenNotifications?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall, onOpenExport }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall, onOpenExport, onOpenNotifications }) => {
   const { user } = useAuth();
   const { notifications } = useSocket();
   const { t } = useTranslation();
 
   const userRole = user?.role || 'OPERATOR';
+
+  // ADMIN: tasdiq kutayotgan bitimlar soni ("Bitimlar" yonidagi nishon). Xato bo'lsa nishon ko'rinmaydi.
+  const isAdmin = user?.role === 'ADMIN';
+  const [pendingDeals, setPendingDeals] = useState(0);
+  const loadPendingDeals = useCallback(() => {
+    axios
+      .get('/api/deals/pending-count')
+      .then((res) => setPendingDeals(Number(res.data?.count) || 0))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (isAdmin) loadPendingDeals();
+    else setPendingDeals(0);
+  }, [isAdmin, loadPendingDeals]);
+  useRealtime('deals:updated', loadPendingDeals, isAdmin);
   const allowedPaths = ROLE_PERMISSIONS[userRole] || ROLE_PERMISSIONS['OPERATOR'];
   const visibleMenuItems = userRole === 'ADMIN' ? MENU : MENU.filter((item) => allowedPaths.includes(item.to));
 
@@ -189,7 +207,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall
         <nav aria-label={t('layout.main_nav')} className="flex-1 space-y-0.5 overflow-y-auto px-3 py-3">
           {visibleMenuItems.map((item) => {
             const Icon = item.icon;
-            const badge = item.to === '/bot-payments' ? notifications.length : 0;
+            const isPendingBadge = item.to === '/deals' && isAdmin;
+            const badge = item.to === '/bot-payments' ? notifications.length : isPendingBadge ? pendingDeals : 0;
             return (
               <NavLink
                 key={item.to}
@@ -214,10 +233,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall
                     </span>
                     {badge > 0 && (
                       <span
-                        aria-label={t('layout.new_notifications', { count: badge })}
+                        aria-label={t(isPendingBadge ? 'notifications.pending_badge' : 'layout.new_notifications', { count: badge })}
+                        title={isPendingBadge ? t('notifications.pending_badge', { count: badge }) : undefined}
                         className={cn(
                           'rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums',
-                          isActive ? 'bg-brand-fg/20 text-brand-fg' : 'bg-danger-soft text-danger'
+                          isActive ? 'bg-brand-fg/20 text-brand-fg' : isPendingBadge ? 'bg-warning-soft text-warning' : 'bg-danger-soft text-danger'
                         )}
                       >
                         {badge}
@@ -259,6 +279,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall
               <span className="block truncate text-xs font-normal text-fg-muted">{t('layout.ai_agent_sub')}</span>
             </span>
           </button>
+          {onOpenNotifications && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenNotifications();
+              }}
+              className={utilityButton}
+            >
+              <Bell className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate">{t('notifications.menu')}</span>
+                <span className="block truncate text-xs font-normal text-fg-muted">{t('notifications.menu_sub')}</span>
+              </span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {

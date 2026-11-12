@@ -1,0 +1,418 @@
+import React from 'react';
+import { Check, Eye, Inbox, Pencil, Trash2, Wallet, X } from 'lucide-react';
+import { Badge, Button, EmptyState, LoadingBlock, Table, TableContainer, Tbody, Td, Th, Thead, Tr, cn } from '../ui';
+import { useTranslation } from '../../context/LanguageContext';
+import { formatMoney, formatPercent } from '../../utils/format';
+import type { Deal, Role } from '../../types';
+import { ApprovalBadge, DealStatusBadge } from './DealBadges';
+import { cleanText, dealDateTime, dealPermissions, dealPhones, isQodirStore, productSummary } from './dealUtils';
+
+export interface DealRowHandlers {
+  onView: (deal: Deal) => void;
+  onEdit: (deal: Deal) => void;
+  onDelete: (deal: Deal) => void;
+  onApprove: (deal: Deal) => void;
+  onReject: (deal: Deal) => void;
+  onExpense: (deal: Deal) => void;
+}
+
+interface Props extends DealRowHandlers {
+  deals: Deal[];
+  loading: boolean;
+  /** /api/deals/totals javobi (faqat tasdiqlangan bitimlar) */
+  totals: any;
+  role?: Role | null;
+  /** Filtrlar qo'yilganmi — bo'sh holat matni shunga qarab o'zgaradi */
+  filtered: boolean;
+  onCreate: () => void;
+}
+
+const DASH = '—';
+
+type ActionTone = 'neutral' | 'success' | 'danger' | 'warning';
+const ACTION_TONE: Record<ActionTone, string> = {
+  neutral: 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+  success: 'text-success hover:bg-success-soft',
+  danger: 'text-danger hover:bg-danger-soft',
+  warning: 'text-warning hover:bg-warning-soft',
+};
+
+/** Jadval qatoridagi ixcham amal tugmasi (qator bosilishini to'xtatadi) */
+const RowAction: React.FC<{ label: string; tone?: ActionTone; onClick: () => void; children: React.ReactNode }> = ({
+  label,
+  tone = 'neutral',
+  onClick,
+  children,
+}) => (
+  <button
+    type="button"
+    title={label}
+    aria-label={label}
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick();
+    }}
+    className={cn('inline-flex h-8 w-8 items-center justify-center rounded-control transition-colors [&>svg]:h-4 [&>svg]:w-4', ACTION_TONE[tone])}
+  >
+    {children}
+  </button>
+);
+
+const CustomerCell: React.FC<{ deal: Deal }> = ({ deal }) => {
+  const name = cleanText(deal.customerName);
+  const phones = dealPhones(deal);
+  if (!name && !phones.length) return <span className="text-fg-muted">{DASH}</span>;
+  return (
+    <div className="min-w-0">
+      <p className="truncate font-medium text-fg">{name || DASH}</p>
+      {phones.map((p) => (
+        <p key={p} className="truncate text-xs tabular-nums text-fg-muted">
+          {p}
+        </p>
+      ))}
+    </div>
+  );
+};
+
+const ProductCell: React.FC<{ deal: Deal; showImei?: boolean }> = ({ deal, showImei = true }) => {
+  const { t } = useTranslation();
+  const p = productSummary(deal);
+  if (!p.first && !p.imei) return <span className="text-fg-muted">{DASH}</span>;
+  return (
+    <div className="min-w-0" title={p.full || undefined}>
+      <p className="flex items-center gap-1.5">
+        <span className="truncate font-medium text-fg">{p.first || DASH}</span>
+        {p.extra > 0 && (
+          <Badge tone="brand" size="sm" title={t('dealsPage.items_more', { count: p.extra })}>
+            +{p.extra}
+          </Badge>
+        )}
+      </p>
+      {showImei && p.imei && <p className="truncate font-mono text-xs tabular-nums text-fg-muted">{p.imei}</p>}
+    </div>
+  );
+};
+
+/** Chek xarajati yozilgan bo'lsa — tugma o'rniga ko'rsatiladigan belgi */
+const ExpenseMark: React.FC<{ deal: Deal }> = ({ deal }) => {
+  const { t } = useTranslation();
+  if (!deal.checkExpense) return null;
+  return (
+    <Badge
+      tone="success"
+      size="sm"
+      icon={<Wallet className="h-3 w-3" aria-hidden="true" />}
+      title={t('dealsPage.expense_written_short', { tx: deal.checkExpense.txNumber, amount: formatMoney(deal.checkExpense.amount) })}
+    >
+      {deal.checkExpense.txNumber}
+    </Badge>
+  );
+};
+
+/**
+ * Bitimlar ro'yxati: lg+ ekranda jadval, kichik ekranda kartochkalar.
+ * Qator/kartochka bosilganda batafsil oyna ochiladi.
+ */
+export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filtered, onCreate, ...handlers }) => {
+  const { t } = useTranslation();
+  const { onView, onEdit, onDelete, onApprove, onReject, onExpense } = handlers;
+
+  if (loading && deals.length === 0) return <LoadingBlock label={t('common.loading')} />;
+
+  if (deals.length === 0) {
+    return (
+      <EmptyState
+        icon={<Inbox />}
+        title={t('dealsPage.empty_title')}
+        description={filtered ? t('dealsPage.empty_filtered') : t('dealsPage.empty_hint')}
+        action={filtered ? undefined : <Button onClick={onCreate}>{t('deals.add_deal')}</Button>}
+      />
+    );
+  }
+
+  const actions = (deal: Deal) => {
+    const can = dealPermissions(role, deal);
+    return (
+      <>
+        <RowAction label={t('common.details')} onClick={() => onView(deal)}>
+          <Eye />
+        </RowAction>
+        {can.approve && (
+          <RowAction label={t('approval.approve')} tone="success" onClick={() => onApprove(deal)}>
+            <Check />
+          </RowAction>
+        )}
+        {can.reject && (
+          <RowAction label={t('approval.reject')} tone="danger" onClick={() => onReject(deal)}>
+            <X />
+          </RowAction>
+        )}
+        {can.expense && (
+          <RowAction label={t('dealsPage.expense_submit')} tone="warning" onClick={() => onExpense(deal)}>
+            <Wallet />
+          </RowAction>
+        )}
+        {can.edit && (
+          <RowAction label={t('common.edit')} onClick={() => onEdit(deal)}>
+            <Pencil />
+          </RowAction>
+        )}
+        {can.remove && (
+          <RowAction label={t('common.delete')} tone="danger" onClick={() => onDelete(deal)}>
+            <Trash2 />
+          </RowAction>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading}>
+      {/* Jadval — keng ekran */}
+      <TableContainer bare maxHeightClass="max-h-[70vh]" className="hidden lg:block">
+        <Table>
+          <Thead>
+            <Tr>
+              <Th>№</Th>
+              <Th>{t('common.date_time')}</Th>
+              <Th>{t('common.customer')}</Th>
+              <Th>{t('common.product_name')}</Th>
+              <Th>{t('dealsPage.col_store_provider')}</Th>
+              <Th align="right">{t('common.withdrawn_limit')}</Th>
+              <Th align="right">{t('common.customer_payment')}</Th>
+              <Th align="right">{t('common.agent_commission')}</Th>
+              <Th align="right">{t('common.purchase_cost')}</Th>
+              <Th align="right">{t('common.discount_pct')}</Th>
+              <Th>{t('common.status')}</Th>
+              <Th>{t('dealsPage.col_approval')}</Th>
+              <Th>{t('common.agency')}</Th>
+              <Th align="right">{t('common.sale_price')}</Th>
+              <Th align="right">{t('common.profit')}</Th>
+              <Th align="right" className="sticky right-0">
+                {t('common.actions')}
+              </Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {/* Yig'ma qator: faqat tasdiqlangan bitimlar bo'yicha */}
+            <tr className="bg-surface-2 font-semibold">
+              <Td colSpan={5} className="text-xs text-fg-secondary">
+                {t('dealsPage.totals_row')}
+              </Td>
+              <Td align="right" numeric>
+                {formatMoney(totals?.totalWithdrawn)}
+              </Td>
+              <Td align="right" numeric>
+                {formatMoney(totals?.totalCalculatedAmount)}
+              </Td>
+              <Td align="right" numeric>
+                {formatMoney(totals?.totalAgentAmount)}
+              </Td>
+              <Td align="right" numeric>
+                {formatMoney(totals?.totalPurchaseCost)}
+              </Td>
+              <Td colSpan={4} />
+              <Td align="right" numeric>
+                {formatMoney(totals?.totalSalePrice)}
+              </Td>
+              <Td align="right" numeric className="text-success">
+                {formatMoney(totals?.totalProfit)}
+              </Td>
+              <Td className="sticky right-0 bg-surface-2" />
+            </tr>
+
+            {deals.map((d) => {
+              const status = d.approvalStatus || 'APPROVED';
+              return (
+                <Tr key={d.id} clickable onClick={() => onView(d)} className="group">
+                  <Td numeric className="font-semibold text-accent">
+                    {d.dealNumber}
+                  </Td>
+                  <Td numeric>
+                    <p className="text-fg">{dealDateTime(d)}</p>
+                    <p className="text-xs text-fg-muted">{d.sellerName}</p>
+                  </Td>
+                  <Td className="max-w-[13rem]">
+                    <CustomerCell deal={d} />
+                  </Td>
+                  <Td className="max-w-[14rem]">
+                    <ProductCell deal={d} />
+                  </Td>
+                  <Td className="max-w-[12rem]">
+                    <p className="truncate text-fg">{d.store?.name || DASH}</p>
+                    <p className="truncate text-xs text-fg-muted">{d.provider?.name || DASH}</p>
+                    <div className="mt-0.5 flex flex-wrap gap-1 empty:hidden">
+                      {d.isDaftar && (
+                        <Badge tone="warning" size="sm">
+                          {t('dealsPage.daftar')}
+                          {Number(d.extraDaftar) > 0 && <span className="tabular-nums">+{formatMoney(d.extraDaftar)}</span>}
+                        </Badge>
+                      )}
+                      {isQodirStore(d.store?.name) && (
+                        <Badge tone="neutral" size="sm" title={t('dealsPage.qodir_check_title')}>
+                          <span className="tabular-nums">
+                            {t('dealsPage.qodir_check', { amount: formatMoney(Number(d.calculatedAmount) + Number(d.agentAmount)) })}
+                          </span>
+                        </Badge>
+                      )}
+                    </div>
+                  </Td>
+                  <Td align="right" numeric className="font-medium">
+                    {formatMoney(d.withdrawnLimit)}
+                  </Td>
+                  <Td align="right" numeric>
+                    {formatMoney(d.calculatedAmount)}
+                  </Td>
+                  <Td align="right" numeric>
+                    {formatMoney(d.agentAmount)}
+                  </Td>
+                  <Td align="right" numeric>
+                    {formatMoney(d.totalPurchaseCost)}
+                  </Td>
+                  <Td align="right" numeric className="text-fg-secondary">
+                    {formatPercent(d.purchaseDiscountPct)}
+                  </Td>
+                  <Td>
+                    <DealStatusBadge status={d.status} />
+                  </Td>
+                  <Td className="max-w-[12rem]">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <ApprovalBadge status={status} />
+                      <ExpenseMark deal={d} />
+                    </div>
+                    {status === 'REJECTED' && cleanText(d.rejectReason) && (
+                      <p className="mt-0.5 truncate text-xs text-danger" title={d.rejectReason || undefined}>
+                        {d.rejectReason}
+                      </p>
+                    )}
+                  </Td>
+                  <Td className="max-w-[10rem]">
+                    <p className="truncate text-fg">{d.agency?.name || DASH}</p>
+                    {d.agent?.name && <p className="truncate text-xs text-fg-muted">{d.agent.name}</p>}
+                  </Td>
+                  <Td align="right" numeric>
+                    {formatMoney(d.salePrice)}
+                  </Td>
+                  <Td align="right" numeric className="font-medium text-success">
+                    {formatMoney(d.profit)}
+                  </Td>
+                  <Td align="right" className="sticky right-0 border-l border-line bg-surface group-hover:bg-surface-2">
+                    <div className="flex items-center justify-end gap-0.5">{actions(d)}</div>
+                  </Td>
+                </Tr>
+              );
+            })}
+          </Tbody>
+        </Table>
+      </TableContainer>
+
+      {/* Kartochkalar — telefon va planshet */}
+      <ul className="divide-y divide-line lg:hidden">
+        {deals.map((d) => {
+          const status = d.approvalStatus || 'APPROVED';
+          const can = dealPermissions(role, d);
+          return (
+            <li key={d.id} className="space-y-2.5 p-4">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onView(d)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onView(d);
+                  }
+                }}
+                className="cursor-pointer space-y-2.5 rounded-control"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold tabular-nums text-fg">
+                      <span className="text-accent">№{d.dealNumber}</span>
+                      <span className="ml-2 font-normal text-fg-muted">{dealDateTime(d)}</span>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <ApprovalBadge status={status} />
+                    <DealStatusBadge status={d.status} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="text-xs text-fg-muted">{t('common.customer')}</p>
+                    <CustomerCell deal={d} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-fg-muted">{t('common.product_name')}</p>
+                    <ProductCell deal={d} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-fg-muted">{t('common.withdrawn_limit')}</p>
+                    <p className="font-medium tabular-nums text-fg">{formatMoney(d.withdrawnLimit)}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-fg-muted">{t('common.customer_payment')}</p>
+                    <p className="font-medium tabular-nums text-fg">{formatMoney(d.calculatedAmount)}</p>
+                  </div>
+                </div>
+
+                <p className="truncate text-xs text-fg-muted">
+                  {[d.store?.name, d.provider?.name, d.agency?.name].filter(Boolean).join(', ') || DASH}
+                </p>
+
+                {status === 'REJECTED' && cleanText(d.rejectReason) && (
+                  <p className="rounded-control bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
+                    {t('approval.rejectReason')}: {d.rejectReason}
+                  </p>
+                )}
+                {d.checkExpense && (
+                  <p className="text-xs tabular-nums text-success">
+                    {t('dealsPage.expense_written_short', { tx: d.checkExpense.txNumber, amount: formatMoney(d.checkExpense.amount) })}
+                  </p>
+                )}
+              </div>
+
+              {(can.approve || can.reject || can.expense || can.edit || can.remove) && (
+                <div className="flex flex-wrap gap-2">
+                  {can.approve && (
+                    <Button size="sm" variant="success" leftIcon={<Check className="h-4 w-4" />} onClick={() => onApprove(d)}>
+                      {t('approval.approve')}
+                    </Button>
+                  )}
+                  {can.reject && (
+                    <Button size="sm" variant="secondary" className="text-danger" leftIcon={<X className="h-4 w-4" />} onClick={() => onReject(d)}>
+                      {t('approval.reject')}
+                    </Button>
+                  )}
+                  {can.expense && (
+                    <Button size="sm" variant="secondary" leftIcon={<Wallet className="h-4 w-4" />} onClick={() => onExpense(d)}>
+                      {t('dealsPage.expense_submit')}
+                    </Button>
+                  )}
+                  {can.edit && (
+                    <Button size="sm" variant="secondary" leftIcon={<Pencil className="h-4 w-4" />} onClick={() => onEdit(d)}>
+                      {t('common.edit')}
+                    </Button>
+                  )}
+                  {can.remove && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="text-danger hover:text-danger"
+                      aria-label={t('common.delete')}
+                      title={t('common.delete')}
+                      onClick={() => onDelete(d)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+};

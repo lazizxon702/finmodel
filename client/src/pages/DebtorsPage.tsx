@@ -5,18 +5,18 @@ import {
   Search,
   AlertTriangle,
   CheckCircle2,
-  Calendar,
   Phone,
   DollarSign,
-  Clock,
   History,
-  X,
-  RefreshCw,
-  Sparkles,
+  Lock,
 } from 'lucide-react';
 import { formatMoney, formatDate } from '../utils/format';
 import { useTranslation } from '../context/LanguageContext';
 import { AmountInput } from '../components/AmountInput';
+import {
+  Button, Card, Modal, PageHeader, StatCard, Badge, Field, Input, Select,
+  TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, LoadingBlock, SegmentedControl, controlClass, cn,
+} from '../components/ui';
 
 export const DebtorsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -24,10 +24,11 @@ export const DebtorsPage: React.FC = () => {
   const [debtors, setDebtors] = useState<any[]>([]);
   const [totalDebtSum, setTotalDebtSum] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [overdueFilter, setOverdueFilter] = useState<'ALL' | 'OVERDUE'>('ALL');
 
-  // Repayment Modal
+  // To'lov oynasi
   const [selectedDebtor, setSelectedDebtor] = useState<any | null>(null);
   const [payAmount, setPayAmount] = useState<number>(0);
   const [accountType, setAccountType] = useState<'CASH' | 'BANK_CARD' | 'SETTLEMENT_ACCOUNT'>('CASH');
@@ -37,7 +38,7 @@ export const DebtorsPage: React.FC = () => {
   const [payError, setPayError] = useState('');
   const [paySuccessMsg, setPaySuccessMsg] = useState('');
 
-  // History modal
+  // To'lovlar tarixi oynasi
   const [historyDebtor, setHistoryDebtor] = useState<any | null>(null);
 
   useEffect(() => {
@@ -47,20 +48,25 @@ export const DebtorsPage: React.FC = () => {
   const fetchDebtors = async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const res = await axios.get(`/api/debtors?search=${encodeURIComponent(search)}`);
       setDebtors(res.data.items || []);
       setTotalDebtSum(res.data.totalDebtSum || 0);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Fetch debtors error:', err);
+      setLoadError(err.response?.data?.error || t('common.load_error'));
     } finally {
       setLoading(false);
     }
   };
 
+  // Qarzdor ismi: server `debtorName` qaytaradi (xaridor yoki bitim mijozi), bo'lsa `customerName`
+  const nameOf = (d: any): string => d.debtorName || d.customerName || '';
+
   const handleOpenPay = (debtor: any) => {
     setSelectedDebtor(debtor);
     setPayAmount(debtor.debtRemainder);
-    setPaidBy(debtor.customerName);
+    setPaidBy(nameOf(debtor));
     setAccountType('CASH');
     setPayNote('');
     setPayError('');
@@ -71,7 +77,7 @@ export const DebtorsPage: React.FC = () => {
     e.preventDefault();
     if (!selectedDebtor) return;
     if (payAmount <= 0) {
-      setPayError('To\'lov summasi 0 dan katta bo\'lishi shart');
+      setPayError(t('debtors.amountError'));
       return;
     }
 
@@ -105,465 +111,367 @@ export const DebtorsPage: React.FC = () => {
   const overdueCount = debtors.filter((d) => d.isOverdue).length;
 
   return (
-    <div className="space-y-6 text-slate-900 dark:text-slate-100">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-            <CreditCard className="w-6 h-6 text-rose-500 dark:text-rose-400" />
-            <span>{t('menu.debtors', 'Qarzdorlar Ro\'yxati')}</span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Mijozlarning qarz qoldiqlari, to'lov muddatlari, qarzni kamaytirish va kassaga qabul qilish
-          </p>
+    <div className="space-y-4 sm:space-y-5">
+      <PageHeader
+        icon={<CreditCard className="h-5 w-5" />}
+        title={t('menu.debtors')}
+        description={t('debtors.subtitle')}
+      />
+
+      {loadError && (
+        <div role="alert" className="rounded-control border border-danger/30 bg-danger-soft p-3 text-sm text-danger">
+          {loadError}
         </div>
+      )}
+
+      {/* KPI kartalar */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+        <StatCard
+          title={t('debtors.totalDebt')}
+          value={formatMoney(totalDebtSum)}
+          hint={t('debtors.totalDebtHint')}
+          tone="danger"
+          icon={<DollarSign className="h-5 w-5" />}
+        />
+        <StatCard
+          title={t('debtors.active')}
+          value={t('debtors.countValue', { count: debtors.length })}
+          hint={t('debtors.activeHint')}
+          tone="info"
+          icon={<CreditCard className="h-5 w-5" />}
+        />
+        <StatCard
+          title={t('debtors.overdue')}
+          value={t('debtors.countValue', { count: overdueCount })}
+          hint={t('debtors.overdueHint')}
+          tone="warning"
+          icon={<AlertTriangle className="h-5 w-5" />}
+        />
+        <StatCard
+          title={t('debtors.blockTitle')}
+          value={<span className="text-sm font-semibold leading-snug">{t('debtors.blockText')}</span>}
+          hint={t('debtors.blockHint')}
+          tone="brand"
+          icon={<Lock className="h-5 w-5" />}
+        />
       </div>
 
-      {/* 3D KPI Metrics Cards (Sonomed Style) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Debt */}
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 p-5 rounded-3xl relative overflow-hidden shadow-sm dark:shadow-xl">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl pointer-events-none" />
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Jami Qoldiq Qarz
-            </span>
-            <div className="w-9 h-9 rounded-2xl bg-rose-500/20 text-rose-500 dark:text-rose-400 flex items-center justify-center border border-rose-500/30">
-              <DollarSign className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 text-2xl font-black text-rose-600 dark:text-rose-400 tracking-tight">
-            {formatMoney(totalDebtSum)}
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-            Kompaniyaga qaytarilishi kerak
-          </div>
-        </div>
-
-        {/* Debtors Count */}
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 p-5 rounded-3xl relative overflow-hidden shadow-sm dark:shadow-xl">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none" />
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Faol Qarzdorlar
-            </span>
-            <div className="w-9 h-9 rounded-2xl bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center border border-cyan-500/30">
-              <CreditCard className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-            {debtors.length} ta
-          </div>
-          <div className="mt-1 text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold">
-            To'lov kutayotgan cheklar
-          </div>
-        </div>
-
-        {/* Overdue */}
-        <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 p-5 rounded-3xl relative overflow-hidden shadow-sm dark:shadow-xl">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Muddati O'tgan
-            </span>
-            <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center border border-amber-500/30">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 text-2xl font-black text-amber-500 dark:text-amber-400 tracking-tight">
-            {overdueCount} ta
-          </div>
-          <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400/90 font-medium">
-            Shoshilinch undiruv talab qilinadi
-          </div>
-        </div>
-
-        {/* Security Rule Card */}
-        <div className="card-3d bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-950/80 dark:to-slate-900/90 border border-indigo-200 dark:border-indigo-800/60 p-5 rounded-3xl relative overflow-hidden shadow-sm dark:shadow-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">
-              Qarz Blokirovkasi
-            </span>
-            <Sparkles className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
-          </div>
-          <div className="mt-2 text-xs font-bold text-slate-900 dark:text-white leading-relaxed">
-            Qarzdorlarga tovar chiqarish taqiqlangan!
-          </div>
-          <div className="mt-1 text-[11px] text-slate-600 dark:text-indigo-200">
-            Faqat administrator kodi orqali ruxsat etiladi.
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm dark:shadow-lg">
-        <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input
+      {/* Qidiruv va filtr */}
+      <Card padding="sm" className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex-1">
+          <Input
             type="text"
-            placeholder="Mijoz ismi, telefon, tovar yoki chek raqami bo'yicha qidiruv..."
+            leftIcon={<Search />}
+            placeholder={t('debtors.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 shadow-inner"
           />
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <button
-            type="button"
-            onClick={() => setOverdueFilter('ALL')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
-              overdueFilter === 'ALL'
-                ? 'bg-cyan-600 dark:bg-cyan-500 text-white dark:text-slate-950 shadow-md shadow-cyan-500/20'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-700'
-            }`}
-          >
-            Barchasi ({debtors.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setOverdueFilter('OVERDUE')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-              overdueFilter === 'OVERDUE'
-                ? 'bg-rose-600 dark:bg-rose-500 text-white shadow-md shadow-rose-500/20'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-300 dark:border-slate-700'
-            }`}
-          >
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>Muddati o'tganlar ({overdueCount})</span>
-          </button>
-        </div>
-      </div>
+        <SegmentedControl
+          value={overdueFilter}
+          onChange={(v) => setOverdueFilter(v as 'ALL' | 'OVERDUE')}
+          items={[
+            { value: 'ALL', label: t('debtors.filterAll', { count: debtors.length }) },
+            {
+              value: 'OVERDUE',
+              label: t('debtors.filterOverdue', { count: overdueCount }),
+              icon: <AlertTriangle className="h-3.5 w-3.5" />,
+            },
+          ]}
+        />
+      </Card>
 
-      {/* 3D Table */}
-      <div className="card-3d bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm dark:shadow-xl overflow-hidden flex flex-col">
-        <div className="lg:hidden px-3.5 py-2 bg-slate-100 dark:bg-slate-800/70 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-          <span className="flex items-center gap-1 font-medium">👉 Jadvalni ko'rish uchun o'ngga suring</span>
-          <span className="font-bold text-rose-600 dark:text-rose-400">{filtered.length} ta qarzdor</span>
+      {/* Jadval */}
+      <Card padding="none">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 text-xs text-fg-muted lg:hidden">
+          <span>{t('debtors.swipeHint')}</span>
+          <span className="font-semibold tabular-nums text-danger">{t('debtors.listCount', { count: filtered.length })}</span>
         </div>
-        <div className="table-scroll-container custom-scrollbar">
-          <table className="w-full text-xs text-left">
-            <thead className="table-sticky-head bg-slate-100 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200 dark:border-slate-800 shadow-sm">
-              <tr>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Chek №</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Sana</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Mijoz / Telefon</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Do'kon</th>
-                <th className="px-4 py-3.5 bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Tovar</th>
-                <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Sotuv narxi</th>
-                <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-950 whitespace-nowrap">To'langan</th>
-                <th className="px-4 py-3.5 text-right bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Qoldiq Qarz</th>
-                <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-950 whitespace-nowrap">To'lov muddati</th>
-                <th className="px-4 py-3.5 text-center bg-slate-100 dark:bg-slate-950 whitespace-nowrap">Holat</th>
-                <th className="px-4 py-3.5 text-center sticky right-0 top-0 bg-slate-100 dark:bg-slate-950 z-30 shadow-md whitespace-nowrap">Amallar</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+        <TableContainer bare>
+          <Table>
+            <Thead>
+              <Tr>
+                <Th>{t('debtors.col.receipt')}</Th>
+                <Th>{t('common.date')}</Th>
+                <Th>{t('debtors.col.customer')}</Th>
+                <Th>{t('debtors.col.store')}</Th>
+                <Th>{t('debtors.col.product')}</Th>
+                <Th align="right">{t('debtors.col.salePrice')}</Th>
+                <Th align="right">{t('debtors.col.paid')}</Th>
+                <Th align="right">{t('debtors.col.remaining')}</Th>
+                <Th align="center">{t('debtors.col.dueDate')}</Th>
+                <Th align="center">{t('common.status')}</Th>
+                <Th align="center" className="sticky right-0 z-20">{t('common.actions')}</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-cyan-400" />
-                    Qarzdorlik ma'lumotlari yuklanmoqda...
+                  <td colSpan={11}>
+                    <LoadingBlock label={t('debtors.loading')} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
-                    Hech qanday qarzdorlik topilmadi
-                  </td>
-                </tr>
+                <TableEmpty colSpan={11} title={t('debtors.empty')} />
               ) : (
                 filtered.map((d) => (
-                  <tr key={d.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                    <td className="px-4 py-3 font-mono font-bold text-cyan-600 dark:text-cyan-400">
+                  <Tr key={d.id}>
+                    <Td numeric className="font-mono font-semibold text-accent">
                       №{d.dealNumber}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    </Td>
+                    <Td numeric className="text-fg-muted">
                       {formatDate(d.date)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-bold text-slate-900 dark:text-white text-xs">{d.customerName}</div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
-                        <Phone className="w-3 h-3 text-slate-400" />
-                        <span>{d.customerPhone}</span>
+                    </Td>
+                    <Td>
+                      <div className="text-xs font-semibold text-fg">{nameOf(d) || '—'}</div>
+                      <div className="mt-0.5 flex items-center gap-1 text-[11px] tabular-nums text-fg-muted">
+                        <Phone className="h-3 w-3 shrink-0" />
+                        <span>{d.customerPhone1 || d.customerPhone || '—'}</span>
                       </div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300 font-medium">
-                      {d.storeName}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-semibold text-slate-900 dark:text-white">{d.productName}</div>
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{d.imeiBarcode}</div>
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium text-slate-700 dark:text-slate-300">
+                      <div className="mt-0.5 flex items-center gap-1 text-[11px] tabular-nums text-fg-muted">
+                        <Phone className="h-3 w-3 shrink-0" />
+                        <span>{d.customerPhone2 || '—'}</span>
+                      </div>
+                    </Td>
+                    <Td className="font-medium text-fg-secondary">{d.storeName}</Td>
+                    <Td>
+                      <div className="font-medium text-fg">{d.productName}</div>
+                      <div className="font-mono text-[11px] text-fg-muted">{d.imeiBarcode}</div>
+                    </Td>
+                    <Td align="right" numeric className="text-fg-secondary">
                       {formatMoney(d.salePrice)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold text-emerald-600 dark:text-emerald-400">
+                    </Td>
+                    <Td align="right" numeric className="font-semibold text-success">
                       {formatMoney(d.receivedFromBuyer)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-rose-600 dark:text-rose-400 text-sm">
+                    </Td>
+                    <Td align="right" numeric className="font-semibold text-danger">
                       {formatMoney(d.debtRemainder)}
-                    </td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                    </Td>
+                    <Td align="center" className="whitespace-nowrap">
                       {d.debtDueDate ? (
-                        <div className="inline-flex flex-col items-center">
-                          <span className={`text-[11px] font-semibold ${
-                            d.isOverdue ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-700 dark:text-slate-300'
-                          }`}>
+                        <div className="inline-flex flex-col items-center gap-0.5">
+                          <span
+                            className={cn(
+                              'text-xs font-medium tabular-nums',
+                              d.isOverdue ? 'font-semibold text-danger' : 'text-fg-secondary'
+                            )}
+                          >
                             {formatDate(d.debtDueDate)}
                           </span>
                           {d.isOverdue && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 mt-0.5 animate-pulse">
-                              Muddati o'tgan!
-                            </span>
+                            <Badge tone="danger" size="sm">
+                              {t('debtors.overdueBadge')}
+                            </Badge>
                           )}
                         </div>
                       ) : (
-                        <span className="text-slate-400">-</span>
+                        <span className="text-fg-muted">—</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap">
-                      <span className={`pill-3d inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
-                        d.receivedFromBuyer > 0
-                          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30'
-                          : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30'
-                      }`}>
-                        {d.receivedFromBuyer > 0 ? 'Qisman to\'langan' : 'To\'lanmagan'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap sticky right-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md z-10 shadow-sm">
+                    </Td>
+                    <Td align="center">
+                      <Badge tone={d.receivedFromBuyer > 0 ? 'warning' : 'danger'}>
+                        {d.receivedFromBuyer > 0 ? t('paymentStatus.PARTIAL') : t('debtors.unpaid')}
+                      </Badge>
+                    </Td>
+                    <Td align="center" className="sticky right-0 z-10 whitespace-nowrap bg-surface">
                       <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
+                        <Button
+                          size="sm"
+                          variant="success"
+                          leftIcon={<DollarSign className="h-3.5 w-3.5" />}
                           onClick={() => handleOpenPay(d)}
-                          className="btn-3d py-1.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 active:translate-y-[1px] transition"
-                          title="Qarzni to'lash yoki kamaytirish"
+                          title={t('debtors.payTooltip')}
                         >
-                          <DollarSign className="w-3.5 h-3.5" />
-                          <span>Qarzni yopish / Kamaytirish</span>
-                        </button>
+                          {t('debtors.payButton')}
+                        </Button>
                         {d.payments && d.payments.length > 0 && (
-                          <button
-                            type="button"
+                          <Button
+                            size="icon"
+                            variant="secondary"
                             onClick={() => setHistoryDebtor(d)}
-                            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                            title="To'lovlar tarixi"
+                            title={t('debtors.historyTooltip')}
+                            aria-label={t('debtors.historyTooltip')}
                           >
-                            <History className="w-4 h-4 text-cyan-400" />
-                          </button>
+                            <History className="h-4 w-4 text-accent" />
+                          </Button>
                         )}
                       </div>
-                    </td>
-                  </tr>
+                    </Td>
+                  </Tr>
                 ))
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </Tbody>
+          </Table>
+        </TableContainer>
+      </Card>
 
-      {/* Repayment Modal */}
-      {selectedDebtor && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="w-full sm:max-w-md bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-xs text-slate-200 overflow-y-auto max-h-[92vh]">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+      {/* To'lov oynasi */}
+      <Modal
+        open={!!selectedDebtor}
+        onClose={() => setSelectedDebtor(null)}
+        size="md"
+        title={
+          <span className="flex items-center gap-1.5">
+            <DollarSign className="h-4 w-4 text-success" />
+            {t('debtors.payTitle')}
+          </span>
+        }
+        description={
+          selectedDebtor
+            ? t('debtors.receiptLine', { number: selectedDebtor.dealNumber, name: nameOf(selectedDebtor) || '—' })
+            : undefined
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setSelectedDebtor(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="submit"
+              form="debtor-pay-form"
+              variant="success"
+              loading={paying}
+              leftIcon={<CheckCircle2 className="h-4 w-4" />}
+            >
+              {t('debtors.submit')}
+            </Button>
+          </>
+        }
+      >
+        {selectedDebtor && (
+          <div className="space-y-4">
+            {/* Hozirgi qarz */}
+            <div className="flex items-center justify-between rounded-card border border-line bg-surface-2 p-3.5">
               <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                  <DollarSign className="w-4 h-4 text-emerald-400" />
-                  <span>Qarzni to'lash / Kamaytirish</span>
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  Chek №{selectedDebtor.dealNumber} - {selectedDebtor.customerName}
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedDebtor(null)}
-                className="p-1 rounded-xl text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Current Debt Highlight */}
-            <div className="p-3.5 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-between">
-              <div>
-                <span className="text-[11px] text-slate-400 block font-medium">Hozirgi qarz:</span>
-                <span className="text-lg font-black text-rose-400">
+                <span className="block text-[11px] text-fg-muted">{t('debtors.currentDebt')}</span>
+                <span className="text-lg font-semibold tabular-nums text-danger">
                   {formatMoney(selectedDebtor.debtRemainder)}
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-[11px] text-slate-400 block font-medium">To'lovdan keyin:</span>
-                <span className="text-lg font-black text-emerald-400">
+                <span className="block text-[11px] text-fg-muted">{t('debtors.afterPayment')}</span>
+                <span className="text-lg font-semibold tabular-nums text-success">
                   {formatMoney(Math.max(0, selectedDebtor.debtRemainder - (Number(payAmount) || 0)))}
                 </span>
               </div>
             </div>
 
             {payError && (
-              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs">
+              <div role="alert" className="rounded-control border border-danger/30 bg-danger-soft p-3 text-xs text-danger">
                 {payError}
               </div>
             )}
 
             {paySuccessMsg && (
-              <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-1.5 font-bold">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="flex items-center gap-1.5 rounded-control border border-success/30 bg-success-soft p-3 text-xs font-semibold text-success">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span>{paySuccessMsg}</span>
               </div>
             )}
 
-            <form onSubmit={handlePaySubmit} className="space-y-3">
-              <div>
-                <label className="block font-bold text-slate-300 mb-1">
-                  To'lanayotgan summa (UZS) *
-                </label>
+            <form id="debtor-pay-form" onSubmit={handlePaySubmit} className="space-y-3">
+              <Field label={t('debtors.payAmount')} required>
                 <AmountInput
                   required
-                  placeholder="Summani kiriting..."
+                  placeholder={t('debtors.amountPlaceholder')}
                   value={payAmount}
                   onChange={(val) => setPayAmount(val)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm font-bold text-emerald-400 focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className={cn(controlClass, 'font-semibold tabular-nums')}
                 />
-                <div className="flex gap-1.5 mt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setPayAmount(selectedDebtor.debtRemainder)}
-                    className="px-2 py-0.5 rounded-lg text-[10px] bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700"
-                  >
-                    To'liq yopish (100%)
-                  </button>
-                  <button
-                    type="button"
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <Button size="sm" variant="secondary" onClick={() => setPayAmount(selectedDebtor.debtRemainder)}>
+                    {t('debtors.payFull')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
                     onClick={() => setPayAmount(Math.round(selectedDebtor.debtRemainder / 2))}
-                    className="px-2 py-0.5 rounded-lg text-[10px] bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700"
                   >
-                    Yarmini to'lash (50%)
-                  </button>
+                    {t('debtors.payHalf')}
+                  </Button>
                 </div>
-              </div>
+              </Field>
 
-              <div>
-                <label className="block font-bold text-slate-300 mb-1">
-                  Qaysi kassaga tushsin (To'lov usuli) *
-                </label>
-                <select
-                  value={accountType}
-                  onChange={(e: any) => setAccountType(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs outline-none"
-                >
-                  <option value="CASH">Naqd kassa (Cash)</option>
-                  <option value="BANK_CARD">Bank kartasi (Humo / Uzcard)</option>
-                  <option value="SETTLEMENT_ACCOUNT">Hisob-raqam (Raschyotniy schet)</option>
-                </select>
-                <p className="text-[10px] text-cyan-400/80 mt-1">
-                  ✓ Ushbu summa avtomatik ravishda DDS Kassa kirimiga yoziladi.
-                </p>
-              </div>
+              <Field label={t('debtors.account')} required hint={t('debtors.ddsNote')}>
+                <Select value={accountType} onChange={(e: any) => setAccountType(e.target.value)}>
+                  <option value="CASH">{t('accounts.CASH')}</option>
+                  <option value="BANK_CARD">{t('accounts.BANK_CARD')}</option>
+                  <option value="SETTLEMENT_ACCOUNT">{t('accounts.SETTLEMENT_ACCOUNT')}</option>
+                </Select>
+              </Field>
 
-              <div>
-                <label className="block font-bold text-slate-300 mb-1">Kim to'ladi (FISH)</label>
-                <input
+              <Field label={t('debtors.paidBy')}>
+                <Input
                   type="text"
                   value={paidBy}
                   onChange={(e) => setPaidBy(e.target.value)}
-                  placeholder="Mijoz ismi..."
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs outline-none"
+                  placeholder={t('debtors.paidByPlaceholder')}
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block font-bold text-slate-300 mb-1">Izoh (Sabab)</label>
-                <input
+              <Field label={t('debtors.noteLabel')}>
+                <Input
                   type="text"
                   value={payNote}
                   onChange={(e) => setPayNote(e.target.value)}
-                  placeholder="Qarz to'lovi haqida izoh..."
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-xs outline-none"
+                  placeholder={t('debtors.notePlaceholder')}
                 />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedDebtor(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  disabled={paying}
-                  className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 active:translate-y-[1px] disabled:opacity-50"
-                >
-                  {paying ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                  <span>To'lovni qabul qilish & Kassaga kiritish</span>
-                </button>
-              </div>
+              </Field>
             </form>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
-      {/* Payment History Modal */}
-      {historyDebtor && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="w-full sm:max-w-lg bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-xs text-slate-200 overflow-y-auto max-h-[92vh]">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                  <History className="w-4 h-4 text-cyan-400" />
-                  <span>To'lovlar tarixi</span>
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  Chek №{historyDebtor.dealNumber} - {historyDebtor.customerName}
-                </p>
-              </div>
-              <button
-                onClick={() => setHistoryDebtor(null)}
-                className="p-1 rounded-xl text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="max-h-60 overflow-y-auto space-y-2">
-              {historyDebtor.payments && historyDebtor.payments.length > 0 ? (
-                historyDebtor.payments.map((p: any) => (
-                  <div
-                    key={p.id}
-                    className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <span className="font-bold text-emerald-400 block text-sm">
-                        +{formatMoney(p.amount)}
-                      </span>
-                      <span className="text-[10px] text-slate-400">
-                        {p.accountType} • {p.paidBy || 'Mijoz'}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[11px] text-slate-300 block">{formatDate(p.date)}</span>
-                      <span className="text-[10px] text-slate-500">{p.note || '-'}</span>
-                    </div>
+      {/* To'lovlar tarixi oynasi */}
+      <Modal
+        open={!!historyDebtor}
+        onClose={() => setHistoryDebtor(null)}
+        size="md"
+        title={
+          <span className="flex items-center gap-1.5">
+            <History className="h-4 w-4 text-accent" />
+            {t('debtors.historyTitle')}
+          </span>
+        }
+        description={
+          historyDebtor
+            ? t('debtors.receiptLine', { number: historyDebtor.dealNumber, name: nameOf(historyDebtor) || '—' })
+            : undefined
+        }
+        footer={
+          <Button variant="secondary" onClick={() => setHistoryDebtor(null)}>
+            {t('common.close')}
+          </Button>
+        }
+      >
+        {historyDebtor && (
+          <div className="space-y-2">
+            {historyDebtor.payments && historyDebtor.payments.length > 0 ? (
+              historyDebtor.payments.map((p: any) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between rounded-control border border-line bg-surface-2 p-3 text-xs"
+                >
+                  <div>
+                    <span className="block text-sm font-semibold tabular-nums text-success">
+                      +{formatMoney(p.amount)}
+                    </span>
+                    <span className="text-[11px] text-fg-muted">
+                      {t(`accounts.${p.accountType}`, p.accountType)} • {p.paidBy || t('debtors.defaultPayer')}
+                    </span>
                   </div>
-                ))
-              ) : (
-                <div className="py-6 text-center text-slate-500">Hech qanday to'lov tarixi mavjud emas</div>
-              )}
-            </div>
-
-            <div className="pt-2 text-right">
-              <button
-                type="button"
-                onClick={() => setHistoryDebtor(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold"
-              >
-                Yopish
-              </button>
-            </div>
+                  <div className="text-right">
+                    <span className="block text-[11px] tabular-nums text-fg-secondary">{formatDate(p.date)}</span>
+                    <span className="text-[11px] text-fg-muted">{p.note || '—'}</span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-6 text-center text-fg-muted">{t('debtors.historyEmpty')}</div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 };

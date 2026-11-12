@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import { LanguageProvider, useTranslation } from './context/LanguageContext';
@@ -10,6 +10,8 @@ import { BottomNav } from './components/BottomNav';
 import { ExportModal } from './components/ExportModal';
 import { InstallAppModal } from './components/InstallAppModal';
 import { AIAssistantModal } from './components/AIAssistantModal';
+import { NotificationSettings } from './components/NotificationSettings';
+import { onPushNavigate } from './services/push';
 
 // Pages
 import { DashboardPage } from './pages/DashboardPage';
@@ -40,8 +42,16 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { t } = useTranslation();
+
+  // Push bildirishnoma bosilganda tegishli sahifaga o'tish (faqat native ilovada ishlaydi)
+  useEffect(() => {
+    onPushNavigate((path) => navigate(path));
+    return () => onPushNavigate(null);
+  }, [navigate]);
 
   // Marshrut → sarlavha kaliti (i18n/modules/nav.ts dagi title.*)
   const TITLE_KEYS: Record<string, string> = {
@@ -78,6 +88,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         onClose={() => setSidebarOpen(false)} 
         onOpenInstall={() => setInstallOpen(true)}
         onOpenExport={() => setExportOpen(true)}
+        onOpenNotifications={() => setNotificationsOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -86,6 +97,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           onOpenSidebar={() => setSidebarOpen(true)}
           onOpenExport={() => setExportOpen(true)}
           onOpenInstall={() => setInstallOpen(true)}
+          onOpenNotifications={() => setNotificationsOpen(true)}
           title={getPageTitle(location.pathname)}
         />
 
@@ -102,6 +114,9 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
       {/* Install Mobile App / APK Modal */}
       <InstallAppModal isOpen={installOpen} onClose={() => setInstallOpen(false)} />
+
+      {/* Bildirishnoma sozlamalari (Telegram, push) */}
+      <NotificationSettings open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
 
       {/* 3D Smart AI ERP Assistant */}
       <AIAssistantModal />
