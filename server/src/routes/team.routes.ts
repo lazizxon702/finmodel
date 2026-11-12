@@ -117,6 +117,7 @@ router.post('/operators', authenticateToken, resolveTeamAgent, async (req: TeamR
         username,
         fullName,
         passwordHash: await hashPassword(password),
+        initialPassword: password, // faqat ADMIN Foydalanuvchilar sahifasida ko'radi
         role: Role.OPERATOR,
         parentAgentId: req.teamAgentId,
       },
@@ -178,12 +179,12 @@ router.put('/operators/:id', authenticateToken, resolveTeamAgent, async (req: Te
       const err = passwordError(password);
       if (err) throw new HttpError(400, err);
       data.passwordHash = await hashPassword(password);
-      data.initialPassword = null;
+      data.initialPassword = password;
       changed.push('password');
     } else if (body.resetPassword === true) {
       generatedPassword = generatePassword();
       data.passwordHash = await hashPassword(generatedPassword);
-      data.initialPassword = null;
+      data.initialPassword = generatedPassword;
       changed.push('password');
     }
 

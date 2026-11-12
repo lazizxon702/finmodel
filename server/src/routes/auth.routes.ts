@@ -256,8 +256,12 @@ router.post('/verify-override', authenticateToken, async (req: AuthRequest, res:
 // List Users (Admin only)
 router.get('/users', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
   try {
-    const users = await prisma.user.findMany({ select: USER_SELECT, orderBy: { createdAt: 'asc' } });
-    return res.json(users.map(toUserDto));
+    // visiblePassword — FAQAT shu (ADMIN uchun) ro'yxatda qaytadi; /me, login va jamoa javoblarida yo'q
+    const users = await prisma.user.findMany({
+      select: { ...USER_SELECT, initialPassword: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return res.json(users.map(({ initialPassword, ...u }) => ({ ...toUserDto(u as any), visiblePassword: initialPassword || null })));
   } catch (error: any) {
     return sendRouteError(res, error);
   }
@@ -294,7 +298,8 @@ router.post('/users', authenticateToken, requireRoles([Role.ADMIN]), async (req:
         username,
         fullName,
         passwordHash: await hashPassword(password),
-        // initialPassword (ochiq matn) ataylab yozilmaydi
+        // Egasi talabi: ADMIN parollarni Foydalanuvchilar sahifasida ko'rib turadi (faqat GET /users da qaytadi)
+        initialPassword: password,
         role,
         telegramId,
         agencyId: links.agencyId,
@@ -366,13 +371,13 @@ router.put('/users/:id', authenticateToken, requireRoles([Role.ADMIN]), async (r
     if (body.resetPassword === true) {
       generatedPassword = generatePassword();
       data.passwordHash = await hashPassword(generatedPassword);
-      data.initialPassword = null; // eski ochiq parol qoldig'i ham o'chiriladi
+      data.initialPassword = generatedPassword;
     } else if (typeof body.password === 'string' && body.password.trim()) {
       const password = body.password.trim();
       const err = passwordError(password);
       if (err) throw new HttpError(400, err);
       data.passwordHash = await hashPassword(password);
-      data.initialPassword = null;
+      data.initialPassword = password;
     }
 
     const updated = await prisma.user.update({ where: { id }, data, select: USER_SELECT });

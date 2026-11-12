@@ -148,7 +148,10 @@ describe('POST /api/team/operators', () => {
     const row = store.users.find((u) => u.username === 'yangi_op');
     expect(row.role).toBe('OPERATOR');
     expect(row.parentAgentId).toBe('agentA');
-    expect(row.initialPassword).toBeUndefined();
+    // Ochiq parol faqat ADMIN ro'yxati (GET /api/auth/users) uchun saqlanadi; jamoa javobida qaytmaydi
+    expect(row.initialPassword).toBe(body.generatedPassword);
+    expect(body).not.toHaveProperty('initialPassword');
+    expect(body).not.toHaveProperty('visiblePassword');
     expect(row.passwordHash).not.toContain(body.generatedPassword);
     expect(await bcrypt.compare(body.generatedPassword, row.passwordHash)).toBe(true);
 
@@ -212,7 +215,7 @@ describe('PUT /api/team/operators/:id', () => {
     expect(status).toBe(200);
     const row = store.users.find((u) => u.id === 'opA1');
     expect(await bcrypt.compare(body.generatedPassword, row.passwordHash)).toBe(true);
-    expect(row.initialPassword).toBeNull();
+    expect(row.initialPassword).toBe(body.generatedPassword);
   });
 
   it('qisqa parol → 400; bo\'sh so\'rov → 400', async () => {

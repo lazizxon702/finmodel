@@ -112,7 +112,7 @@ async function main() {
 
     if (existing) {
       // --reset: faqat parol yangilanadi (rol va agentlik bog'lanishiga tegilmaydi)
-      await prisma.user.update({ where: { id: existing.id }, data: { passwordHash, initialPassword: null } });
+      await prisma.user.update({ where: { id: existing.id }, data: { passwordHash, initialPassword: password } });
       console.log(`parol yangilandi: ${agent.username}`);
     } else {
       await prisma.user.create({
@@ -120,6 +120,7 @@ async function main() {
           username: agent.username,
           fullName: agent.fullName,
           passwordHash,
+          initialPassword: password, // ADMIN Foydalanuvchilar sahifasida ko'radi
           role: Role.AGENT,
           agencyId: agency.id,
         },

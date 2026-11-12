@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, Search, Send, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Search, Send, ShieldCheck, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
 import {
@@ -27,7 +27,37 @@ import {
 } from '../components/ui';
 import { OneTimePasswordModal, PASSWORD_MIN_LENGTH, USERNAME_PATTERN, type PasswordReveal } from './TeamPage';
 
+/** Parol katagi: faqat ADMIN ko'radi (server parolni faqat GET /api/auth/users da qaytaradi) */
+const PasswordCell: React.FC<{ value?: string | null }> = ({ value }) => {
+  const { t } = useTranslation();
+  const [shown, setShown] = useState(false);
+  const [copied, setCopied] = useState(false);
+  if (!value) return <span className="text-xs text-fg-muted">{t('usersPage.password_unknown')}</span>;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setShown(true); // nusxalab bo'lmasa — ko'rsatamiz, qo'lda ko'chiriladi
+    }
+  };
+  const iconBtn = 'inline-flex h-8 w-8 items-center justify-center rounded-control text-fg-muted hover:bg-surface-2 hover:text-fg';
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="min-w-[7rem] font-mono text-xs text-fg">{shown ? value : '•'.repeat(Math.min(value.length, 10))}</span>
+      <button type="button" className={iconBtn} onClick={() => setShown((v) => !v)} title={t(shown ? 'usersPage.password_hide' : 'usersPage.password_show')} aria-label={t(shown ? 'usersPage.password_hide' : 'usersPage.password_show')}>
+        {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+      <button type="button" className={iconBtn} onClick={copy} title={t(copied ? 'usersPage.password_copied' : 'usersPage.password_copy')} aria-label={t('usersPage.password_copy')}>
+        {copied ? <CheckCircle2 className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+      </button>
+    </span>
+  );
+};
+
 export interface UserItem {
+  visiblePassword?: string | null;
   id: string;
   username: string;
   fullName: string;
@@ -444,6 +474,7 @@ export const UsersPage: React.FC = () => {
                 <Tr>
                   <Th>{t('usersPage.col_user')}</Th>
                   <Th>{t('usersPage.col_username')}</Th>
+                  <Th>{t('usersPage.col_password')}</Th>
                   <Th>{t('usersPage.col_role')}</Th>
                   <Th>{t('usersPage.col_link')}</Th>
                   <Th>{t('usersPage.col_telegram')}</Th>
@@ -453,7 +484,7 @@ export const UsersPage: React.FC = () => {
               </Thead>
               <Tbody>
                 {filteredUsers.length === 0 && (
-                  <TableEmpty colSpan={7} title={t('usersPage.empty')} description={t('usersPage.empty_hint')} />
+                  <TableEmpty colSpan={8} title={t('usersPage.empty')} description={t('usersPage.empty_hint')} />
                 )}
                 {filteredUsers.map((item) => {
                   const isCurrentUser = item.id === currentUser?.id;
@@ -477,6 +508,9 @@ export const UsersPage: React.FC = () => {
                         </span>
                       </Td>
                       <Td className="whitespace-nowrap font-mono text-xs text-fg-secondary">{item.username}</Td>
+                      <Td className="whitespace-nowrap">
+                        <PasswordCell value={item.visiblePassword} />
+                      </Td>
                       <Td>
                         <select
                           value={item.role}
