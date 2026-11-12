@@ -53,7 +53,7 @@ export default defineModule({
 
     'team.pw_title': 'Parolni saqlab oling',
     'team.pw_desc': '{name} uchun kirish ma\'lumotlari',
-    'team.pw_warning': "Bu parol qayta ko'rsatilmaydi. Hozir nusxalab, foydalanuvchiga yetkazing. Yo'qotilsa — parolni qayta tiklash kerak bo'ladi.",
+    'team.pw_warning': "Parolni nusxalab, foydalanuvchiga yetkazing. Keyin ham ro'yxatdagi \"Parol\" ustunida ko'rishingiz mumkin.",
     'team.pw_username': 'Login',
     'team.pw_password': 'Parol',
     'team.pw_copy': 'Parolni nusxalash',
@@ -112,7 +112,7 @@ export default defineModule({
 
     'team.pw_title': 'Сохраните пароль',
     'team.pw_desc': 'Данные для входа: {name}',
-    'team.pw_warning': 'Этот пароль больше не будет показан. Скопируйте его сейчас и передайте пользователю. Если он потеряется, пароль придётся сбросить.',
+    'team.pw_warning': "Скопируйте пароль и передайте пользователю. Позже его можно посмотреть в столбце «Пароль» в списке.",
     'team.pw_username': 'Логин',
     'team.pw_password': 'Пароль',
     'team.pw_copy': 'Скопировать пароль',
@@ -171,7 +171,7 @@ export default defineModule({
 
     'team.pw_title': 'Save this password',
     'team.pw_desc': 'Sign-in details for {name}',
-    'team.pw_warning': 'This password will not be shown again. Copy it now and pass it to the user. If it gets lost, the password has to be reset.',
+    'team.pw_warning': "Copy the password and pass it to the user. You can also see it later in the Password column of the list.",
     'team.pw_username': 'Login',
     'team.pw_password': 'Password',
     'team.pw_copy': 'Copy password',

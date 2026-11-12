@@ -138,7 +138,7 @@ describe('GET /api/team/operators', () => {
 });
 
 describe('POST /api/team/operators', () => {
-  it('parolsiz: tasodifiy parol yaratiladi va faqat shu javobda qaytadi; bazaga faqat xesh yoziladi', async () => {
+  it("parolsiz: tasodifiy parol yaratiladi; agent uni o'z jamoasi ro'yxatida ko'radi, boshqa agent ko'rmaydi", async () => {
     const { status, body } = await call('agentA', 'POST', '/api/team/operators', { username: ' yangi_op ', fullName: 'Yangi Operator' });
     expect(status).toBe(201);
     expect(body).toMatchObject({ username: 'yangi_op', fullName: 'Yangi Operator', isActive: true, dealsCount: 0 });
@@ -148,19 +148,22 @@ describe('POST /api/team/operators', () => {
     const row = store.users.find((u) => u.username === 'yangi_op');
     expect(row.role).toBe('OPERATOR');
     expect(row.parentAgentId).toBe('agentA');
-    // Ochiq parol faqat ADMIN ro'yxati (GET /api/auth/users) uchun saqlanadi; jamoa javobida qaytmaydi
+    // Ochiq parol saqlanadi: ADMIN (Foydalanuvchilar) va shu operatorning agenti (Jamoa) ko'rib turadi
     expect(row.initialPassword).toBe(body.generatedPassword);
     expect(body).not.toHaveProperty('initialPassword');
-    expect(body).not.toHaveProperty('visiblePassword');
+    expect(body.visiblePassword).toBe(body.generatedPassword);
     expect(row.passwordHash).not.toContain(body.generatedPassword);
     expect(await bcrypt.compare(body.generatedPassword, row.passwordHash)).toBe(true);
 
-    // Keyingi ro'yxatda parol yo'q
+    // O'z agenti ro'yxatda parolni ko'radi
     const list = await call('agentA', 'GET', '/api/team/operators');
-    expect(JSON.stringify(list.body)).not.toContain(body.generatedPassword);
+    expect(list.body.find((o: any) => o.username === 'yangi_op').visiblePassword).toBe(body.generatedPassword);
+    // Boshqa agentning ro'yxatida bu operator ham, uning paroli ham yo'q
+    const other = await call('agentB', 'GET', '/api/team/operators');
+    expect(JSON.stringify(other.body)).not.toContain(body.generatedPassword);
   });
 
-  it('parol berilsa: kamida 8 belgi; javobda parol qaytmaydi', async () => {
+  it('parol berilsa: kamida 8 belgi; generatedPassword qaytmaydi, parol visiblePassword da', async () => {
     const short = await call('agentA', 'POST', '/api/team/operators', { username: 'op2', fullName: 'Op', password: '1234567' });
     expect(short.status).toBe(400);
     expect(store.users.some((u) => u.username === 'op2')).toBe(false);
@@ -168,7 +171,7 @@ describe('POST /api/team/operators', () => {
     const ok = await call('agentA', 'POST', '/api/team/operators', { username: 'op2', fullName: 'Op', password: 'uzunparol1' });
     expect(ok.status).toBe(201);
     expect(ok.body).not.toHaveProperty('generatedPassword');
-    expect(JSON.stringify(ok.body)).not.toContain('uzunparol1');
+    expect(ok.body.visiblePassword).toBe('uzunparol1');
   });
 
   it('login band bo\'lsa 409', async () => {

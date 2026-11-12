@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { AlertTriangle, Ban, Check, Copy, KeyRound, Pencil, Plus, RefreshCw, UserCheck, UsersRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { PasswordCell } from '../components/PasswordCell';
 import { useTranslation } from '../context/LanguageContext';
 import { useRealtime } from '../context/SocketContext';
 import { formatDate, formatNumber } from '../utils/format';
@@ -123,6 +124,7 @@ export const OneTimePasswordModal: React.FC<{ reveal: PasswordReveal | null; onC
 // Jamoa sahifasi
 // ---------------------------------------------------------------------------
 interface Operator {
+  visiblePassword?: string | null;
   id: string;
   username: string;
   fullName: string;
@@ -438,6 +440,7 @@ export const TeamPage: React.FC = () => {
                 <Tr>
                   <Th>{t('team.col_name')}</Th>
                   <Th>{t('team.col_username')}</Th>
+                  <Th>{t('usersPage.col_password')}</Th>
                   <Th>{t('common.status')}</Th>
                   <Th align="right">{t('team.col_deals')}</Th>
                   <Th>{t('team.col_created')}</Th>
@@ -449,6 +452,9 @@ export const TeamPage: React.FC = () => {
                   <Tr key={op.id}>
                     <Td className="min-w-[10rem] font-medium">{op.fullName}</Td>
                     <Td className="whitespace-nowrap font-mono text-xs text-fg-secondary">{op.username}</Td>
+                    <Td className="whitespace-nowrap">
+                      <PasswordCell value={op.visiblePassword} />
+                    </Td>
                     <Td>
                       <Badge tone={op.isActive ? 'success' : 'danger'} dot>
                         {t(op.isActive ? 'common.active' : 'team.blocked')}

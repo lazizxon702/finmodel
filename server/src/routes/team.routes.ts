@@ -61,6 +61,7 @@ const OPERATOR_SELECT = {
   fullName: true,
   isActive: true,
   createdAt: true,
+  initialPassword: true,
   _count: { select: { dealsCreated: true } },
 } satisfies Prisma.UserSelect;
 
@@ -74,6 +75,8 @@ function toOperatorDto(o: OperatorRow) {
     isActive: o.isActive,
     createdAt: o.createdAt,
     dealsCount: o._count.dealsCreated,
+    // Agent o'z operatorlariga bergan parolni ko'rib turadi (route faqat O'Z jamoasini qaytaradi)
+    visiblePassword: o.initialPassword || null,
   };
 }
 
