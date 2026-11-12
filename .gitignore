@@ -32,3 +32,16 @@ test_export.xlsx
 uploads/*
 !uploads/.gitkeep
 .system_generated/
+
+# Biznes ma'lumotlari (Google jadval nusxalari, bitim/moliya dumplari) — repoga kirmaydi
+*.xlsx
+deep_sheet_data.json
+sheet_analysis.json
+sheets_summary.json
+*_detail.txt
+deals_columns.txt
+remaining_sheets_info.txt
+sheets_overview.txt
+sheets_structure.txt
+server/backup_*.json
+server/seed_data.json
