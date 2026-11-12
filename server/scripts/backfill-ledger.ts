@@ -50,7 +50,8 @@ async function main() {
     console.log(
       `   #${d.dealNumber}  ${d.date.toISOString().slice(0, 10)}  ${(d.store?.name || '').padEnd(10)} / ${(d.provider?.name || '').padEnd(8)}  yechilgan ${fmt(Number(d.withdrawnLimit)).padStart(12)}  → qarz ${fmt(debt).padStart(11)}`
     );
-    if (APPLY) await prisma.$transaction((tx) => syncTrustDebtForDeal(tx, d.id));
+    // Uzoqdagi bazada (sekin aloqa) standart 5 soniyalik chegara yetmaydi
+    if (APPLY) await prisma.$transaction((tx) => syncTrustDebtForDeal(tx, d.id), { timeout: 60000, maxWait: 20000 });
   }
   console.log(`   JAMI Trust qarzi: ${fmt(totalDebt)}`);
 
