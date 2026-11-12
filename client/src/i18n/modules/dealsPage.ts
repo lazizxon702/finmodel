@@ -21,6 +21,12 @@ export default defineModule({
 
     // --- Ko'rsatkichlar ---
     'dealsPage.kpi_label': "Yig'ma ko'rsatkichlar",
+    'dealsPage.sum_withdrawn': "Yechilgan limit",
+    'dealsPage.sum_count_avg': "{count} ta tasdiqlangan bitim, o'rtacha chek {avg}",
+    'dealsPage.sum_payout': "Mijozga to'lov",
+    'dealsPage.sum_agent': "Agent komissiyasi",
+    'dealsPage.sum_rest': "Qolgan farq",
+    'dealsPage.sum_limit_hint': "Mijozlarning umumiy limiti (yechilmagan qismi bilan)",
     'dealsPage.kpi_note': "Ko'rsatkichlar faqat tasdiqlangan bitimlar bo'yicha hisoblanadi.",
     'dealsPage.kpi_total_limit': 'Jami limit',
     'dealsPage.kpi_total_limit_hint': 'Mijozlar limiti yig\'indisi',
@@ -182,6 +188,12 @@ export default defineModule({
     'dealsPage.empty_hint': 'Сделок пока нет. Добавьте первую сделку.',
 
     'dealsPage.kpi_label': 'Сводные показатели',
+    'dealsPage.sum_withdrawn': "Снятый лимит",
+    'dealsPage.sum_count_avg': "Подтверждённых сделок: {count}, средний чек {avg}",
+    'dealsPage.sum_payout': "Выплата клиенту",
+    'dealsPage.sum_agent': "Комиссия агента",
+    'dealsPage.sum_rest': "Остаток разницы",
+    'dealsPage.sum_limit_hint': "Общий лимит клиентов (включая неснятую часть)",
     'dealsPage.kpi_note': 'Показатели считаются только по подтверждённым сделкам.',
     'dealsPage.kpi_total_limit': 'Общий лимит',
     'dealsPage.kpi_total_limit_hint': 'Сумма лимитов клиентов',
@@ -335,6 +347,12 @@ export default defineModule({
     'dealsPage.empty_hint': 'There are no deals yet. Add the first one.',
 
     'dealsPage.kpi_label': 'Summary figures',
+    'dealsPage.sum_withdrawn': "Withdrawn limit",
+    'dealsPage.sum_count_avg': "{count} approved deals, average ticket {avg}",
+    'dealsPage.sum_payout': "Paid to customer",
+    'dealsPage.sum_agent': "Agent commission",
+    'dealsPage.sum_rest': "Remaining spread",
+    'dealsPage.sum_limit_hint': "Total customer limit (including the unused part)",
     'dealsPage.kpi_note': 'Figures are calculated from approved deals only.',
     'dealsPage.kpi_total_limit': 'Total limit',
     'dealsPage.kpi_total_limit_hint': 'Sum of customer limits',

@@ -37,6 +37,7 @@ import {
   type DateRangeValue,
 } from '../components/ui';
 import { DealsTable } from '../components/deals/DealsTable';
+import { DealsSummary } from '../components/deals/DealsSummary';
 import { DealFormModal, type DealPrefill } from '../components/deals/DealFormModal';
 import { DealDetailModal } from '../components/deals/DealDetailModal';
 import { ApproveDealModal, DeleteDealModal, ExpenseDealModal, RejectDealModal } from '../components/deals/DealActionModals';
@@ -311,9 +312,6 @@ export const DealsPage: React.FC = () => {
   const detailDeal = detailId ? deals.find((d) => d.id === detailId) || null : null;
 
   // --- Yig'ma ko'rsatkichlar (server faqat tasdiqlangan bitimlarni hisoblaydi) ---
-  const kpiCount = totals?.dealCount ?? 0;
-  const kpiTotalLimit = totals?.totalLimit ?? 0;
-  const kpiAvgCheck = kpiCount > 0 ? Math.round(kpiTotalLimit / kpiCount) : 0;
   const approvedOnPage = deals.filter((d) => (d.approvalStatus || 'APPROVED') === 'APPROVED');
   const kpiAvgDiscount =
     totals?.avgDiscountPct ??
@@ -390,31 +388,8 @@ export const DealsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Yig'ma ko'rsatkichlar */}
-      <section aria-label={t('dealsPage.kpi_label')}>
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-          <StatCard title={t('dealsPage.kpi_total_limit')} value={formatMoney(kpiTotalLimit)} hint={t('dealsPage.kpi_total_limit_hint')} icon={<Coins />} />
-          <StatCard title={t('dealsPage.kpi_count')} value={t('common.items_count', { count: kpiCount })} hint={t('dealsPage.kpi_count_hint')} icon={<Hash />} />
-          <StatCard title={t('dealsPage.kpi_avg_check')} value={formatMoney(kpiAvgCheck)} hint={t('dealsPage.kpi_avg_check_hint')} icon={<Receipt />} />
-          <StatCard title={t('dealsPage.kpi_avg_discount')} value={formatPercent(kpiAvgDiscount)} hint={t('dealsPage.kpi_avg_discount_hint')} icon={<BadgePercent />} />
-          <StatCard
-            title={t('dealsPage.kpi_qodir')}
-            value={formatMoney(totals?.totalQodirChekExpense ?? 0)}
-            hint={t('dealsPage.kpi_qodir_hint')}
-            icon={<Wallet />}
-            tone="warning"
-          />
-          <StatCard title={t('dealsPage.kpi_purchase')} value={formatMoney(totals?.totalPurchaseCost ?? 0)} hint={t('dealsPage.kpi_purchase_hint')} icon={<ShoppingCart />} />
-          <StatCard
-            title={t('dealsPage.kpi_profit')}
-            value={formatMoney(totals?.totalProfit ?? 0)}
-            hint={t('dealsPage.kpi_profit_hint')}
-            icon={<TrendingUp />}
-            tone="success"
-          />
-        </div>
-        <p className="mt-2 text-xs text-fg-muted">{t('dealsPage.kpi_note')}</p>
-      </section>
+      {/* Yig'ma ko'rsatkichlar: bitta panel */}
+      <DealsSummary totals={totals} avgDiscount={kpiAvgDiscount} />
 
       {/* Filtrlar */}
       <Card className="space-y-3">

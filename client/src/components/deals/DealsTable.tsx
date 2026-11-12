@@ -2,7 +2,7 @@ import React from 'react';
 import { Check, Eye, Inbox, Pencil, Trash2, Wallet, X } from 'lucide-react';
 import { Badge, Button, EmptyState, LoadingBlock, Table, TableContainer, Tbody, Td, Th, Thead, Tr, cn } from '../ui';
 import { useTranslation } from '../../context/LanguageContext';
-import { formatMoney, formatPercent } from '../../utils/format';
+import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
 import type { Deal, Role } from '../../types';
 import { ApprovalBadge, DealStatusBadge } from './DealBadges';
 import { cleanText, dealDateTime, dealPermissions, dealPhones, isQodirStore, productSummary } from './dealUtils';
@@ -170,7 +170,8 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
     <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading}>
       {/* Jadval — keng ekran */}
       <TableContainer bare maxHeightClass="max-h-[70vh]" className="hidden lg:block">
-        <Table>
+        {/* Ixcham jadval: tor katak chetlari — 12 ustun oddiy ekranga sig'sin */}
+        <Table className="[&_td]:px-2 [&_th]:px-2 [&_td:first-child]:pl-4 [&_th:first-child]:pl-4">
           <Thead>
             <Tr>
               <Th>№</Th>
@@ -178,15 +179,13 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
               <Th>{t('common.customer')}</Th>
               <Th>{t('common.product_name')}</Th>
               <Th>{t('dealsPage.col_store_provider')}</Th>
-              <Th align="right">{t('common.withdrawn_limit')}</Th>
-              <Th align="right">{t('common.customer_payment')}</Th>
-              <Th align="right">{t('common.agent_commission')}</Th>
-              <Th align="right">{t('common.purchase_cost')}</Th>
-              <Th align="right">{t('common.discount_pct')}</Th>
+              <Th align="right" className="whitespace-normal leading-tight">{t('common.withdrawn_limit')}</Th>
+              <Th align="right" className="whitespace-normal leading-tight">{t('common.customer_payment')}</Th>
+              <Th align="right" className="whitespace-normal leading-tight">
+                {t('common.agent_commission')}
+                <span className="block font-normal text-fg-muted">{t('common.purchase_cost')}</span>
+              </Th>
               <Th>{t('common.status')}</Th>
-              <Th>{t('dealsPage.col_approval')}</Th>
-              <Th>{t('common.agency')}</Th>
-              <Th align="right">{t('common.sale_price')}</Th>
               <Th align="right">{t('common.profit')}</Th>
               <Th align="right" className="sticky right-0">
                 {t('common.actions')}
@@ -197,26 +196,21 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
             {/* Yig'ma qator: faqat tasdiqlangan bitimlar bo'yicha */}
             <tr className="bg-surface-2 font-semibold">
               <Td colSpan={5} className="text-xs text-fg-secondary">
-                {t('dealsPage.totals_row')}
+                {t('dealsPage.totals_row')}, UZS
               </Td>
               <Td align="right" numeric>
-                {formatMoney(totals?.totalWithdrawn)}
+                {formatNumber(totals?.totalWithdrawn)}
               </Td>
               <Td align="right" numeric>
-                {formatMoney(totals?.totalCalculatedAmount)}
+                {formatNumber(totals?.totalCalculatedAmount)}
               </Td>
               <Td align="right" numeric>
-                {formatMoney(totals?.totalAgentAmount)}
+                <p>{formatNumber(totals?.totalAgentAmount)}</p>
+                <p className="text-xs font-normal text-fg-muted">{formatNumber(totals?.totalPurchaseCost)}</p>
               </Td>
-              <Td align="right" numeric>
-                {formatMoney(totals?.totalPurchaseCost)}
-              </Td>
-              <Td colSpan={4} />
-              <Td align="right" numeric>
-                {formatMoney(totals?.totalSalePrice)}
-              </Td>
+              <Td />
               <Td align="right" numeric className="text-success">
-                {formatMoney(totals?.totalProfit)}
+                {formatNumber(totals?.totalProfit)}
               </Td>
               <Td className="sticky right-0 bg-surface-2" />
             </tr>
@@ -228,19 +222,27 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                   <Td numeric className="font-semibold text-accent">
                     {d.dealNumber}
                   </Td>
-                  <Td numeric>
-                    <p className="text-fg">{dealDateTime(d)}</p>
-                    <p className="text-xs text-fg-muted">{d.sellerName}</p>
+                  <Td numeric className="max-w-[7rem]">
+                    <p className="text-fg">{dealDateTime(d).split(' ')[0]}</p>
+                    <p className="truncate text-xs text-fg-muted" title={d.sellerName || undefined}>
+                      {dealDateTime(d).split(' ')[1] || ''} {d.sellerName}
+                    </p>
                   </Td>
-                  <Td className="max-w-[13rem]">
+                  <Td className="max-w-[9rem]">
                     <CustomerCell deal={d} />
                   </Td>
-                  <Td className="max-w-[14rem]">
+                  <Td className="max-w-[10rem]">
                     <ProductCell deal={d} />
                   </Td>
-                  <Td className="max-w-[12rem]">
+                  <Td className="max-w-[9rem]">
                     <p className="truncate text-fg">{d.store?.name || DASH}</p>
                     <p className="truncate text-xs text-fg-muted">{d.provider?.name || DASH}</p>
+                    {d.agency?.name && (
+                      <p className="truncate text-xs text-fg-muted" title={t('common.agency')}>
+                        {d.agency.name}
+                        {d.agent?.name && d.agent.name !== d.agency.name ? ' / ' + d.agent.name : ''}
+                      </p>
+                    )}
                     <div className="mt-0.5 flex flex-wrap gap-1 empty:hidden">
                       {d.isDaftar && (
                         <Badge tone="warning" size="sm">
@@ -257,26 +259,24 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                       )}
                     </div>
                   </Td>
-                  <Td align="right" numeric className="font-medium">
-                    {formatMoney(d.withdrawnLimit)}
+                  <Td align="right" numeric className="font-semibold">
+                    {formatNumber(d.withdrawnLimit)}
                   </Td>
                   <Td align="right" numeric>
-                    {formatMoney(d.calculatedAmount)}
+                    <p>{formatNumber(d.calculatedAmount)}</p>
+                    <p className="text-xs text-fg-muted" title={t('common.discount_pct')}>
+                      −{formatPercent(d.purchaseDiscountPct)}
+                    </p>
                   </Td>
                   <Td align="right" numeric>
-                    {formatMoney(d.agentAmount)}
+                    <p>{formatNumber(d.agentAmount)}</p>
+                    <p className="text-xs text-fg-muted" title={t('common.purchase_cost')}>
+                      {formatNumber(d.totalPurchaseCost)}
+                    </p>
                   </Td>
-                  <Td align="right" numeric>
-                    {formatMoney(d.totalPurchaseCost)}
-                  </Td>
-                  <Td align="right" numeric className="text-fg-secondary">
-                    {formatPercent(d.purchaseDiscountPct)}
-                  </Td>
-                  <Td>
-                    <DealStatusBadge status={d.status} />
-                  </Td>
-                  <Td className="max-w-[12rem]">
+                  <Td className="max-w-[8.5rem]">
                     <div className="flex flex-wrap items-center gap-1">
+                      <DealStatusBadge status={d.status} />
                       <ApprovalBadge status={status} />
                       <ExpenseMark deal={d} />
                     </div>
@@ -286,15 +286,13 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                       </p>
                     )}
                   </Td>
-                  <Td className="max-w-[10rem]">
-                    <p className="truncate text-fg">{d.agency?.name || DASH}</p>
-                    {d.agent?.name && <p className="truncate text-xs text-fg-muted">{d.agent.name}</p>}
-                  </Td>
                   <Td align="right" numeric>
-                    {formatMoney(d.salePrice)}
-                  </Td>
-                  <Td align="right" numeric className="font-medium text-success">
-                    {formatMoney(d.profit)}
+                    <p className={cn('font-semibold', Number(d.profit) < 0 ? 'text-danger' : 'text-success')}>{formatNumber(d.profit)}</p>
+                    {Number(d.salePrice) > 0 && (
+                      <p className="text-xs text-fg-muted" title={t('common.sale_price')}>
+                        {formatNumber(d.salePrice)}
+                      </p>
+                    )}
                   </Td>
                   <Td align="right" className="sticky right-0 border-l border-line bg-surface group-hover:bg-surface-2">
                     <div className="flex items-center justify-end gap-0.5">{actions(d)}</div>
