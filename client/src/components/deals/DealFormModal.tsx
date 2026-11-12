@@ -4,6 +4,7 @@ import { Info, ShieldAlert } from 'lucide-react';
 import { Button, Field, Input, Modal, SegmentedControl, Select, Textarea, controlClass, cn } from '../ui';
 import { AmountInput } from '../AmountInput';
 import { useTranslation } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { formatMoney, todayYmd, toYmdTashkent } from '../../utils/format';
 import type { Agency, Deal, Provider, Role, Store } from '../../types';
 import { DealItemsEditor, isItemRowFilled, newItemRow, type ItemRow } from './DealItemsEditor';
@@ -57,7 +58,7 @@ const DISCOUNT_PRESETS = [20, 25, 28, 30, 33, 35, 40];
 
 const parsePct = (raw: number | string) => parseFloat(String(raw).replace(',', '.')) || 0;
 
-function initialForm(deal: Deal | null, prefill: DealPrefill | null | undefined, stores: Store[], providers: Provider[], agencies: Agency[]): FormState {
+function initialForm(deal: Deal | null, prefill: DealPrefill | null | undefined, stores: Store[], providers: Provider[], agencies: Agency[], ownAgencyId = ''): FormState {
   if (deal) {
     return {
       // dateYmd — Toshkent kuni; toISOString().slice(0,10) UTC bo'yicha kesib, kunni bir kun orqaga siljitardi
@@ -89,8 +90,10 @@ function initialForm(deal: Deal | null, prefill: DealPrefill | null | undefined,
     sellerName: DEFAULT_SELLER,
     providerId: providers[0]?.id || '',
     storeId: stores[0]?.id || '',
-    agencyId: agencies[0]?.id || '',
-    agentId: agencies[0]?.agents?.[0]?.id || '',
+    // Agentlik oldindan ro'yxatdagi birinchisiga qo'yilmaydi (ilgari hamma bitim "Anvar" ga yozilib ketardi):
+    // agent/operator uchun — o'z agentligi, boshqalar o'zi tanlaydi
+    agencyId: agencies.some((a) => a.id === ownAgencyId) ? ownAgencyId : '',
+    agentId: '',
     customerName: prefill?.customerName || '',
     customerPhone1: prefill?.customerPhone1 || '',
     customerPhone2: prefill?.customerPhone2 || '',
@@ -123,10 +126,11 @@ const sectionTitle = 'text-sm font-semibold text-fg';
  */
 export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, providers, agencies, role, onClose, onSaved }) => {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const isEdit = Boolean(deal);
   const scoped = isScopedRole(role);
 
-  const [form, setForm] = useState<FormState>(() => initialForm(deal, prefill, stores, providers, agencies));
+  const [form, setForm] = useState<FormState>(() => initialForm(deal, prefill, stores, providers, agencies, user?.agencyId || ''));
   const [discountPercent, setDiscountPercent] = useState<number | string>(() => initialDiscount(deal));
   const [rows, setRows] = useState<ItemRow[]>(() => {
     const existing = deal ? dealItems(deal) : [];

@@ -33,7 +33,8 @@ export function isItemRowFilled(row: ItemRow): boolean {
 
 interface Props {
   rows: ItemRow[];
-  onChange: (rows: ItemRow[]) => void;
+  // Funksional yangilash: PhoneSelector onChange ni kechikib chaqirganda eski ro'yxat ustidan yozib yubormasin
+  onChange: React.Dispatch<React.SetStateAction<ItemRow[]>>;
 }
 
 /**
@@ -46,18 +47,18 @@ export const DealItemsEditor: React.FC<Props> = ({ rows, onChange }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const update = (key: string, updates: Partial<ItemRow>) => {
-    onChange(rows.map((r) => (r.key === key ? { ...r, ...updates } : r)));
+    onChange((prev) => prev.map((r) => (r.key === key ? { ...r, ...updates } : r)));
   };
 
   const remove = (key: string) => {
     if (rows.length <= 1) return; // kamida bitta qator qoladi
-    onChange(rows.filter((r) => r.key !== key));
+    onChange((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.key !== key)));
   };
 
   // Tugmadan fokus olinadi: aks holda skaner yuborgan Enter fokusda qolgan tugmani qayta bosib yuboradi
   const add = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.blur();
-    onChange([...rows, newItemRow()]);
+    onChange((prev) => [...prev, newItemRow()]);
   };
 
   const onImeiKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
