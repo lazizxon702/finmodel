@@ -1,19 +1,41 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
 import { AccountType, TransactionType } from '@prisma/client';
+import { isScopedRole } from '../services/access.service';
+import { tashkentDayRange } from '../services/calculation.service';
 
 const router = Router();
 
+// Bu faylda DDS'ga yozuv yo'q — pul harakati faqat o'qiladi (yozish/o'chirish ledger servis orqali, dds.routes da).
+
+const TASHKENT_OFFSET_MS = 5 * 60 * 60 * 1000;
+/** DDS yozuvi oyning qaysi kuniga tushadi — Asia/Tashkent bo'yicha */
+const tashkentDayOfMonth = (d: Date) => new Date(d.getTime() + TASHKENT_OFFSET_MS).getUTCDate();
+
+/** OPERATOR va AGENT pul harakati hisobotlarini ko'ra olmaydi */
+const denyScopedRoles = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.user || isScopedRole(req.user.role)) {
+    return res.status(403).json({ error: "Sizda balans hisobotini ko'rish huquqi yo'q" });
+  }
+  next();
+};
+
 // GET /api/balance/matrix
-router.get('/matrix', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.get('/matrix', authenticateToken, denyScopedRoles, async (req: AuthRequest, res: Response) => {
   try {
     const { yearMonth = '2026-11' } = req.query as any;
 
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(yearMonth))) {
+      return res.status(400).json({ error: "Oy noto'g'ri formatda (YYYY-MM bo'lishi kerak)" });
+    }
     const [year, month] = yearMonth.split('-').map(Number);
+    // Depozitlar kun boshiga (UTC 00:00) yozilgan — ular uchun UTC oralig'i
     const startDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
     const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
     const daysInMonth = endDate.getUTCDate();
+    // DDS yozuvlari uchun — Toshkent kuni bo'yicha oy chegaralari
+    const ddsRange = tashkentDayRange(`${yearMonth}-01`, `${yearMonth}-${String(daysInMonth).padStart(2, '0')}`);
 
     const partners = await prisma.partner.findMany({
       include: {
@@ -28,7 +50,8 @@ router.get('/matrix', authenticateToken, async (req: AuthRequest, res: Response)
 
     const ddsTransactions = await prisma.ddsTransaction.findMany({
       where: {
-        dateTime: { gte: startDate, lte: endDate },
+        amount: { gt: 0 },
+        dateTime: { gte: ddsRange.start, lte: ddsRange.end },
       },
     });
 
@@ -61,7 +84,7 @@ router.get('/matrix', authenticateToken, async (req: AuthRequest, res: Response)
           let dayExpense = 0;
 
           for (const tx of ddsTransactions) {
-            const txDay = tx.dateTime.getUTCDate();
+            const txDay = tashkentDayOfMonth(tx.dateTime);
             const matchPartner = tx.sourcePerson?.toLowerCase().includes(p.name.toLowerCase());
             const matchAccount = tx.account === acc.code;
 
@@ -131,7 +154,7 @@ router.get('/matrix', authenticateToken, async (req: AuthRequest, res: Response)
 });
 
 // POST /api/balance/deposit (Set or update deposit for a partner/day/account)
-router.post('/deposit', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.post('/deposit', authenticateToken, denyScopedRoles, async (req: AuthRequest, res: Response) => {
   try {
     const { partnerId, date, accountType, depositAmount } = req.body;
 

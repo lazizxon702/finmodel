@@ -3,10 +3,24 @@ import { prisma } from '../lib/prisma';
 import { Server as SocketIOServer } from 'socket.io';
 import crypto from 'crypto';
 import { TransactionType, AccountType, DealStatus, ExpenseCategoryType } from '@prisma/client';
+import { linkTelegramByCode } from '../services/notification.service';
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'MISSING_TELEGRAM_BOT_TOKEN';
+// Token FAQAT muhit o'zgaruvchisidan olinadi (kodga yozilmaydi, loglanmaydi).
+// Yo'q bo'lsa bot "o'chirilgan" holatda ishlaydi: server yiqilmaydi, Telegram API'ga hech qanday so'rov ketmaydi.
+const TOKEN_PLACEHOLDER = 'MISSING_TELEGRAM_BOT_TOKEN';
+const BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
 
-export const bot = new Bot(BOT_TOKEN);
+/** Bot sozlanganmi (TELEGRAM_BOT_TOKEN o'rnatilganmi) */
+export const botEnabled = !!BOT_TOKEN && BOT_TOKEN !== TOKEN_PLACEHOLDER;
+
+export const bot = new Bot(botEnabled ? BOT_TOKEN : TOKEN_PLACEHOLDER);
+
+if (!botEnabled) {
+  // O'chirilgan botdan tasodifan API chaqirilsa ham tarmoqqa chiqmaydi
+  bot.api.config.use(async () => {
+    throw new Error("Telegram bot o'chirilgan: TELEGRAM_BOT_TOKEN o'rnatilmagan");
+  });
+}
 
 let ioInstance: SocketIOServer | null = null;
 
@@ -148,6 +162,14 @@ bot.command('start', async (ctx) => {
   if (!from) return;
 
   clearConversations(from.id);
+
+  // /start <kod> — FinModel ilovasidagi "Telegram'ni bog'lash" tugmasidan kelgan bir martalik kod.
+  // Kodsiz /start avvalgidek asosiy menyuni ochadi.
+  const linkCode = (typeof ctx.match === 'string' ? ctx.match : '').trim();
+  if (linkCode) {
+    await handleTelegramLink(ctx, linkCode);
+    return;
+  }
 
   const text =
     `Assalomu alaykum, <b>${from.first_name}</b>!\n\n` +
@@ -803,6 +825,51 @@ bot.on(':photo', async (ctx) => {
 
 // ---------------- HELPER FUNCTIONS ----------------
 
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * `/start <kod>`: kodga mos FinModel foydalanuvchisiga shu chat bog'lanadi (User.telegramId = chat id,
+ * telegramLinkCode = null). Shundan so'ng bitim tasdiqlanganda / rad etilganda xabar shu chatga keladi.
+ */
+async function handleTelegramLink(ctx: any, code: string) {
+  if (ctx.chat?.type !== 'private') {
+    await ctx.reply("Hisobni bog'lash uchun botga shaxsiy chatda yozing.");
+    return;
+  }
+
+  try {
+    const result = await linkTelegramByCode(code, ctx.chat.id);
+    if (result.ok) {
+      await ctx.reply(
+        `✅ <b>Telegram bog'landi!</b>\n\n` +
+          `FinModel foydalanuvchisi: <b>${escapeHtml(result.fullName || '')}</b> (${escapeHtml(result.username || '')})\n\n` +
+          `Endi bitimlaringiz tasdiqlanganda yoki rad etilganda shu yerga xabar keladi.`,
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+
+    if (result.reason === 'EXPIRED') {
+      await ctx.reply(
+        "⌛ Bog'lash kodining muddati tugagan (kod 15 daqiqa amal qiladi).\n\n" +
+          "FinModel ilovasida «Telegram'ni bog'lash» tugmasini bosib, yangi kod oling."
+      );
+    } else if (result.reason === 'BLOCKED') {
+      await ctx.reply('Hisobingiz bloklangan. Administratorga murojaat qiling.');
+    } else {
+      await ctx.reply(
+        "❌ Bog'lash kodi topilmadi yoki allaqachon ishlatilgan.\n\n" +
+          "FinModel ilovasida «Telegram'ni bog'lash» tugmasini bosib, yangi kod oling va havolani qayta oching."
+      );
+    }
+  } catch (err: any) {
+    console.error('Telegram bog\'lashda xatolik:', err?.message || err);
+    await ctx.reply("Hisobni bog'lashda xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring.");
+  }
+}
+
 function clearConversations(userId: number) {
   customerConversations.delete(userId);
   cashFlowConversations.delete(userId);
@@ -985,5 +1052,8 @@ async function startWarehouseOutgoing(ctx: any) {
 
 export function initTelegramBot(io?: SocketIOServer) {
   if (io) ioInstance = io;
+  if (!botEnabled) {
+    console.warn("Telegram bot o'chirilgan: TELEGRAM_BOT_TOKEN o'rnatilmagan (server bot'siz ishlayveradi).");
+  }
   return bot;
 }

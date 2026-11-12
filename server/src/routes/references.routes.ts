@@ -2,8 +2,32 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
 import { Role } from '@prisma/client';
+import { normalizeName } from '../services/calculation.service';
+import { ReferenceKind, canonicalReferenceName, cleanName, referenceKey } from '../services/sheetsSync.service';
 
 const router = Router();
+
+/**
+ * Yangi do'kon / provayder / agentlik nomi bo'yicha dublikat tekshiruvi.
+ * Kanonik nom (Qodir oka → Qodir aka, Imanium → Imanum ...) va normallashtirilgan ko'rinish
+ * (katta-kichik harf, ortiqcha bo'shliq, tirnoqlar farqsiz) bo'yicha solishtiriladi.
+ * Qaytadi: saqlanadigan yagona nom va (bo'lsa) shu nomga to'g'ri keladigan mavjud yozuv.
+ */
+function checkReferenceName<T extends { name: string }>(kind: ReferenceKind, rawName: unknown, existing: T[]) {
+  const name = typeof rawName === 'string' ? canonicalReferenceName(kind, rawName) : '';
+  if (!name) return { name, duplicate: null as T | null };
+  const key = referenceKey(kind, name);
+  const matches = existing.filter((e) => referenceKey(kind, e.name) === key);
+  // Bir nechta mos yozuv bo'lsa (hali birlashtirilmagan dublikatlar) — nomi aynan kanonik bo'lgani ko'rsatiladi
+  return { name, duplicate: matches.find((e) => e.name === name) || matches[0] || null };
+}
+
+const duplicateResponse = (res: Response, label: string, existing: { id: string; name: string }) =>
+  res.status(409).json({
+    error: `Bunday ${label} allaqachon mavjud: "${existing.name}"`,
+    existingName: existing.name,
+    existingId: existing.id,
+  });
 
 // Stores
 router.get('/stores', authenticateToken, async (req, res: Response) => {
@@ -12,9 +36,16 @@ router.get('/stores', authenticateToken, async (req, res: Response) => {
 });
 
 router.post('/stores', authenticateToken, requireRoles([Role.ADMIN, Role.MANAGER]), async (req, res: Response) => {
-  const { name, contactPhone, address } = req.body;
-  const store = await prisma.store.create({ data: { name: name.trim(), contactPhone, address } });
-  return res.status(201).json(store);
+  try {
+    const { contactPhone, address } = req.body;
+    const { name, duplicate } = checkReferenceName('store', req.body?.name, await prisma.store.findMany());
+    if (!name) return res.status(400).json({ error: "Do'kon nomi kiritilmagan" });
+    if (duplicate) return duplicateResponse(res, "do'kon", duplicate);
+    const store = await prisma.store.create({ data: { name, contactPhone, address } });
+    return res.status(201).json(store);
+  } catch (error: any) {
+    return res.status(500).json({ error: "Do'kon yaratishda xatolik: " + (error.message || error) });
+  }
 });
 
 // Providers
@@ -24,15 +55,22 @@ router.get('/providers', authenticateToken, async (req, res: Response) => {
 });
 
 router.post('/providers', authenticateToken, requireRoles([Role.ADMIN, Role.MANAGER]), async (req, res: Response) => {
-  const { name, defaultDiscount, isDaftarDefault } = req.body;
-  const provider = await prisma.provider.create({
-    data: {
-      name: name.trim(),
-      defaultDiscount: Number(defaultDiscount) || 0,
-      isDaftarDefault: Boolean(isDaftarDefault),
-    },
-  });
-  return res.status(201).json(provider);
+  try {
+    const { defaultDiscount, isDaftarDefault } = req.body;
+    const { name, duplicate } = checkReferenceName('provider', req.body?.name, await prisma.provider.findMany());
+    if (!name) return res.status(400).json({ error: 'Provayder nomi kiritilmagan' });
+    if (duplicate) return duplicateResponse(res, 'provayder', duplicate);
+    const provider = await prisma.provider.create({
+      data: {
+        name,
+        defaultDiscount: Number(defaultDiscount) || 0,
+        isDaftarDefault: Boolean(isDaftarDefault),
+      },
+    });
+    return res.status(201).json(provider);
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Provayder yaratishda xatolik: ' + (error.message || error) });
+  }
 });
 
 // Agencies & Agents
@@ -45,18 +83,39 @@ router.get('/agencies', authenticateToken, async (req, res: Response) => {
 });
 
 router.post('/agencies', authenticateToken, requireRoles([Role.ADMIN, Role.MANAGER]), async (req, res: Response) => {
-  const { name, phone } = req.body;
-  const agency = await prisma.agency.create({ data: { name: name.trim(), phone } });
-  return res.status(201).json(agency);
+  try {
+    const { phone } = req.body;
+    const { name, duplicate } = checkReferenceName('agency', req.body?.name, await prisma.agency.findMany());
+    if (!name) return res.status(400).json({ error: 'Agentlik nomi kiritilmagan' });
+    if (duplicate) return duplicateResponse(res, 'agentlik', duplicate);
+    const agency = await prisma.agency.create({ data: { name, phone } });
+    return res.status(201).json(agency);
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Agentlik yaratishda xatolik: ' + (error.message || error) });
+  }
 });
 
 router.post('/agencies/:agencyId/agents', authenticateToken, requireRoles([Role.ADMIN, Role.MANAGER]), async (req, res: Response) => {
-  const { agencyId } = req.params;
-  const { name, phone } = req.body;
-  const agent = await prisma.agent.create({
-    data: { agencyId, name: name.trim(), phone },
-  });
-  return res.status(201).json(agent);
+  try {
+    const { agencyId } = req.params;
+    const { phone } = req.body;
+    const name = typeof req.body?.name === 'string' ? cleanName(req.body.name) : '';
+    if (!name) return res.status(400).json({ error: 'Agent ismi kiritilmagan' });
+
+    const agency = await prisma.agency.findUnique({ where: { id: agencyId }, include: { agents: true } });
+    if (!agency) return res.status(404).json({ error: 'Agentlik topilmadi' });
+
+    // Bitta agentlik ichida bir xil ismli (katta-kichik harf / bo'shliq farqsiz) agent ikki marta yaratilmaydi
+    const duplicate = agency.agents.find((a) => normalizeName(a.name) === normalizeName(name));
+    if (duplicate) return duplicateResponse(res, `agent ("${agency.name}" agentligida)`, duplicate);
+
+    const agent = await prisma.agent.create({
+      data: { agencyId, name, phone },
+    });
+    return res.status(201).json(agent);
+  } catch (error: any) {
+    return res.status(500).json({ error: 'Agent yaratishda xatolik: ' + (error.message || error) });
+  }
 });
 
 // Buyers

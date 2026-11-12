@@ -91,14 +91,20 @@ export const AGENCY_ALIASES: Record<string, string> = {
   macmobi: 'MacMobi',
 };
 
+/** Lug'atdan xavfsiz qidirish ("constructor" kabi nomlar Object xossasiga tushib qolmasin) */
+function lookupAlias(map: Record<string, string>, name?: string | null): string {
+  const key = normalizeName(name);
+  return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : (name || '').trim();
+}
+
 export function canonicalStoreName(name?: string | null): string {
-  return STORE_ALIASES[normalizeName(name)] || (name || '').trim();
+  return lookupAlias(STORE_ALIASES, name);
 }
 export function canonicalProviderName(name?: string | null): string {
-  return PROVIDER_ALIASES[normalizeName(name)] || (name || '').trim();
+  return lookupAlias(PROVIDER_ALIASES, name);
 }
 export function canonicalAgencyName(name?: string | null): string {
-  return AGENCY_ALIASES[normalizeName(name)] || (name || '').trim();
+  return lookupAlias(AGENCY_ALIASES, name);
 }
 
 /** "Trust" / "Trust 1" — faqat ANIQ nom bo'yicha (masalan "Trustbank" yoki "Entrust" Trust emas) */

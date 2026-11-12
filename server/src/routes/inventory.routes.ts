@@ -2,74 +2,118 @@ import { Router, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
 import { verifyAdminOverride } from '../lib/security';
-import { DealStatus, PaymentStatus, AccountType, TransactionType, ExpenseCategoryType } from '@prisma/client';
+import { DealStatus, PaymentStatus, AccountType, Prisma, TransactionType, ExpenseCategoryType } from '@prisma/client';
+import { emitRealtime } from '../lib/realtime';
+import { APPROVED_ONLY, dealScopeWhere } from '../services/access.service';
+import { LedgerError, createDdsInTx } from '../services/ledger.service';
+import {
+  HttpError,
+  cleanCustomerText,
+  dateRangeWhere,
+  dealDateTimeLabel,
+  dealItemsView,
+  dealWriteDenial,
+  parseApprovalFilter,
+  toDeviceItemsJson,
+} from './deals.routes';
 
 const router = Router();
 
+type AuthUser = NonNullable<AuthRequest['user']>;
+
+/** Doiradagi bitim (tovar); doiradan tashqarida yoki yo'q bo'lsa null (→ 404) */
+async function findScoped<T extends Prisma.DealInclude>(user: AuthUser, id: string, include?: T) {
+  const scope = await dealScopeWhere(user);
+  return prisma.deal.findFirst({ where: { AND: [scope, { id }] }, include });
+}
+
+const NOT_APPROVED_ERROR = 'Bitim hali tasdiqlanmagan — administrator tasdiqlagandan keyin sotish mumkin';
+
+function sendError(res: Response, error: any, fallback: string) {
+  if (error instanceof HttpError || error instanceof LedgerError) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(fallback + ':', error);
+  return res.status(500).json({ error: fallback });
+}
+
 // GET /api/inventory
-// Warehouse items (In warehouse, In transit, Pending, Sold, Need to buy)
+// Ombor tovarlari. Doira bo'yicha; sukut bo'yicha faqat tasdiqlangan bitimlar
+// (approvalStatus=all | PENDING_APPROVAL | REJECTED bilan o'zgartiriladi).
 router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { status, search, storeId, daftar, startDate, endDate, page = '1', limit = '1000' } = req.query as any;
-    const pageNum = parseInt(page, 10) || 1;
-    const limitNum = parseInt(limit, 10) || 1000;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(5000, Math.max(1, parseInt(limit, 10) || 1000));
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = {};
+    const scope = await dealScopeWhere(req.user!);
+    const and: Prisma.DealWhereInput[] = [scope];
+    const approval = parseApprovalFilter((req.query as any).approvalStatus, APPROVED_ONLY);
+    if (approval) and.push(approval);
 
-    if (startDate || endDate) {
-      where.date = {};
-      if (startDate) {
-        const startIso = String(startDate).length === 10 ? `${startDate}T00:00:00.000+05:00` : startDate;
-        where.date.gte = new Date(startIso);
-      }
-      if (endDate) {
-        const endIso = String(endDate).length === 10 ? `${endDate}T23:59:59.999+05:00` : endDate;
-        where.date.lte = new Date(endIso);
-      }
-    }
+    const range = dateRangeWhere(startDate, endDate);
+    if (range) and.push({ date: range });
+
     if (status) {
-      where.status = status as DealStatus;
+      if (!(Object.values(DealStatus) as string[]).includes(String(status))) {
+        throw new HttpError(400, "Tovar holati noto'g'ri");
+      }
+      and.push({ status: status as DealStatus });
     } else {
-      where.status = {
-        in: [
-          DealStatus.IN_WAREHOUSE,
-          DealStatus.IN_TRANSIT,
-          DealStatus.PENDING,
-          DealStatus.MONEY_RECEIVED,
-          DealStatus.PARTIAL_AMOUNT,
-          DealStatus.SOLD,
-          DealStatus.NEED_TO_BUY,
-        ],
-      };
+      and.push({
+        status: {
+          in: [
+            DealStatus.IN_WAREHOUSE,
+            DealStatus.IN_TRANSIT,
+            DealStatus.PENDING,
+            DealStatus.MONEY_RECEIVED,
+            DealStatus.PARTIAL_AMOUNT,
+            DealStatus.SOLD,
+            DealStatus.NEED_TO_BUY,
+          ],
+        },
+      });
     }
 
-    if (storeId) {
-      where.storeId = storeId;
+    if (storeId) and.push({ storeId: String(storeId) });
+    if (daftar === 'true') and.push({ isDaftar: true });
+    else if (daftar === 'false') and.push({ isDaftar: false });
+
+    if (search && String(search).trim()) {
+      const s = String(search).trim();
+      const or: Prisma.DealWhereInput[] = [
+        { productName: { contains: s, mode: 'insensitive' } },
+        { imeiBarcode: { contains: s, mode: 'insensitive' } },
+        { imei2: { contains: s, mode: 'insensitive' } },
+        { customerName: { contains: s, mode: 'insensitive' } },
+        { customerPhone1: { contains: s, mode: 'insensitive' } },
+        { customerPhone2: { contains: s, mode: 'insensitive' } },
+        { color: { contains: s, mode: 'insensitive' } },
+        // Ko'p mahsulotli bitim: ikkinchi va keyingi qurilmalarning IMEI/nomi bo'yicha ham qidiriladi
+        {
+          items: {
+            some: {
+              OR: [
+                { productName: { contains: s, mode: 'insensitive' } },
+                { imei1: { contains: s, mode: 'insensitive' } },
+                { imei2: { contains: s, mode: 'insensitive' } },
+              ],
+            },
+          },
+        },
+      ];
+      if (/^\d{1,9}$/.test(s)) or.push({ dealNumber: Number(s) });
+      and.push({ OR: or });
     }
 
-    if (daftar === 'true') {
-      where.isDaftar = true;
-    } else if (daftar === 'false') {
-      where.isDaftar = false;
-    }
-
-    if (search) {
-      where.OR = [
-        { productName: { contains: search, mode: 'insensitive' } },
-        { imeiBarcode: { contains: search, mode: 'insensitive' } },
-        { imei2: { contains: search, mode: 'insensitive' } },
-        { customerName: { contains: search, mode: 'insensitive' } },
-        { color: { contains: search, mode: 'insensitive' } },
-        { dealNumber: isNaN(Number(search)) ? undefined : Number(search) },
-      ].filter(Boolean);
-    }
+    const where: Prisma.DealWhereInput = { AND: and };
 
     const [totalCount, items] = await Promise.all([
       prisma.deal.count({ where }),
       prisma.deal.findMany({
         where,
-        include: { store: true, buyer: true, createdBy: true, provider: true },
+        include: { store: true, buyer: true, provider: true, items: { orderBy: { position: 'asc' } } },
         orderBy: { date: 'desc' },
         skip,
         take: limitNum,
@@ -84,16 +128,26 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       const received = Number(deal.receivedFromBuyer) || 0;
       const debt = Number(deal.debtRemainder) || (deal.status === DealStatus.SOLD ? salePrice - received : 0);
 
+      const customerName = cleanCustomerText(deal.customerName);
+      const phone1 = cleanCustomerText(deal.customerPhone1);
+      const phone2 = cleanCustomerText(deal.customerPhone2);
+
       return {
         id: deal.id,
         dealNumber: deal.dealNumber,
         date: deal.date,
+        dateTimeLabel: dealDateTimeLabel(deal),
         dealDate: deal.saleDate || deal.date,
+        approvalStatus: deal.approvalStatus,
         storeId: deal.storeId,
-        storeName: deal.store?.name || 'Do\'kon',
+        storeName: deal.store?.name || "Do'kon",
         providerName: deal.provider?.name || '-',
-        customerName: deal.customerName || deal.sellerName || '-',
-        customerPhone: deal.customerPhone1 || '-',
+        sellerName: deal.sellerName || '',
+        // Mijoz ismi — faqat haqiqiy mijoz (sotuvchi ismi yoki "-" bilan almashtirilmaydi); yo'q bo'lsa bo'sh satr
+        customerName: customerName || '',
+        customerPhone: phone1 || '',
+        customerPhone1: phone1 || '',
+        customerPhone2: phone2 || '',
         productName: deal.productName || (deal.isDaftar ? 'Qurilma (Daftar)' : 'Texnika'),
         quantity: deal.quantity || 1,
         imei: deal.imeiBarcode || '-',
@@ -101,13 +155,14 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
         imei2: deal.imei2 || '-',
         color: deal.color || '-',
         storageGb: deal.storageGb || '-',
+        items: dealItemsView(deal),
         status: deal.status,
         statusChangeReason: deal.statusChangeReason || '-',
         purchaseCost,
         primeCost: purchaseCost,
         salePrice,
         saleDate: deal.saleDate,
-        buyerName: deal.buyer?.name || deal.customerName || '-',
+        buyerName: deal.buyer?.name || customerName || '-',
         paidCashUzs: Number(deal.paidCashUzs) || 0,
         paidBank: Number(deal.paidBank) || 0,
         exchangeRate: Number(deal.exchangeRate) || 1,
@@ -134,8 +189,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error('Inventory error:', error);
-    return res.status(500).json({ error: 'Ombor ma\'lumotlarini yuklashda xatolik: ' + error.message });
+    return sendError(res, error, "Ombor ma'lumotlarini yuklashda xatolik");
   }
 });
 
@@ -149,21 +203,63 @@ router.put('/:id/receive', authenticateToken, async (req: AuthRequest, res: Resp
       return res.status(400).json({ error: 'IMEI / Shtrix-kod kiritilishi yoki skaner qilinishi shart!' });
     }
 
-    const deal = await prisma.deal.findUnique({ where: { id } });
+    const deal = await findScoped(req.user!, id);
     if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
 
-    const updated = await prisma.deal.update({
-      where: { id },
-      data: {
-        imeiBarcode: imeiBarcode.trim(),
-        imei2: imei2?.trim() || deal.imei2,
-        color: color?.trim() || deal.color,
-        storageGb: storageGb?.trim() || deal.storageGb,
-        status: DealStatus.IN_WAREHOUSE,
-        statusChangeReason: 'Skaner orqali prixod qilindi va omborga joylashtirildi',
-      },
-      include: { store: true, buyer: true },
+    const next = {
+      imeiBarcode: String(imeiBarcode).trim(),
+      imei2: imei2?.trim() || deal.imei2,
+      color: color?.trim() || deal.color,
+      storageGb: storageGb?.trim() || deal.storageGb,
+    };
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // Birinchi mahsulot qatori (DealItem) va deviceItems (Json) eski yagona maydonlar bilan sinxron qoladi
+      const rows = await tx.dealItem.findMany({ where: { dealId: id }, orderBy: { position: 'asc' } });
+      if (rows.length) {
+        await tx.dealItem.update({
+          where: { id: rows[0].id },
+          data: { imei1: next.imeiBarcode, imei2: next.imei2, color: next.color, storageGb: next.storageGb },
+        });
+      } else {
+        await tx.dealItem.create({
+          data: {
+            dealId: id,
+            position: 0,
+            productName: deal.productName || 'Mahsulot',
+            imei1: next.imeiBarcode,
+            imei2: next.imei2,
+            color: next.color,
+            storageGb: next.storageGb,
+            quantity: deal.quantity || 1,
+          },
+        });
+      }
+      const fresh = await tx.dealItem.findMany({ where: { dealId: id }, orderBy: { position: 'asc' } });
+      return tx.deal.update({
+        where: { id },
+        data: {
+          ...next,
+          deviceItems: toDeviceItemsJson(
+            fresh.map((it, i) => ({
+              position: i,
+              productName: it.productName,
+              color: it.color,
+              storageGb: it.storageGb,
+              imei1: it.imei1,
+              imei2: it.imei2,
+              quantity: it.quantity,
+              price: Number(it.price) || 0,
+            }))
+          ),
+          status: DealStatus.IN_WAREHOUSE,
+          statusChangeReason: 'Skaner orqali prixod qilindi va omborga joylashtirildi',
+        },
+        include: { store: true, buyer: true },
+      });
     });
+
+    emitRealtime('deals:updated', { id, action: 'received' });
 
     return res.json({
       success: true,
@@ -171,8 +267,7 @@ router.put('/:id/receive', authenticateToken, async (req: AuthRequest, res: Resp
       item: updated,
     });
   } catch (error: any) {
-    console.error('Receive inventory error:', error);
-    return res.status(500).json({ error: 'Tovarni qabul qilishda xatolik: ' + error.message });
+    return sendError(res, error, 'Tovarni qabul qilishda xatolik');
   }
 });
 
@@ -185,12 +280,15 @@ router.put('/:id/status', authenticateToken, async (req: AuthRequest, res: Respo
     if (!status) {
       return res.status(400).json({ error: 'Yangi holat tanlanishi shart' });
     }
-
-    if (!reason || !reason.trim()) {
-      return res.status(400).json({ error: 'Holatni o\'zgartirish sababi (izoh) kiritilishi shart!' });
+    if (!(Object.values(DealStatus) as string[]).includes(String(status))) {
+      return res.status(400).json({ error: "Tovar holati noto'g'ri" });
     }
 
-    const deal = await prisma.deal.findUnique({ where: { id } });
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: "Holatni o'zgartirish sababi (izoh) kiritilishi shart!" });
+    }
+
+    const deal = await findScoped(req.user!, id);
     if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
 
     const updated = await prisma.deal.update({
@@ -202,28 +300,29 @@ router.put('/:id/status', authenticateToken, async (req: AuthRequest, res: Respo
       include: { store: true },
     });
 
+    emitRealtime('deals:updated', { id, action: 'status' });
+
     return res.json({
       success: true,
       message: `№${deal.dealNumber} holati muvaffaqiyatli yangilandi`,
       item: updated,
     });
   } catch (error: any) {
-    console.error('Status change error:', error);
-    return res.status(500).json({ error: 'Holatni yangilashda xatolik: ' + error.message });
+    return sendError(res, error, 'Holatni yangilashda xatolik');
   }
 });
 
-// POST /api/inventory/transfer (Filiallararo tovar ko'chirish)
+// POST /api/inventory/transfer (Filiallararo tovar ko'chirish) — faqat doiradagi tovarlar
 router.post('/transfer', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { dealIds, targetStoreId, reason } = req.body;
 
     if (!dealIds || !Array.isArray(dealIds) || dealIds.length === 0) {
-      return res.status(400).json({ error: 'Ko\'chiriladigan tovarlar tanlanishi shart' });
+      return res.status(400).json({ error: "Ko'chiriladigan tovarlar tanlanishi shart" });
     }
 
     if (!targetStoreId) {
-      return res.status(400).json({ error: 'Qabul qiluvchi filial (do\'kon) tanlanishi shart' });
+      return res.status(400).json({ error: "Qabul qiluvchi filial (do'kon) tanlanishi shart" });
     }
 
     const targetStore = await prisma.store.findUnique({ where: { id: targetStoreId } });
@@ -231,52 +330,68 @@ router.post('/transfer', authenticateToken, async (req: AuthRequest, res: Respon
       return res.status(404).json({ error: 'Qabul qiluvchi filial topilmadi' });
     }
 
-    const transferNote = `Filiallararo ko'chirish: -> ${targetStore.name}. Sabab: ${reason || 'O\'tkazma'}`;
+    const transferNote = `Filiallararo ko'chirish: -> ${targetStore.name}. Sabab: ${reason || "O'tkazma"}`;
+    const scope = await dealScopeWhere(req.user!);
 
-    await prisma.deal.updateMany({
-      where: { id: { in: dealIds } },
+    const result = await prisma.deal.updateMany({
+      where: { AND: [scope, { id: { in: dealIds.map(String) } }] },
       data: {
         status: DealStatus.IN_TRANSIT,
         statusChangeReason: transferNote,
         note: transferNote,
       },
     });
+    if (result.count === 0) return res.status(404).json({ error: 'Tovarlar topilmadi' });
+
+    emitRealtime('deals:updated', { action: 'transfer' });
 
     return res.json({
       success: true,
-      message: `${dealIds.length} ta tovar ${targetStore.name} filialiga jo'natildi (Yo'lda)`,
+      message: `${result.count} ta tovar ${targetStore.name} filialiga jo'natildi (Yo'lda)`,
     });
   } catch (error: any) {
-    console.error('Transfer error:', error);
-    return res.status(500).json({ error: 'Tovarlarni ko\'chirishda xatolik: ' + error.message });
+    return sendError(res, error, "Tovarlarni ko'chirishda xatolik");
   }
 });
 
-// POST /api/inventory/transfer/accept (O'tkazmani qabul qilish)
+// POST /api/inventory/transfer/accept (O'tkazmani qabul qilish) — faqat doiradagi tovarlar
 router.post('/transfer/accept', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const { dealIds, targetStoreId } = req.body;
+    // Ikki xil klient formati qabul qilinadi: { dealIds: [...] } (Ombor) va { dealId } (Sklad sahifasi)
+    const dealIds: unknown[] = Array.isArray(req.body?.dealIds)
+      ? req.body.dealIds
+      : req.body?.dealId
+        ? [req.body.dealId]
+        : [];
+    const targetStoreId = req.body?.targetStoreId || null;
 
-    if (!dealIds || !Array.isArray(dealIds) || dealIds.length === 0) {
+    if (dealIds.length === 0) {
       return res.status(400).json({ error: 'Qabul qilinadigan tovarlar tanlanishi shart' });
     }
+    // Filial berilmasa tovar o'z do'konida qoladi (avvalgidek); berilsa — mavjud bo'lishi shart
+    if (targetStoreId && !(await prisma.store.findUnique({ where: { id: String(targetStoreId) } }))) {
+      return res.status(404).json({ error: 'Qabul qiluvchi filial topilmadi' });
+    }
 
-    await prisma.deal.updateMany({
-      where: { id: { in: dealIds } },
+    const scope = await dealScopeWhere(req.user!);
+    const result = await prisma.deal.updateMany({
+      where: { AND: [scope, { id: { in: dealIds.map(String) } }] },
       data: {
-        storeId: targetStoreId,
+        ...(targetStoreId ? { storeId: String(targetStoreId) } : {}),
         status: DealStatus.IN_WAREHOUSE,
         statusChangeReason: 'Filialda qabul qilib olindi va omborga kiritildi',
       },
     });
+    if (result.count === 0) return res.status(404).json({ error: 'Tovarlar topilmadi' });
+
+    emitRealtime('deals:updated', { action: 'transfer-accept' });
 
     return res.json({
       success: true,
-      message: `${dealIds.length} ta tovar omborga qabul qilindi`,
+      message: `${result.count} ta tovar omborga qabul qilindi`,
     });
   } catch (error: any) {
-    console.error('Accept transfer error:', error);
-    return res.status(500).json({ error: 'Tovarlarni qabul qilishda xatolik: ' + error.message });
+    return sendError(res, error, 'Tovarlarni qabul qilishda xatolik');
   }
 });
 
@@ -305,7 +420,11 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
       return res.status(400).json({ error: 'Xaridor ismi kiritilishi shart!' });
     }
 
-    // 1. Credit Check: Does this customer have existing unpaid debt?
+    const deal = await findScoped(req.user!, id, { store: true });
+    if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
+    if (deal.approvalStatus !== 'APPROVED') return res.status(409).json({ error: NOT_APPROVED_ERROR });
+
+    // 1. Kredit nazorati: shu xaridorda to'lanmagan qarz bormi (butun baza bo'yicha tekshiriladi)
     const existingDebts = await prisma.deal.findMany({
       where: {
         OR: [
@@ -331,10 +450,7 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
       }
     }
 
-    const deal = await prisma.deal.findUnique({ where: { id }, include: { store: true } });
-    if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
-
-    // Buyer
+    // Xaridor
     const b = await prisma.buyer.upsert({
       where: { name: bName },
       update: {},
@@ -351,13 +467,13 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
       pStatus = pAmount > 0 ? PaymentStatus.PARTIAL : PaymentStatus.DEBT;
     }
 
-    // Account mapping
     let ddsAccount: AccountType = AccountType.CASH;
     if (paymentType === 'BANK_CARD' || paymentType === 'CARD') ddsAccount = AccountType.BANK_CARD;
     else if (paymentType === 'SETTLEMENT') ddsAccount = AccountType.SETTLEMENT_ACCOUNT;
 
     const updated = await prisma.$transaction(async (tx) => {
-      // 1. Update deal
+      // 1. Bitimni yangilash. Xaridor buyerId da saqlanadi — bitim mijozining ismi (customerName)
+      //    xaridor ismi bilan ustidan yozilmaydi (aks holda mijoz ismi yo'qoladi).
       const d = await tx.deal.update({
         where: { id },
         data: {
@@ -365,7 +481,6 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
           saleDate: saleDate ? new Date(String(saleDate).length === 10 ? `${saleDate}T12:00:00.000+05:00` : saleDate) : new Date(),
           salePrice: sPrice,
           buyerId: b.id,
-          customerName: bName,
           paidCashUzs: paymentType === 'CASH' ? pAmount : 0,
           paidBank: (paymentType === 'BANK_CARD' || paymentType === 'CARD') ? pAmount : 0,
           paidTransfer: paymentType === 'SETTLEMENT' ? pAmount : 0,
@@ -381,24 +496,21 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
         include: { buyer: true, store: true },
       });
 
-      // 2. If money was received, log into DDS (Kassa)
+      // 2. Pul olingan bo'lsa — DDS kirimi yadro orqali (hisob qoldig'i ham shu tranzaksiyada oshadi)
       if (pAmount > 0) {
-        await tx.ddsTransaction.create({
-          data: {
-            txNumber: `TX-SALE-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            dateTime: new Date(),
-            type: TransactionType.INCOME,
-            account: ddsAccount,
-            expenseType: ExpenseCategoryType.OPEX,
-            categoryName: 'Sotuv tushumi (Tovar sotildi)',
-            sourcePerson: bName,
-            amount: pAmount,
-            description: `Chek №${deal.dealNumber} - ${deal.productName || 'Texnika'} sotuvi tushumi`,
-            createdById: req.user?.id,
-          },
+        await createDdsInTx(tx, {
+          dateTime: new Date(),
+          type: TransactionType.INCOME,
+          account: ddsAccount,
+          expenseType: ExpenseCategoryType.OPEX,
+          categoryName: 'Sotuv tushumi (Tovar sotildi)',
+          sourcePerson: bName,
+          amount: pAmount,
+          description: `Chek №${deal.dealNumber} - ${deal.productName || 'Texnika'} sotuvi tushumi`,
+          createdById: req.user?.id,
         });
 
-        // 3. Log DebtPayment if there's remaining debt
+        // 3. Qarz qolgan bo'lsa — boshlang'ich to'lov tarixi
         if (debtRemainder > 0) {
           await tx.debtPayment.create({
             data: {
@@ -407,7 +519,7 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
               date: new Date(),
               paidBy: bName,
               accountType: ddsAccount,
-              note: 'Boshlang\'ich to\'lov',
+              note: "Boshlang'ich to'lov",
             },
           });
         }
@@ -416,14 +528,16 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
       return d;
     });
 
+    emitRealtime('deals:updated', { id, action: 'sold' });
+    if (pAmount > 0) emitRealtime('dds:updated', {});
+
     return res.json({
       success: true,
       message: `№${deal.dealNumber} - ${deal.productName} muvaffaqiyatli sotildi`,
       item: updated,
     });
   } catch (error: any) {
-    console.error('Sale error:', error);
-    return res.status(500).json({ error: 'Sotuvni qayd qilishda xatolik: ' + error.message });
+    return sendError(res, error, 'Sotuvni qayd qilishda xatolik');
   }
 });
 
@@ -435,18 +549,17 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
       salePrice,
       buyerName,
       paidAmount = 0,
-      paymentType = 'CASH',
       dueDate,
       note,
       returnToWarehouse = false,
       saleDate,
     } = req.body;
 
-    const deal = await prisma.deal.findUnique({ where: { id }, include: { store: true, buyer: true } });
+    const deal = await findScoped(req.user!, id, { store: true, buyer: true });
     if (!deal) return res.status(404).json({ error: 'Bitim (sotuv) topilmadi' });
 
     if (returnToWarehouse) {
-      // Revert sale back to IN_WAREHOUSE
+      // Sotuvni bekor qilib, tovarni omborga qaytarish
       const updated = await prisma.deal.update({
         where: { id },
         data: {
@@ -461,6 +574,7 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
         },
         include: { buyer: true, store: true },
       });
+      emitRealtime('deals:updated', { id, action: 'sale-cancelled' });
       return res.json({
         success: true,
         message: `№${deal.dealNumber} sotuvi bekor qilindi va tovar yana omborga qaytarildi (Omborda)`,
@@ -468,9 +582,12 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
       });
     }
 
+    if (deal.approvalStatus !== 'APPROVED') return res.status(409).json({ error: NOT_APPROVED_ERROR });
+
     const sPrice = Number(salePrice) || 0;
     const pAmount = Number(paidAmount) || 0;
-    const bName = (buyerName || deal.customerName || deal.buyer?.name || 'Mijoz').trim();
+    // Xaridor: yangi ism → avvalgi xaridor → (eski yozuvlar uchun) bitim mijozi
+    const bName = String(buyerName || deal.buyer?.name || cleanCustomerText(deal.customerName) || '').trim();
 
     const purchaseCost = Number(deal.totalPurchaseCost) || 0;
     const profit = sPrice - purchaseCost;
@@ -482,7 +599,6 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
       pStatus = pAmount > 0 ? PaymentStatus.PARTIAL : PaymentStatus.DEBT;
     }
 
-    // Buyer upsert
     let buyerId = deal.buyerId;
     if (bName) {
       const b = await prisma.buyer.upsert({
@@ -499,7 +615,7 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
         status: DealStatus.SOLD,
         saleDate: saleDate ? new Date(String(saleDate).length === 10 ? `${saleDate}T12:00:00.000+05:00` : saleDate) : (deal.saleDate || new Date()),
         salePrice: sPrice,
-        customerName: bName,
+        // customerName (bitim mijozi) xaridor ismi bilan ustidan yozilmaydi
         buyerId,
         receivedFromBuyer: pAmount,
         debtRemainder,
@@ -513,35 +629,43 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
       include: { buyer: true, store: true },
     });
 
+    emitRealtime('deals:updated', { id, action: 'sale-updated' });
+
     return res.json({
       success: true,
       message: `№${deal.dealNumber} sotuv ma'lumotlari muvaffaqiyatli yangilandi`,
       item: updated,
     });
   } catch (error: any) {
-    console.error('Edit sale error:', error);
-    return res.status(500).json({ error: 'Sotuvni tahrirlashda xatolik: ' + error.message });
+    return sendError(res, error, 'Sotuvni tahrirlashda xatolik');
   }
 });
 
-// DELETE /api/inventory/:id/sale (Sotuvni bekor qilish yoki o'chirish)
+// DELETE /api/inventory/:id/sale (Sotuvni bekor qilish yoki bitimni butunlay o'chirish)
 router.delete('/:id/sale', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { deletePermanently = false } = req.query;
 
-    const deal = await prisma.deal.findUnique({ where: { id } });
+    const deal = await findScoped(req.user!, id);
     if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
 
     if (deletePermanently === 'true') {
+      // Butunlay o'chirish — DELETE /api/deals/:id bilan bir xil qoida
+      const denial = dealWriteDenial('delete', req.user!.role, deal.approvalStatus);
+      if (denial) return res.status(403).json({ error: denial });
+
+      const hadTrustEntry = await prisma.trustLedgerEntry.count({ where: { dealId: id } });
       await prisma.deal.delete({ where: { id } });
+      emitRealtime('deals:updated', { id, action: 'deleted' });
+      if (hadTrustEntry > 0) emitRealtime('trust:updated', {});
       return res.json({
         success: true,
         message: `№${deal.dealNumber} butunlay o'chirildi`,
       });
     }
 
-    // Revert back to IN_WAREHOUSE
+    // Omborga qaytarish
     const updated = await prisma.deal.update({
       where: { id },
       data: {
@@ -556,14 +680,15 @@ router.delete('/:id/sale', authenticateToken, async (req: AuthRequest, res: Resp
       },
     });
 
+    emitRealtime('deals:updated', { id, action: 'sale-cancelled' });
+
     return res.json({
       success: true,
       message: `№${deal.dealNumber} sotuvi bekor qilindi va tovar yana omborga qaytarildi (Omborda)`,
       item: updated,
     });
   } catch (error: any) {
-    console.error('Delete sale error:', error);
-    return res.status(500).json({ error: 'Sotuvni o\'chirishda xatolik: ' + error.message });
+    return sendError(res, error, "Sotuvni o'chirishda xatolik");
   }
 });
 

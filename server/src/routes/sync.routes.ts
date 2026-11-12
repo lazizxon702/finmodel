@@ -1,24 +1,61 @@
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
 import { Role } from '@prisma/client';
-import { syncDealsFromGoogleSheets, syncDdsFromGoogleSheets, DEFAULT_SHEETS_URL } from '../services/sheetsSync.service';
+import {
+  syncDealsFromGoogleSheets,
+  syncDdsFromGoogleSheets,
+  parseDayArg,
+  DEFAULT_SHEETS_URL,
+  SyncDealsOptions,
+} from '../services/sheetsSync.service';
 import { prisma } from '../lib/prisma';
+import { emitRealtime } from '../lib/realtime';
 
 const router = Router();
-// Webhook kaliti endi muhit o'zgaruvchisidan olinadi (eski qiymat moslik uchun qoldirildi)
-export const SYNC_WEBHOOK_SECRET = process.env.SYNC_WEBHOOK_SECRET || 'finmodel_secret_sync_2026';
+
+/**
+ * Webhook kaliti FAQAT muhit o'zgaruvchisidan olinadi — kodda standart qiymat yo'q.
+ * SYNC_WEBHOOK_SECRET o'rnatilmagan bo'lsa webhook o'chirilgan hisoblanadi (503).
+ */
+export function getSyncWebhookSecret(): string | null {
+  const secret = (process.env.SYNC_WEBHOOK_SECRET || '').trim();
+  return secret || null;
+}
+
+/** Kalitlarni vaqt bo'yicha farq qilmaydigan usulda solishtirish */
+function safeEqual(a: string, b: string): boolean {
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+/** Sinxronlashdan keyin ochiq sahifalar yangilanishi uchun real vaqt hodisalari */
+function emitSyncEvents(opts: { deals?: boolean; dds?: boolean }) {
+  if (opts.deals) {
+    emitRealtime('deals:updated', { source: 'sheets-sync' });
+    emitRealtime('trust:updated', { source: 'sheets-sync' });
+  }
+  if (opts.dds) emitRealtime('dds:updated', { source: 'sheets-sync' });
+}
 
 // 1. POST /api/sync/webhook - Public webhook called by Google Sheets onEdit or trigger
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
-    const token = req.query.token || req.body?.token;
-    if (token !== SYNC_WEBHOOK_SECRET) {
+    const secret = getSyncWebhookSecret();
+    if (!secret) {
+      return res.status(503).json({ error: "Webhook o'chirilgan: serverda SYNC_WEBHOOK_SECRET sozlanmagan" });
+    }
+    const rawToken = req.query.token ?? req.body?.token;
+    const token = typeof rawToken === 'string' ? rawToken : '';
+    if (!token || !safeEqual(token, secret)) {
       return res.status(403).json({ error: 'Noto\'g\'ri webhook token' });
     }
 
     console.log('[Webhook] Google Sheets o\'zgarish xabarnomasi qabul qilindi. Sinxronlanmoqda...');
     const result = await syncDealsFromGoogleSheets();
     const ddsResult = await syncDdsFromGoogleSheets().catch((e) => ({ error: e.message }));
+    emitSyncEvents({ deals: true, dds: !('error' in ddsResult) });
     return res.json({
       success: true,
       message: 'Google Sheets-dan muvaffaqiyatli sinxronlandi',
@@ -42,6 +79,7 @@ router.get('/cron', async (req: Request, res: Response) => {
     console.log('[Cron] Davriy sinxronizatsiya boshlandi...');
     const result = await syncDealsFromGoogleSheets();
     const ddsResult = await syncDdsFromGoogleSheets().catch((e) => ({ error: e.message }));
+    emitSyncEvents({ deals: true, dds: !('error' in ddsResult) });
     return res.json({ success: true, result, ddsResult });
   } catch (error: any) {
     console.error('Cron sync error:', error);
@@ -49,35 +87,63 @@ router.get('/cron', async (req: Request, res: Response) => {
   }
 });
 
-// 3. POST /api/sync/google-sheets - Manual sync button from UI (Syncs both Deals and DDS)
-router.post('/google-sheets', authenticateToken, async (req: AuthRequest, res: Response) => {
-  try {
-    const { url } = req.body;
-    const dealsResult = await syncDealsFromGoogleSheets(url);
-    let ddsResult = null;
+// 3. POST /api/sync/google-sheets - Qo'lda sinxronlash (faqat ADMIN / MANAGER)
+//    Tana (hammasi ixtiyoriy): { url, onlyDate: "YYYY-MM-DD" | "DD.MM.YYYY", onlyMissing: boolean, dryRun: boolean }
+//    Parametrsiz chaqirilsa avvalgidek: barcha bitimlar + DDS to'liq sinxronlanadi.
+router.post(
+  '/google-sheets',
+  authenticateToken,
+  requireRoles([Role.ADMIN, Role.MANAGER]),
+  async (req: AuthRequest, res: Response) => {
     try {
-      ddsResult = await syncDdsFromGoogleSheets(url);
-    } catch (ddsErr: any) {
-      console.error('DDS auto-sync warning:', ddsErr.message);
-    }
-    return res.json({
-      ...dealsResult,
-      dds: ddsResult,
-    });
-  } catch (error: any) {
-    console.error('Google Sheets sync error:', error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || 'Google Sheets sinxronizatsiyasida xatolik',
-    });
-  }
-});
+      const { url, onlyDate, onlyMissing, dryRun } = req.body || {};
 
-// 3b. POST /api/sync/dds - Dedicated DDS sync from Google Sheets
-router.post('/dds', authenticateToken, async (req: AuthRequest, res: Response) => {
+      const options: SyncDealsOptions = {};
+      if (onlyDate !== undefined && onlyDate !== null && String(onlyDate).trim() !== '') {
+        const day = parseDayArg(String(onlyDate));
+        if (!day) {
+          return res.status(400).json({ success: false, error: 'onlyDate noto\'g\'ri (kutilgan format: YYYY-MM-DD yoki DD.MM.YYYY)' });
+        }
+        options.onlyDate = day;
+      }
+      if (onlyMissing === true || onlyMissing === 'true') options.onlyMissing = true;
+      if (dryRun === true || dryRun === 'true') options.dryRun = true;
+      const partial = Boolean(options.onlyDate || options.onlyMissing || options.dryRun);
+
+      const dealsResult = await syncDealsFromGoogleSheets(url, undefined, options);
+
+      // DDS faqat to'liq (parametrsiz) sinxronlashda yuklanadi — tanlab import / dry-run DDS'ga tegmaydi
+      let ddsResult = null;
+      if (!partial) {
+        try {
+          ddsResult = await syncDdsFromGoogleSheets(url);
+        } catch (ddsErr: any) {
+          console.error('DDS auto-sync warning:', ddsErr.message);
+        }
+      }
+      if (!options.dryRun) emitSyncEvents({ deals: true, dds: Boolean(ddsResult) });
+
+      return res.json({
+        ...dealsResult,
+        dds: ddsResult,
+      });
+    } catch (error: any) {
+      console.error('Google Sheets sync error:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || 'Google Sheets sinxronizatsiyasida xatolik',
+      });
+    }
+  }
+);
+
+// 3b. POST /api/sync/dds - DDS ni Google Sheets'dan qo'lda yuklash (faqat ADMIN / MANAGER)
+router.post('/dds', authenticateToken, requireRoles([Role.ADMIN, Role.MANAGER]), async (req: AuthRequest, res: Response) => {
   try {
-    const { url } = req.body;
-    const result = await syncDdsFromGoogleSheets(url);
+    const { url, dryRun } = req.body || {};
+    const isDryRun = dryRun === true || dryRun === 'true';
+    const result = await syncDdsFromGoogleSheets(url, { dryRun: isDryRun });
+    if (!isDryRun) emitSyncEvents({ dds: true });
     return res.json(result);
   } catch (error: any) {
     console.error('Google Sheets DDS sync error:', error);
@@ -98,13 +164,20 @@ router.get('/status', authenticateToken, requireRoles([Role.ADMIN]), async (req:
     ]);
 
     const dealsCount = await prisma.deal.count();
+    const webhookSecret = getSyncWebhookSecret();
 
     return res.json({
       sheetsUrl: urlSetting?.value || DEFAULT_SHEETS_URL,
       appsScriptUrl: scriptSetting?.value || '',
       lastSync: lastSyncSetting?.value || null,
       dealsCount,
-      webhookUrl: (process.env.PUBLIC_SERVER_URL || 'https://server-ecru-three-97.vercel.app') + '/api/sync/webhook?token=' + SYNC_WEBHOOK_SECRET,
+      // SYNC_WEBHOOK_SECRET sozlanmagan bo'lsa webhook ishlamaydi — havola ham berilmaydi
+      webhookConfigured: Boolean(webhookSecret),
+      webhookUrl: webhookSecret
+        ? (process.env.PUBLIC_SERVER_URL || 'https://server-ecru-three-97.vercel.app') +
+          '/api/sync/webhook?token=' +
+          encodeURIComponent(webhookSecret)
+        : null,
     });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });

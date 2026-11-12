@@ -1,13 +1,140 @@
 import { Router, Response } from 'express';
+import { DdsSource, DealStatus, ExpenseCategoryType, TransactionType } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
+import { APPROVED_ONLY, isScopedRole } from '../services/access.service';
+import { TRUST_RATE } from '../services/calculation.service';
+import { getTrustLedger } from '../services/ledger.service';
+import { decomposeDealProfit } from './finances.routes';
 
 const router = Router();
+
+/** Model 1-oyi (Kunlik hisob shu oydan olinadi) */
+const MODEL_START_YEAR_MONTH = '2026-11';
+
+const TASHKENT_OFFSET_MS = 5 * 60 * 60 * 1000;
+/** Sana qaysi oyga tushadi — Asia/Tashkent bo'yicha "YYYY-MM" */
+const tashkentYearMonth = (d: Date) => new Date(d.getTime() + TASHKENT_OFFSET_MS).toISOString().slice(0, 7);
+/** "YYYY-MM" ga n oy qo'shadi */
+const addMonths = (yearMonth: string, n: number) => {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+};
+
+interface ActualMonth {
+  yearMonth: string;
+  dealsCount: number;
+  soldCount: number;
+  withdrawnVolume: number;
+  salesRevenue: number;
+  tradeMargin: number;
+  partnerBonus: number;
+  trustIncome: number;
+  dealsProfit: number;
+  trustReceived: number;
+  totalOpex: number;
+  netProfit: number;
+}
+const emptyActual = (yearMonth: string): ActualMonth => ({
+  yearMonth,
+  dealsCount: 0,
+  soldCount: 0,
+  withdrawnVolume: 0,
+  salesRevenue: 0,
+  tradeMargin: 0,
+  partnerBonus: 0,
+  trustIncome: 0,
+  dealsProfit: 0,
+  trustReceived: 0,
+  totalOpex: 0,
+  netProfit: 0,
+});
+
+/**
+ * Haqiqiy (fakt) ko'rsatkichlar oylar kesimida — faqat ADMIN tasdiqlagan bitimlar.
+ * Trust daromadi (yechilgan limit × 16%) alohida qator; xarajatlar — DDS'dagi OPEX.
+ */
+async function loadActuals() {
+  const [deals, dds, trustLedger] = await Promise.all([
+    prisma.deal.findMany({
+      where: APPROVED_ONLY,
+      select: {
+        date: true,
+        status: true,
+        salePrice: true,
+        withdrawnLimit: true,
+        totalPurchaseCost: true,
+        trustDebtAmount: true,
+        profit: true,
+        store: { select: { name: true } },
+      },
+    }),
+    prisma.ddsTransaction.findMany({
+      where: {
+        amount: { gt: 0 },
+        OR: [
+          { type: TransactionType.EXPENSE, expenseType: ExpenseCategoryType.OPEX },
+          { type: TransactionType.INCOME, source: DdsSource.TRUST_PAYMENT },
+        ],
+      },
+      select: { dateTime: true, type: true, amount: true },
+    }),
+    getTrustLedger(),
+  ]);
+
+  const byMonth = new Map<string, ActualMonth>();
+  const month = (ym: string) => {
+    let row = byMonth.get(ym);
+    if (!row) {
+      row = emptyActual(ym);
+      byMonth.set(ym, row);
+    }
+    return row;
+  };
+
+  for (const d of deals) {
+    const row = month(tashkentYearMonth(d.date));
+    const p = decomposeDealProfit({ ...d, storeName: d.store?.name });
+    row.dealsCount += 1;
+    row.withdrawnVolume += Number(d.withdrawnLimit) || 0;
+    if (d.status === DealStatus.SOLD) {
+      row.soldCount += 1;
+      row.salesRevenue += Number(d.salePrice) || 0;
+    }
+    row.tradeMargin += p.tradeMargin;
+    row.partnerBonus += p.partnerBonus;
+    row.trustIncome += p.trustIncome;
+    row.dealsProfit += p.stored;
+  }
+  for (const t of dds) {
+    const row = month(tashkentYearMonth(t.dateTime));
+    const amt = Number(t.amount) || 0;
+    if (t.type === TransactionType.INCOME) row.trustReceived += amt;
+    else row.totalOpex += amt;
+  }
+
+  const months = Array.from(byMonth.values()).sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+  for (const m of months) m.netProfit = m.dealsProfit - m.totalOpex;
+
+  const totals = months.reduce((acc, m) => {
+    for (const k of Object.keys(acc) as (keyof ActualMonth)[]) {
+      if (k !== 'yearMonth') (acc[k] as number) += m[k] as number;
+    }
+    return acc;
+  }, emptyActual('total'));
+
+  return { months, totals, byMonth, trustOverall: trustLedger.overall };
+}
 
 // GET /api/finmodel
 router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const settings = await prisma.appSetting.findMany();
+    if (!req.user || isScopedRole(req.user.role)) {
+      return res.status(403).json({ error: "Sizda moliyaviy modelni ko'rish huquqi yo'q" });
+    }
+
+    const [settings, actuals] = await Promise.all([prisma.appSetting.findMany(), loadActuals()]);
     const sMap = new Map(settings.map((s) => [s.key, s.value]));
 
     const baseCheck = Number(sMap.get('base_check')) || 10000000;
@@ -19,7 +146,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 
     // 1st month deals from Daily accounting if available, else 0
     const dailyEntries = await prisma.dailyAccountingEntry.findMany({
-      where: { yearMonth: '2026-11' },
+      where: { yearMonth: MODEL_START_YEAR_MONTH },
     });
     const dailySum = dailyEntries.reduce((s, e) => s + e.dealCount, 0);
     const startDealsM1 = dailySum;
@@ -91,8 +218,18 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
         currentDeals = Math.round(currentDeals * (1 + monthlyGrowth));
       }
 
+      // Shu kalendar oyning haqiqiy ko'rsatkichlari (faqat tasdiqlangan bitimlar); Trust daromadi — alohida qator
+      const yearMonth = addMonths(MODEL_START_YEAR_MONTH, m - 1);
+      const actual = actuals.byMonth.get(yearMonth) || null;
+      const factFields = {
+        yearMonth,
+        trustIncome: actual ? actual.trustIncome : 0,
+        actual,
+      };
+
       if (currentDeals === 0) {
         monthsData.push({
+          ...factFields,
           monthNumber: m,
           monthName: `Oy ${m} (Месяц ${m})`,
           dealsCount: 0,
@@ -145,6 +282,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       const netMarginPct = totalRevenue > 0 ? netProfit / totalRevenue : 0;
 
       monthsData.push({
+        ...factFields,
         monthNumber: m,
         monthName: `Oy ${m} (Месяц ${m})`,
         dealsCount: currentDeals,
@@ -202,6 +340,18 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       avgUnitDeal,
       months: monthsData,
       yearSummary,
+      // Haqiqiy ko'rsatkichlar (faqat tasdiqlangan bitimlar), oylar kesimida — model bilan solishtirish uchun
+      actuals: {
+        months: actuals.months,
+        totals: actuals.totals,
+      },
+      // Trust daromadi: hisoblangan (16%), haqiqatda kelgan va qoldiq
+      trustIncome: {
+        ratePercent: TRUST_RATE * 100,
+        accrued: actuals.totals.trustIncome,
+        received: actuals.trustOverall.totalPaid,
+        outstanding: actuals.trustOverall.balance,
+      },
     });
   } catch (error: any) {
     console.error('FinModel error:', error);

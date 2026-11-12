@@ -6,18 +6,27 @@ import { Role } from '@prisma/client';
 import { CalculationService } from '../services/calculation.service';
 import { DealStatus } from '@prisma/client';
 import { webhookCallback } from 'grammy';
-import { bot } from '../bot/telegram.bot';
+import { bot, botEnabled } from '../bot/telegram.bot';
 
 const router = Router();
 
 // Telegram Webhook endpoints
-router.post('/webhook', webhookCallback(bot, 'express'));
+// Bot o'chirilgan bo'lsa (TELEGRAM_BOT_TOKEN yo'q) webhook so'rovlari qayta ishlanmaydi va server yiqilmaydi
+const handleTelegramUpdate = webhookCallback(bot, 'express');
+router.post('/webhook', (req, res, next) => {
+  if (!botEnabled) return res.status(503).json({ error: "Telegram bot o'chirilgan (TELEGRAM_BOT_TOKEN o'rnatilmagan)" });
+  // Yangilanishni qayta ishlashdagi xato Express'ning xato ishlovchisiga uzatiladi (ushlanmagan rejection bo'lib qolmaydi)
+  return handleTelegramUpdate(req, res).catch(next);
+});
 router.get('/webhook', (req, res) => {
-  res.json({ status: 'ok', bot: '@HisobchiMobiBot', time: new Date() });
+  res.json({ status: 'ok', bot: '@HisobchiMobiBot', enabled: botEnabled, time: new Date() });
 });
 
 // Setup webhook helper
 router.get('/setup-webhook', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
+  if (!botEnabled) {
+    return res.status(503).json({ error: "Telegram bot o'chirilgan (TELEGRAM_BOT_TOKEN o'rnatilmagan)" });
+  }
   try {
     const webhookUrl = (process.env.PUBLIC_SERVER_URL || 'https://server-ecru-three-97.vercel.app') + '/api/bot/webhook';
     await bot.api.setWebhook(webhookUrl);

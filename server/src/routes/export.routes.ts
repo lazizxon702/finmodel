@@ -2,8 +2,9 @@ import { Router, Response } from 'express';
 import ExcelJS from 'exceljs';
 import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
-import { DealStatus, PaymentStatus, TransactionType, AccountType } from '@prisma/client';
-import { google } from 'googleapis';
+import { Prisma } from '@prisma/client';
+import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../services/access.service';
+import { HttpError, dateRangeWhere, parseApprovalFilter, tashkentYmd } from './deals.routes';
 
 const router = Router();
 
@@ -14,6 +15,11 @@ router.get('/xlsx', authenticateToken, async (req: AuthRequest, res: Response) =
 
     const requestedSheets = sheets ? (sheets as string).split(',') : null;
     const shouldInclude = (name: string) => !requestedSheets || requestedSheets.includes(name);
+
+    // Ruxsat doirasi: OPERATOR/AGENT faqat o'z doirasidagi bitimlarni eksport qiladi,
+    // kompaniya DDS tranzaksiyalari esa ularga umuman berilmaydi.
+    const scoped = isScopedRole(req.user!.role);
+    const scope = await dealScopeWhere(req.user!);
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Macmobi ERP System';
@@ -55,20 +61,16 @@ router.get('/xlsx', authenticateToken, async (req: AuthRequest, res: Response) =
       ws.getRow(1).fill = headerFill;
       ws.getRow(1).height = 24;
 
-      // Where filter
-      const where: any = {};
-      if (startDate || endDate) {
-        where.date = {};
-        if (startDate) where.date.gte = new Date(startDate);
-        if (endDate) {
-          const end = new Date(endDate);
-          end.setHours(23, 59, 59, 999);
-          where.date.lte = end;
-        }
-      }
+      // Filtr: doira + (sukut bo'yicha) faqat tasdiqlangan bitimlar — ИТОГО qatori hisob-kitobga mos bo'lsin.
+      // approvalStatus=all bilan tasdiqlanmaganlari ham chiqadi. Sana chegaralari Asia/Tashkent bo'yicha.
+      const and: Prisma.DealWhereInput[] = [scope];
+      const approval = parseApprovalFilter((req.query as any).approvalStatus, APPROVED_ONLY);
+      if (approval) and.push(approval);
+      const range = dateRangeWhere(startDate, endDate);
+      if (range) and.push({ date: range });
 
       const deals = await prisma.deal.findMany({
-        where,
+        where: { AND: and },
         include: { store: true, provider: true, agency: true, agent: true, buyer: true },
         orderBy: { dealNumber: 'asc' },
       });
@@ -107,7 +109,7 @@ router.get('/xlsx', authenticateToken, async (req: AuthRequest, res: Response) =
         const rNum = idx + 3;
         ws.addRow([
           d.dealNumber,
-          d.date.toISOString().slice(0, 10),
+          tashkentYmd(d.date),
           d.sellerName,
           d.provider?.name || '',
           d.isDaftar ? 'Да' : 'Нет',
@@ -159,7 +161,7 @@ router.get('/xlsx', authenticateToken, async (req: AuthRequest, res: Response) =
     }
 
     // 2. Транзакции_ДДС
-    if (shouldInclude('Транзакции_ДДС')) {
+    if (!scoped && shouldInclude('Транзакции_ДДС')) {
       const wsDds = workbook.addWorksheet('Транзакции_ДДС', {
         views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }],
       });
@@ -193,8 +195,9 @@ router.get('/xlsx', authenticateToken, async (req: AuthRequest, res: Response) =
     await workbook.xlsx.write(res);
     return res.end();
   } catch (error: any) {
+    if (error instanceof HttpError) return res.status(error.status).json({ error: error.message });
     console.error('Export error:', error);
-    return res.status(500).json({ error: 'Excel eksport qilishda xatolik: ' + error.message });
+    return res.status(500).json({ error: 'Excel eksport qilishda xatolik' });
   }
 });
 
