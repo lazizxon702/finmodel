@@ -3,8 +3,13 @@
 @tailwind utilities;
 
 /* ==========================================================================
-   FinModel dizayn tizimi — rang tokenlari
+   Macmobi ERP dizayn tizimi — rang tokenlari
    --------------------------------------------------------------------------
+   G'oya: sovuq, toza yorug' fon + oq sirtlar + siyoh-ko'k matn; brend rangi —
+   logotipdagi to'yingan ko'k, logotipdagi to'q sariq nuqta esa "uchqun" (spark)
+   sifatida faqat faol menyu bandida ishlatiladi. Pul ma'nolari barqaror:
+   kirim — zumrad, chiqim — marjon-qizil, kutilmoqda — qahrabo, Trust/agent — binafsha.
+
    Barcha qiymatlar "R G B" uchligi ko'rinishida (alfa bilan ishlashi uchun):
      rgb(var(--fg) / 0.6)   yoki Tailwind'da  text-fg/60
    Tailwind nomlari tailwind.config.js da ulangan. To'liq ro'yxat:
@@ -15,79 +20,107 @@
     color-scheme: light;
 
     /* Fonlar */
-    --bg-app: 243 245 247;        /* sahifa foni */
+    --bg-app: 241 245 251;        /* sahifa foni — sovuq oq-ko'k */
     --bg-surface: 255 255 255;    /* karta, panel, jadval */
-    --bg-surface-2: 239 242 246;  /* jadval sarlavhasi, ichki blok, hover */
+    --bg-surface-2: 240 244 250;  /* jadval sarlavhasi, ichki blok, hover */
     --bg-elevated: 255 255 255;   /* modal, dropdown */
 
-    /* Matn */
-    --fg: 22 32 46;
-    --fg-secondary: 69 82 100;
-    --fg-muted: 102 114 132;
+    /* Matn — siyoh-ko'k (logotip yozuvi rangi) */
+    --fg: 14 27 61;
+    --fg-secondary: 56 70 104;
+    --fg-muted: 92 105 135;
     --fg-inverse: 255 255 255;
 
     /* Chegaralar */
-    --line: 222 227 233;
-    --line-strong: 194 202 213;
+    --line: 224 230 241;
+    --line-strong: 196 206 224;
 
     /* Brend (to'ldirilgan tugma) va accent (sirt ustidagi matn/ikonka) */
-    --brand: 11 107 130;
-    --brand-hover: 9 86 105;
+    --brand: 35 96 240;
+    --brand-hover: 26 79 214;
     --brand-fg: 255 255 255;
-    --brand-soft: 222 240 245;
-    --accent: 11 107 130;
+    --brand-soft: 229 237 255;
+    --accent: 29 82 219;
+    --spark: 255 138 31;          /* logotipdagi to'q sariq nuqta */
 
-    /* Holat ranglari: asosiy (matn/ikonka), -soft (yumshoq fon), -solid (to'ldirilgan tugma) */
-    --success: 21 128 61;
-    --success-soft: 222 247 232;
-    --success-solid: 21 128 61;
-    --warning: 161 82 8;
-    --warning-soft: 254 243 205;
-    --danger: 185 28 28;
-    --danger-soft: 254 228 228;
-    --danger-solid: 185 28 28;
-    --info: 55 65 190;
-    --info-soft: 228 232 255;
+    /* Holat ranglari: asosiy (matn/ikonka), -soft (yumshoq fon), -solid (to'ldirilgan fon) */
+    --success: 4 120 87;
+    --success-soft: 220 247 235;
+    --success-solid: 5 134 96;
+    --warning: 161 92 0;
+    --warning-soft: 255 241 207;
+    --warning-solid: 245 158 11;  /* ustidagi matn — to'q (text-warning-fg) */
+    --warning-fg: 51 28 0;
+    --danger: 200 35 44;
+    --danger-soft: 255 232 230;
+    --danger-solid: 220 47 58;
+    --info: 11 107 168;
+    --info-soft: 224 242 254;
+    --info-solid: 14 116 180;
+    --violet: 109 63 217;         /* Trust / agentlar */
+    --violet-soft: 239 233 255;
+    --violet-solid: 124 77 255;
 
-    --overlay: 15 23 42;          /* modal orqa foni */
-    --shadow-color: 15 23 42;
+    /* Yon menyu — ikkala mavzuda ham to'q ko'k */
+    --nav-bg: 13 27 77;
+    --nav-bg-2: 8 17 52;
+    --nav-fg: 255 255 255;
+    --nav-muted: 172 186 226;
+
+    --overlay: 9 16 40;           /* modal orqa foni */
+    --shadow-color: 23 43 99;     /* soyalar ko'kimtir — kulrang "kir" bo'lmasin */
+    --shadow-strength: 1;
   }
 
   .dark {
     color-scheme: dark;
 
-    --bg-app: 13 18 24;
-    --bg-surface: 21 28 37;
-    --bg-surface-2: 28 37 48;
-    --bg-elevated: 33 43 56;
+    /* Kulrang-qora emas — chuqur to'q ko'k; har qatlam aniq ochroq */
+    --bg-app: 9 15 38;
+    --bg-surface: 17 26 58;
+    --bg-surface-2: 24 35 74;
+    --bg-elevated: 30 43 88;
 
-    --fg: 232 237 242;
-    --fg-secondary: 182 192 204;
-    --fg-muted: 134 147 163;
-    --fg-inverse: 13 18 24;
+    --fg: 238 242 255;
+    --fg-secondary: 196 205 234;
+    --fg-muted: 147 160 200;
+    --fg-inverse: 9 15 38;
 
-    --line: 41 52 66;
-    --line-strong: 60 74 92;
+    --line: 37 50 96;
+    --line-strong: 56 72 126;
 
-    --brand: 14 124 149;
-    --brand-hover: 17 144 172;
+    --brand: 47 107 245;
+    --brand-hover: 74 128 255;
     --brand-fg: 255 255 255;
-    --brand-soft: 16 50 62;
-    --accent: 92 200 222;
+    --brand-soft: 26 44 104;
+    --accent: 138 176 255;
+    --spark: 255 153 51;
 
-    --success: 82 201 128;
-    --success-soft: 20 50 35;
-    --success-solid: 22 130 68;
-    --warning: 240 180 70;
-    --warning-soft: 60 44 14;
-    --danger: 248 113 113;
-    --danger-soft: 68 26 30;
-    --danger-solid: 200 45 45;
-    --info: 147 170 250;
-    --info-soft: 30 38 77;
+    --success: 61 220 151;
+    --success-soft: 12 56 50;
+    --success-solid: 5 134 96;
+    --warning: 255 194 77;
+    --warning-soft: 62 46 18;
+    --warning-solid: 245 158 11;
+    --warning-fg: 51 28 0;
+    --danger: 255 122 122;
+    --danger-soft: 72 26 44;
+    --danger-solid: 220 47 58;
+    --info: 92 200 255;
+    --info-soft: 12 50 84;
+    --info-solid: 14 116 180;
+    --violet: 180 156 255;
+    --violet-soft: 44 34 100;
+    --violet-solid: 124 77 255;
 
-    --overlay: 0 0 0;
+    --nav-bg: 14 25 70;
+    --nav-bg-2: 8 14 40;
+    --nav-fg: 255 255 255;
+    --nav-muted: 164 178 220;
+
+    --overlay: 2 5 16;
     --shadow-color: 0 0 0;
+    --shadow-strength: 2.4;
   }
 
   /* Chop etishda har doim yorug' palitra (dark rejimda ham qog'oz oq bo'ladi) */
@@ -117,7 +150,20 @@
     @apply font-sans antialiased;
     background-color: rgb(var(--bg-app)) !important;
     color: rgb(var(--fg)) !important;
-    font-feature-settings: 'cv11', 'ss01';
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Sarlavhalar — display shrift (Geologica), zich va qalin */
+  h1,
+  h2,
+  h3 {
+    font-family: theme('fontFamily.display');
+    letter-spacing: -0.015em;
+  }
+
+  /* Jadvaldagi raqamlar doim teng kenglikda — ustunlar tekis turadi */
+  table {
+    font-variant-numeric: tabular-nums;
   }
 
   button,
@@ -171,6 +217,10 @@
     color: rgb(var(--fg-secondary));
   }
 
+  ::selection {
+    background-color: rgb(var(--brand) / 0.22);
+  }
+
   /* Skrollbar (butun ilova) */
   * {
     scrollbar-width: thin;
@@ -199,6 +249,94 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
+  }
+}
+
+/* ==========================================================================
+   Rangli "sahna"lar — ichidagi tokenlarni qayta belgilaydi, shuning uchun
+   ichkarida odatdagi klasslar (text-fg, text-fg-muted, border-line ...) o'zi moslashadi.
+     .fm-hero — asosiy ko'rsatkich paneli (brend ko'k, oq matn). <Card variant="hero">
+     .fm-nav  — yon menyu (to'q ko'k). Faqat Sidebar ishlatadi.
+   ========================================================================== */
+@layer components {
+  .fm-hero,
+  .fm-nav {
+    --fg: 255 255 255;
+    --fg-secondary: 226 234 255;
+    --fg-muted: 196 210 250;
+    --accent: 255 255 255;
+    color: rgb(var(--fg));
+  }
+  .fm-hero {
+    --line: 104 146 246;
+    --line-strong: 140 174 250;
+  }
+  .fm-nav {
+    --line: 36 52 112;
+    --line-strong: 58 78 150;
+  }
+
+  .fm-hero {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border: 0;
+    background-color: rgb(29 78 216);
+    background-image:
+      radial-gradient(120% 140% at 100% 0%, rgb(96 152 255 / 0.55) 0%, transparent 55%),
+      linear-gradient(135deg, rgb(20 48 150) 0%, rgb(35 96 240) 100%);
+    box-shadow:
+      0 1px 2px rgb(var(--shadow-color) / 0.1),
+      0 14px 32px -14px rgb(35 96 240 / 0.55);
+  }
+  /* Ichidagi chegaralar va ichki bloklar shaffof oq bo'ladi */
+  .fm-hero :is(.border-line, .border-line-strong, .divide-line > :not([hidden]) ~ :not([hidden])) {
+    border-color: rgb(255 255 255 / 0.18);
+  }
+  .fm-hero :is(.bg-surface-2, .bg-surface, .bg-brand-soft) {
+    background-color: rgb(255 255 255 / 0.14);
+  }
+  .fm-hero :is(.text-success, .text-danger, .text-warning, .text-info, .text-violet, .text-accent) {
+    color: rgb(255 255 255);
+  }
+
+  .fm-nav {
+    background-color: rgb(var(--nav-bg));
+    background-image:
+      radial-gradient(90% 40% at 0% 0%, rgb(47 107 245 / 0.32) 0%, transparent 70%),
+      linear-gradient(180deg, rgb(var(--nav-bg)) 0%, rgb(var(--nav-bg-2)) 100%);
+    scrollbar-color: rgb(255 255 255 / 0.2) transparent;
+  }
+  .fm-nav ::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 0.18);
+  }
+  .fm-nav :where(a, button):focus-visible {
+    outline-color: rgb(var(--spark));
+  }
+
+  /* StatCard: qiymat o'lchami kartaning o'z kengligiga bog'liq (tor ustunda kichrayadi, sinmaydi).
+     cqi qo'llanmaydigan brauzerda birinchi font-size ishlaydi. */
+  .fm-stat {
+    container-type: inline-size;
+  }
+  .fm-stat-value,
+  .fm-stat-value-hero {
+    text-wrap: balance;
+  }
+  .fm-stat-value {
+    font-size: 1.375rem;
+    font-size: clamp(1.125rem, 11.5cqi, 1.625rem);
+  }
+  .fm-stat-value-hero {
+    font-size: 1.625rem;
+    font-size: clamp(1.25rem, 12.5cqi, 2rem);
+  }
+
+  /* Katta pul raqami: display shrift, teng kenglikdagi raqamlar */
+  .fm-num {
+    font-family: theme('fontFamily.display');
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
   }
 }
 
@@ -427,19 +565,47 @@
   html:not(.dark) :is(.text-pink-300, .text-pink-400):where(:not(.keep-colors, .keep-colors *)) { color: theme('colors.pink.600'); }
 }
 
+/* ---- LIGHT: eski neytral klasslar ham yangi sovuq palitraga tushadi (siyoh-ko'k matn,
+   ko'kimtir chegara) — iliq kulrang "dog'"lar qolmasin. `text-*-400` ga tegilmaydi:
+   u ko'pincha to'q fon ustida turadi. ---- */
+@layer components {
+  html:not(.dark) :is(.text-gray-900, .text-gray-800, .text-slate-900, .text-slate-800, .text-zinc-900, .text-neutral-900, .text-black):where(:not(.keep-colors, .keep-colors *)) {
+    color: rgb(var(--fg));
+  }
+  html:not(.dark) :is(.text-gray-700, .text-gray-600, .text-slate-700, .text-slate-600):where(:not(.keep-colors, .keep-colors *)) {
+    color: rgb(var(--fg-secondary));
+  }
+  html:not(.dark) :is(.text-gray-500, .text-slate-500):where(:not(.keep-colors, .keep-colors *)) {
+    color: rgb(var(--fg-muted));
+  }
+  html:not(.dark) :is(.bg-gray-50, .bg-gray-100, .bg-slate-50, .bg-slate-100):where(:not(.keep-colors, .keep-colors *)) {
+    background-color: rgb(var(--bg-surface-2));
+  }
+  html:not(.dark) :is(.border-gray-100, .border-gray-200, .border-slate-100, .border-slate-200):where(:not(.keep-colors, .keep-colors *)) {
+    border-color: rgb(var(--line));
+  }
+  html:not(.dark) :is(.border-gray-300, .border-slate-300):where(:not(.keep-colors, .keep-colors *)) {
+    border-color: rgb(var(--line-strong));
+  }
+  html:not(.dark) :is(.divide-gray-100, .divide-gray-200, .divide-slate-100, .divide-slate-200) > :not([hidden]) ~ :not([hidden]) {
+    border-color: rgb(var(--line));
+  }
+}
+
 /* ==========================================================================
    Eski yordamchi klasslar (card-3d, btn-3d, pill-3d, table-3d)
-   Eski sahifalar ishlatadi — nomlari saqlangan, ko'rinishi tokenlarga
-   moslab soddalashtirilgan (gradient va 3D ko'tarilishlarsiz).
-   Yangi kodda: <Card>, <Button>, <Badge>, <Table> komponentlaridan foydalaning.
+   Eski sahifalar ishlatadi — nomlari saqlangan, ko'rinishi yangi kartaga
+   tenglashtirilgan. Yangi kodda: <Card>, <Button>, <Badge>, <Table>.
    ========================================================================== */
 .card-3d {
   background: rgb(var(--bg-surface));
   border: 1px solid rgb(var(--line));
-  border-radius: 0.75rem;
-  box-shadow: 0 1px 2px rgb(var(--shadow-color) / 0.04);
+  border-radius: 1rem;
+  box-shadow:
+    0 1px 2px rgb(var(--shadow-color) / 0.05),
+    0 8px 24px -12px rgb(var(--shadow-color) / 0.12);
   color: rgb(var(--fg));
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .card-3d:hover {
@@ -448,7 +614,7 @@
 
 .btn-3d {
   position: relative;
-  box-shadow: 0 1px 2px rgb(var(--shadow-color) / 0.12);
+  box-shadow: 0 1px 2px rgb(var(--shadow-color) / 0.14);
   transition: filter 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 
@@ -508,7 +674,7 @@
 }
 
 .table-3d tbody tr:hover {
-  background-color: rgb(var(--bg-surface-2));
+  background-color: rgb(var(--brand-soft) / 0.5);
 }
 
 /* Eski nom — endi global skrollbar bilan bir xil */
@@ -552,7 +718,7 @@
   }
 }
 .fm-sheet-in {
-  animation: fm-sheet-in 0.18s ease-out;
+  animation: fm-sheet-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .fm-fade-in {
   animation: fm-fade-in 0.15s ease-out;

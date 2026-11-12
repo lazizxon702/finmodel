@@ -26,7 +26,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({ variant = 's
         aria-label={`${t('layout.language')}: ${LANGUAGE_NAMES[language]}`}
         title={`${t('layout.language')}: ${LANGUAGE_NAMES[language]}`}
         className={cn(
-          'inline-flex h-11 min-w-touch items-center justify-center gap-1 rounded-control border border-line bg-surface px-2 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg sm:h-10',
+          'inline-flex h-11 min-w-touch items-center justify-center gap-1 rounded-control border border-line bg-surface px-2 text-xs font-semibold text-fg-secondary transition-colors hover:border-line-strong hover:text-fg sm:h-10',
           className
         )}
       >
@@ -67,7 +67,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({ withLabel, className }
       aria-label={label}
       title={label}
       className={cn(
-        'inline-flex h-11 min-w-touch items-center justify-center gap-2 rounded-control border border-line bg-surface px-2.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg sm:h-10',
+        'inline-flex h-11 min-w-touch items-center justify-center gap-2 rounded-control border border-line bg-surface px-2.5 text-xs font-semibold text-fg-secondary transition-colors hover:border-line-strong hover:text-fg sm:h-10',
         className
       )}
     >

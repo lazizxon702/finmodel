@@ -98,7 +98,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   return createPortal(
     <div
-      className="fm-fade-in fixed inset-0 z-[100] flex items-end justify-center bg-overlay/60 sm:items-center sm:p-4"
+      className="fm-fade-in fixed inset-0 z-[100] flex items-end justify-center bg-overlay/55 backdrop-blur-[2px] sm:items-center sm:p-4"
       onMouseDown={(e) => {
         if (closeOnBackdrop && e.target === e.currentTarget) onClose();
       }}
@@ -117,14 +117,14 @@ export const Modal: React.FC<ModalProps> = ({
         )}
       >
         {(title || description) && (
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3.5 sm:px-6">
             <div className="min-w-0">
               {title && (
-                <h2 id={titleId} className="text-base font-semibold leading-snug text-fg">
+                <h2 id={titleId} className="text-[17px] font-semibold leading-snug text-fg">
                   {title}
                 </h2>
               )}
-              {description && <p className="mt-0.5 text-xs text-fg-muted">{description}</p>}
+              {description && <p className="mt-0.5 text-[13px] leading-snug text-fg-muted">{description}</p>}
             </div>
             <button
               type="button"
@@ -137,10 +137,10 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
         )}
 
-        <div className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain', !flush && 'px-4 py-4 sm:px-5')}>{children}</div>
+        <div className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain', !flush && 'px-4 py-4 sm:px-6 sm:py-5')}>{children}</div>
 
         {footer && (
-          <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-line bg-surface px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-5 sm:pb-3">
+          <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-line bg-surface-2/70 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-6 sm:pb-3">
             {footer}
           </div>
         )}

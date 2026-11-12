@@ -276,7 +276,7 @@ export const HrManagementPage: React.FC = () => {
   }[activeTab];
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader title={t('hr.title')} description={t('hr.subtitle')} actions={headerAction} />
 
       {loadError && (
@@ -291,7 +291,7 @@ export const HrManagementPage: React.FC = () => {
           title={t('hr.kpi.employees')}
           value={t('hr.kpi.employeesValue', { count: totalEmployees })}
           hint={t('hr.kpi.employeesHint')}
-          tone="success"
+          tone="violet"
         />
         <StatCard
           title={t('hr.kpi.payroll')}
@@ -351,7 +351,7 @@ export const HrManagementPage: React.FC = () => {
                       <Td className="font-semibold text-fg">
                         {emp.fullName}
                         {emp.phone && (
-                          <span className="block font-mono text-[11px] font-normal tabular-nums text-fg-muted">{emp.phone}</span>
+                          <span className="block font-mono text-xs font-normal tabular-nums text-fg-muted">{emp.phone}</span>
                         )}
                       </Td>
                       <Td className="font-medium text-accent">{emp.position}</Td>
@@ -483,7 +483,7 @@ export const HrManagementPage: React.FC = () => {
 
                     <span
                       className={cn(
-                        'text-[11px] font-semibold',
+                        'text-xs font-semibold',
                         task.status === 'BAJARILDI' ? 'text-success' : 'text-fg-muted'
                       )}
                     >
@@ -508,7 +508,7 @@ export const HrManagementPage: React.FC = () => {
                         {t('hr.tasks.done')}
                       </Button>
                     ) : (
-                      <span className="flex items-center gap-1 text-[11px] font-semibold text-success">
+                      <span className="flex items-center gap-1 text-xs font-semibold text-success">
                         <CheckCircle2 className="h-3.5 w-3.5" />
                         <span>{t('hr.tasks.finished')}</span>
                       </span>
@@ -670,7 +670,7 @@ export const HrManagementPage: React.FC = () => {
               onChange={(e) => setAdvanceForm({ ...advanceForm, createDdsExpense: e.target.checked })}
               className="h-4 w-4 shrink-0 rounded border-line-strong accent-brand"
             />
-            <span className="text-[11px] font-medium text-fg-secondary">{t('hr.advance.createDds')}</span>
+            <span className="text-xs font-medium text-fg-secondary">{t('hr.advance.createDds')}</span>
           </label>
         </form>
       </Modal>

@@ -30,7 +30,11 @@ export const ChartTooltip: React.FC<ChartTooltipProps> = ({ active, payload, lab
 /** Grafik ranglari — CSS o'zgaruvchilaridan (index.css tokenlari), ikkala rejimda o'qiladi. */
 export const chartColors = {
   primary: 'rgb(var(--accent))',
-  secondary: 'rgb(var(--info))',
+  secondary: 'rgb(var(--violet, 124 92 255))',
+  success: 'rgb(var(--success))',
+  warning: 'rgb(var(--warning))',
+  danger: 'rgb(var(--danger))',
+  info: 'rgb(var(--info))',
   grid: 'rgb(var(--line))',
   tick: 'rgb(var(--fg-muted))',
   cursor: 'rgb(var(--bg-surface-2))',

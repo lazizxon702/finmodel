@@ -232,7 +232,7 @@ export const LeadsPage: React.FC = () => {
     );
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         title={t('leads.title')}
         description={t('leads.subtitle')}
@@ -260,7 +260,7 @@ export const LeadsPage: React.FC = () => {
 
       {/* KPI kartalar */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
-        <StatCard title={t('leads.kpi.total')} value={totalLeads} hint={t('leads.kpi.totalHint')} />
+        <StatCard title={t('leads.kpi.total')} value={totalLeads} hint={t('leads.kpi.totalHint')} tone="violet" />
         <StatCard title={t('leads.kpi.visit')} value={visitScheduled} hint={t('leads.kpi.visitHint')} tone="info" />
         <StatCard title={t('leads.kpi.converted')} value={convertedLeads} hint={t('leads.kpi.convertedHint')} tone="success" />
         <StatCard title={t('leads.kpi.conversion')} value={`${conversionRate}%`} hint={t('leads.kpi.conversionHint')} tone="brand" />
@@ -268,6 +268,7 @@ export const LeadsPage: React.FC = () => {
           title={t('leads.kpi.limit')}
           value={<span className="text-lg sm:text-xl">{formatNumber(totalLimit)} <span className="text-xs font-normal">UZS</span></span>}
           hint={t('leads.kpi.limitHint')}
+          tone="brand"
           className="col-span-2 lg:col-span-1"
         />
       </div>
@@ -390,7 +391,7 @@ export const LeadsPage: React.FC = () => {
                         <Td className="font-semibold text-fg">
                           {l.fullName}
                           {l.passportMasked && (
-                            <span className="block text-[11px] font-normal text-fg-muted">
+                            <span className="block text-xs font-normal text-fg-muted">
                               {t('leads.passport', { value: l.passportMasked })}
                             </span>
                           )}
@@ -400,18 +401,18 @@ export const LeadsPage: React.FC = () => {
                           <span className="font-semibold text-success">
                             {formatNumber(l.approvedLimit || l.requestedAmount)} UZS
                           </span>
-                          <span className="block text-[11px] text-fg-muted">
+                          <span className="block text-xs text-fg-muted">
                             {t('leads.requested', { amount: formatNumber(l.requestedAmount) })}
                           </span>
                         </Td>
                         <Td>
                           <span className="font-medium text-fg">{l.providerName}</span>
-                          <span className="block text-[11px] text-fg-muted">{l.partnerName}</span>
+                          <span className="block text-xs text-fg-muted">{l.partnerName}</span>
                         </Td>
                         <Td>{getStatusBadge(l.status)}</Td>
                         <Td>
                           <span className="font-medium text-fg">{l.agentName}</span>
-                          <span className="block text-[11px] text-fg-muted">{t('leads.teamOf', { name: l.teamName })}</span>
+                          <span className="block text-xs text-fg-muted">{t('leads.teamOf', { name: l.teamName })}</span>
                         </Td>
                         <Td align="right">
                           <div className="flex items-center justify-end gap-1.5">

@@ -125,7 +125,7 @@ export const TrustPage: React.FC = () => {
   const overallHint = (value: number | undefined) => t('trust.overall_hint', { value: formatMoney(value) });
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<Handshake />}
         title={t('title.trust')}
@@ -189,6 +189,7 @@ export const TrustPage: React.FC = () => {
               value={formatMoney(periodSum?.totalDebt)}
               hint={overallHint(overall?.totalDebt)}
               icon={<TrendingUp />}
+              tone="violet"
             />
             <StatCard
               title={t('trust.total_paid')}

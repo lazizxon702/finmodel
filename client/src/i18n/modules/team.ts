@@ -4,6 +4,9 @@ import { defineModule } from '../types';
 // (OneTimePasswordModal — Foydalanuvchilar sahifasi ham ishlatadi).
 export default defineModule({
   uz: {
+    'team.stat_total': "Jami operatorlar",
+    'team.stat_active': "Faol",
+    'team.stat_inactive': "Nofaol",
     'team.title': 'Jamoam',
     'team.subtitle': 'Operatorlaringiz uchun login va parol yarating. Operator kiritgan bitimlar sizning kabinetingizda ko\'rinadi.',
     'team.subtitle_admin': 'Agent jamoasidagi operatorlarni boshqarish.',
@@ -63,6 +66,9 @@ export default defineModule({
     'team.pw_done': 'Saqlab oldim',
   },
   ru: {
+    'team.stat_total': "Всего операторов",
+    'team.stat_active': "Активные",
+    'team.stat_inactive': "Неактивные",
     'team.title': 'Моя команда',
     'team.subtitle': 'Создавайте логины и пароли для своих операторов. Сделки операторов видны в вашем кабинете.',
     'team.subtitle_admin': 'Управление операторами в команде агента.',
@@ -122,6 +128,9 @@ export default defineModule({
     'team.pw_done': 'Я сохранил',
   },
   en: {
+    'team.stat_total': "Total operators",
+    'team.stat_active': "Active",
+    'team.stat_inactive': "Inactive",
     'team.title': 'My team',
     'team.subtitle': 'Create logins and passwords for your operators. Deals entered by operators show up in your cabinet.',
     'team.subtitle_admin': "Manage the operators on an agent's team.",

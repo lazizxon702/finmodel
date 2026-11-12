@@ -142,7 +142,7 @@ export const SheetsSyncModal: React.FC<Props> = ({ onClose, onSyncNow, syncing }
               {copied ? t('common.copied') : t('common.copy')}
             </Button>
           </div>
-          <pre className="max-h-48 overflow-auto rounded-control border border-line bg-surface-2 p-3 font-mono text-[11px] leading-relaxed text-fg-secondary">
+          <pre className="max-h-48 overflow-auto rounded-control border border-line bg-surface-2 p-3 font-mono text-xs leading-relaxed text-fg-secondary">
             {script}
           </pre>
         </div>

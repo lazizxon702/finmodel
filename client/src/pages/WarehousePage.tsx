@@ -211,7 +211,7 @@ export const WarehousePage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<Warehouse className="h-5 w-5" />}
         title={t('warehouse.title')}
@@ -235,16 +235,18 @@ export const WarehousePage: React.FC = () => {
       )}
 
       {/* Real vaqt KPI */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 2xl:grid-cols-6">
         <StatCard
           title={t('warehouse.kpi.balance')}
           value={<span className="text-base sm:text-lg">{formatMoney(totalWarehouseCost)}</span>}
           hint={t('warehouse.kpi.balanceHint')}
+          tone="brand"
         />
         <StatCard
           title={t('warehouse.kpi.count')}
           value={t('common.items_count', { count: totalItemsCount })}
           hint={t('warehouse.kpi.countHint')}
+          tone="violet"
         />
         <StatCard
           title={t('warehouse.kpi.ready')}
@@ -422,7 +424,7 @@ export const WarehousePage: React.FC = () => {
                           )}
                         </div>
                         {(it.color !== '-' || it.storageGb !== '-' || (it.providerName && it.providerName !== '-')) && (
-                          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-muted">
+                          <div className="mt-0.5 flex items-center gap-2 text-xs text-fg-muted">
                             {it.providerName && it.providerName !== '-' && (
                               <Badge tone="brand" size="sm">{it.providerName}</Badge>
                             )}
@@ -431,10 +433,10 @@ export const WarehousePage: React.FC = () => {
                           </div>
                         )}
                       </Td>
-                      <Td className="whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-secondary">
+                      <Td className="whitespace-nowrap font-mono text-xs tabular-nums text-fg-secondary">
                         {it.imeiBarcode || '-'}
                       </Td>
-                      <Td className="whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-muted">
+                      <Td className="whitespace-nowrap font-mono text-xs tabular-nums text-fg-muted">
                         {it.imei2 && it.imei2 !== '-' ? it.imei2 : '-'}
                       </Td>
                       <Td align="center" className="whitespace-nowrap">
@@ -447,7 +449,7 @@ export const WarehousePage: React.FC = () => {
                               setNewStatus(it.status);
                               setStatusReason('');
                             }}
-                            className="text-[11px] font-medium text-accent hover:underline"
+                            className="text-xs font-medium text-accent hover:underline"
                           >
                             {t('warehouse.change')}
                           </button>
@@ -483,28 +485,28 @@ export const WarehousePage: React.FC = () => {
                           )}
 
                           {it.status === 'IN_WAREHOUSE' && (
-                            <span className="flex items-center gap-1 text-[11px] font-medium text-success">
+                            <span className="flex items-center gap-1 text-xs font-medium text-success">
                               <CheckCircle2 className="h-3.5 w-3.5" />
                               {it.isDaftar ? t('warehouse.inStockDaftar') : t('warehouse.inStock')}
                             </span>
                           )}
 
                           {it.status === 'NEED_TO_BUY' && (
-                            <span className="flex items-center gap-1 text-[11px] font-medium text-danger">
+                            <span className="flex items-center gap-1 text-xs font-medium text-danger">
                               <AlertTriangle className="h-3.5 w-3.5" />
                               {it.isDaftar ? t('warehouse.mustBuyDaftar') : t('warehouse.mustBuy')}
                             </span>
                           )}
 
                           {it.status === 'PARTIAL_AMOUNT' && (
-                            <span className="flex items-center gap-1 text-[11px] font-medium text-info">
+                            <span className="flex items-center gap-1 text-xs font-medium text-info">
                               <Clock className="h-3.5 w-3.5" />
                               {t('dealStatus.PARTIAL_AMOUNT')}
                             </span>
                           )}
 
                           {it.status === 'MONEY_RECEIVED' && (
-                            <span className="flex items-center gap-1 text-[11px] font-medium text-success">
+                            <span className="flex items-center gap-1 text-xs font-medium text-success">
                               <CheckCircle2 className="h-3.5 w-3.5" />
                               {t('dealStatus.MONEY_RECEIVED')}
                             </span>
@@ -604,7 +606,7 @@ export const WarehousePage: React.FC = () => {
               {t('warehouse.transferModal.selected', { count: selectedForTransfer.length })}
             </span>
             {selectedForTransfer.length === 0 && (
-              <span className="mt-1 block text-[11px] text-danger">{t('warehouse.transferModal.selectFirst')}</span>
+              <span className="mt-1 block text-xs text-danger">{t('warehouse.transferModal.selectFirst')}</span>
             )}
           </div>
 

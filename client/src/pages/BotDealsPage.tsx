@@ -128,7 +128,7 @@ export const BotDealsPage: React.FC = () => {
   const approvedCount = deals.filter(d => d.isApproved).length;
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       {/* Sahifa sarlavhasi */}
       <PageHeader
         className="mb-0 sm:mb-0"
@@ -172,10 +172,10 @@ export const BotDealsPage: React.FC = () => {
 
       {/* Ko'rsatkichlar */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatCard title={t('common.all')} value={deals.length} hint={t('botDeals.stat_all_hint')} icon={<ListChecks />} tone="brand" />
+        <StatCard title={t('common.all')} value={deals.length} hint={t('botDeals.stat_all_hint')} icon={<ListChecks />} tone="violet" />
         <StatCard title={t('dealStatus.PENDING')} value={pendingCount} hint={t('botDeals.stat_pending_hint')} icon={<Clock />} tone="warning" />
         <StatCard title={t('approval.APPROVED')} value={approvedCount} hint={t('botDeals.stat_approved_hint')} icon={<CheckCircle />} tone="success" />
-        <StatCard title={t('common.withdrawn_limit')} value={formatMoney(totalWithdrawn)} hint={t('botDeals.stat_withdrawn_hint')} icon={<Wallet />} />
+        <StatCard title={t('common.withdrawn_limit')} value={formatMoney(totalWithdrawn)} hint={t('botDeals.stat_withdrawn_hint')} icon={<Wallet />} tone="info" />
       </div>
 
       {/* Filtrlar */}

@@ -40,15 +40,16 @@ export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, className }
   const share = (v: number) => (withdrawn > 0 ? Math.max(0, Math.min(100, (v / withdrawn) * 100)) : 0);
   const segments = [
     { key: 'payout', label: t('dealsPage.sum_payout'), value: payout, bar: 'bg-brand', dot: 'bg-brand' },
-    { key: 'agent', label: t('dealsPage.sum_agent'), value: agent, bar: 'bg-warning', dot: 'bg-warning' },
+    { key: 'agent', label: t('dealsPage.sum_agent'), value: agent, bar: 'bg-[rgb(var(--violet,124_92_255))]', dot: 'bg-[rgb(var(--violet,124_92_255))]' },
     { key: 'rest', label: t('dealsPage.sum_rest'), value: rest, bar: 'bg-success', dot: 'bg-success' },
   ];
 
+  // Har bir qo'shimcha ko'rsatkich o'z ma'nosiga mos rang oladi (xarid — xarajat, Qodir aka — ogohlantirish, limit — asosiy hajm)
   const side = [
-    { label: t('dealsPage.kpi_purchase'), value: formatMoney(totals?.totalPurchaseCost ?? 0), hint: t('dealsPage.kpi_purchase_hint') },
-    { label: t('dealsPage.kpi_qodir'), value: formatMoney(totals?.totalQodirChekExpense ?? 0), hint: t('dealsPage.kpi_qodir_hint') },
-    { label: t('dealsPage.kpi_avg_discount'), value: formatPercent(avgDiscount), hint: t('dealsPage.kpi_avg_discount_hint') },
-    { label: t('dealsPage.kpi_total_limit'), value: formatMoney(totals?.totalLimit ?? 0), hint: t('dealsPage.sum_limit_hint') },
+    { label: t('dealsPage.kpi_purchase'), value: formatMoney(totals?.totalPurchaseCost ?? 0), hint: t('dealsPage.kpi_purchase_hint'), dot: 'bg-danger', text: 'text-danger' },
+    { label: t('dealsPage.kpi_qodir'), value: formatMoney(totals?.totalQodirChekExpense ?? 0), hint: t('dealsPage.kpi_qodir_hint'), dot: 'bg-warning', text: 'text-warning' },
+    { label: t('dealsPage.kpi_avg_discount'), value: formatPercent(avgDiscount), hint: t('dealsPage.kpi_avg_discount_hint'), dot: 'bg-info', text: 'text-info' },
+    { label: t('dealsPage.kpi_total_limit'), value: formatMoney(totals?.totalLimit ?? 0), hint: t('dealsPage.sum_limit_hint'), dot: 'bg-brand', text: 'text-accent' },
   ];
 
   const profit = num(totals?.totalProfit);
@@ -96,10 +97,10 @@ export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, className }
         </div>
 
         {/* Qolgan ko'rsatkichlar */}
-        <div className="border-t border-line bg-surface-2/40 lg:border-l lg:border-t-0">
+        <div className="border-t border-line bg-surface lg:border-l lg:border-t-0">
           <dl className="grid h-full grid-cols-2 lg:grid-cols-3">
-            <div className="col-span-2 flex flex-col justify-center border-b border-line p-4 sm:p-5 lg:col-span-1 lg:row-span-2 lg:border-b-0 lg:border-r">
-              <dt className="text-sm text-fg-secondary">{t('dealsPage.kpi_profit')}</dt>
+            <div className="col-span-2 flex flex-col justify-center border-b border-line bg-success-soft p-4 sm:p-5 lg:col-span-1 lg:row-span-2 lg:border-b-0 lg:border-r">
+              <dt className="text-sm font-medium text-fg-secondary">{t('dealsPage.kpi_profit')}</dt>
               <dd className={cn('mt-1 text-2xl font-semibold tabular-nums', profit < 0 ? 'text-danger' : 'text-success')}>
                 {formatNumber(profit)} <span className="text-sm font-medium opacity-70">UZS</span>
               </dd>
@@ -114,8 +115,11 @@ export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, className }
                   i < 2 && 'border-b border-line'
                 )}
               >
-                <dt className="truncate text-xs text-fg-muted">{m.label}</dt>
-                <dd className="mt-1 truncate text-base font-semibold text-fg tabular-nums">{m.value}</dd>
+                <dt className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
+                  <span className={cn('h-2 w-2 shrink-0 rounded-full', m.dot)} aria-hidden="true" />
+                  <span className="truncate">{m.label}</span>
+                </dt>
+                <dd className={cn('mt-1 truncate text-base font-semibold tabular-nums', m.text)}>{m.value}</dd>
                 <p className="mt-0.5 truncate text-xs text-fg-muted" title={m.hint}>
                   {m.hint}
                 </p>

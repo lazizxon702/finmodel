@@ -92,7 +92,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-72">
+      <div className="flex-1 flex flex-col min-w-0 lg:pl-64">
         <Header
           onOpenSidebar={() => setSidebarOpen(true)}
           onOpenExport={() => setExportOpen(true)}
@@ -101,7 +101,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           title={getPageTitle(location.pathname)}
         />
 
-        <main className="mx-auto w-full min-w-0 max-w-[1920px] flex-1 px-3 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:px-8 lg:pb-6">
+        <main className="mx-auto w-full min-w-0 max-w-[1920px] flex-1 px-3 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:px-8 lg:pb-10">
           {children}
         </main>
       </div>

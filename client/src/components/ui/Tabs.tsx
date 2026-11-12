@@ -37,9 +37,9 @@ export function Tabs<V extends string>({ items, value, onChange, className, aria
             disabled={item.disabled}
             onClick={() => onChange(item.value)}
             className={cn(
-              '-mb-px inline-flex min-h-touch shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm font-medium transition-colors',
+              '-mb-px inline-flex min-h-touch shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3.5 text-sm transition-colors',
               'disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:h-4 [&>svg]:w-4',
-              active ? 'border-accent text-accent' : 'border-transparent text-fg-muted hover:border-line-strong hover:text-fg'
+              active ? 'border-accent font-semibold text-accent' : 'border-transparent font-medium text-fg-muted hover:border-line-strong hover:text-fg'
             )}
           >
             {item.icon}
@@ -76,7 +76,7 @@ export function SegmentedControl<V extends string>({ items, value, onChange, cla
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className={cn('inline-flex max-w-full gap-0.5 rounded-control border border-line bg-surface-2 p-0.5', fullWidth && 'flex w-full', className)}
+      className={cn('inline-flex max-w-full gap-0.5 rounded-control border border-line bg-surface-2 p-[3px]', fullWidth && 'flex w-full', className)}
     >
       {items.map((item) => {
         const active = item.value === value;
@@ -89,11 +89,14 @@ export function SegmentedControl<V extends string>({ items, value, onChange, cla
             disabled={item.disabled}
             onClick={() => onChange(item.value)}
             className={cn(
-              'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[0.375rem] font-medium transition-colors',
+              'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[0.4375rem] transition-colors',
               'disabled:cursor-not-allowed disabled:opacity-50 [&>svg]:h-4 [&>svg]:w-4',
               size === 'sm' ? 'min-h-[2.25rem] px-2.5 text-xs sm:min-h-[1.75rem]' : 'min-h-[2.5rem] px-3 text-sm sm:min-h-[2rem]',
               fullWidth && 'flex-1',
-              active ? 'bg-surface text-fg shadow-card' : 'text-fg-muted hover:text-fg'
+              // Tanlangan bo'lim: yorug'da oq tugmacha, to'q rejimda ko'tarilgan sirt; matn — accent
+              active
+                ? 'bg-surface font-semibold text-accent shadow-[0_1px_2px_rgb(var(--shadow-color)/0.14),0_2px_6px_-2px_rgb(var(--shadow-color)/0.14)] dark:bg-elevated'
+                : 'font-medium text-fg-secondary hover:text-fg'
             )}
           >
             {item.icon}

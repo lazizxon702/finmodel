@@ -61,7 +61,7 @@ interface TrProps extends React.HTMLAttributes<HTMLTableRowElement> {
 }
 
 export const Tr: React.FC<TrProps> = ({ clickable, className, children, ...rest }) => (
-  <tr className={cn('transition-colors hover:bg-surface-2/60', clickable && 'cursor-pointer', className)} {...rest}>
+  <tr className={cn('transition-colors hover:bg-brand-soft/40', clickable && 'cursor-pointer', className)} {...rest}>
     {children}
   </tr>
 );
@@ -74,7 +74,7 @@ export const Th: React.FC<ThProps> = ({ align = 'left', className, children, ...
   <th
     scope="col"
     className={cn(
-      'whitespace-nowrap border-b border-line bg-surface-2 px-3 py-2.5 text-xs font-semibold text-fg-secondary',
+      'whitespace-nowrap border-b border-line bg-surface-2 px-3 py-3 text-xs font-semibold text-fg-secondary',
       ALIGN[align],
       className
     )}
@@ -93,7 +93,7 @@ interface TdProps extends React.TdHTMLAttributes<HTMLTableCellElement> {
 export const Td: React.FC<TdProps> = ({ align = 'left', numeric, className, children, ...rest }) => (
   <td
     className={cn(
-      'border-b border-line px-3 py-2.5 align-middle',
+      'border-b border-line px-3 py-3 align-middle',
       ALIGN[align],
       numeric && 'whitespace-nowrap tabular-nums',
       className
@@ -117,7 +117,7 @@ export const TableEmpty: React.FC<TableEmptyProps> = ({ colSpan, title, descript
     <td colSpan={colSpan} className="px-4 py-10 text-center">
       {icon && <div className="mb-2 flex justify-center text-fg-muted [&>svg]:h-8 [&>svg]:w-8">{icon}</div>}
       <p className="text-sm font-medium text-fg-secondary">{title}</p>
-      {description && <p className="mt-1 text-xs text-fg-muted">{description}</p>}
+      {description && <p className="mt-1 text-[13px] text-fg-muted">{description}</p>}
     </td>
   </tr>
 );

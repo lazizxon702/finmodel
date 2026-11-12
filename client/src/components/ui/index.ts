@@ -37,3 +37,5 @@ export { Tabs, SegmentedControl } from './Tabs';
 export type { TabItem } from './Tabs';
 
 export { LanguageSwitcher, ThemeToggle } from './Switchers';
+
+export { BrandMark } from './BrandMark';

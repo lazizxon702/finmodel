@@ -3,9 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useNavigate } from 'react-router-dom';
-import { Lock, User, ArrowRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Lock, User, ArrowRight, Eye, EyeOff, AlertCircle, Layers, ArrowDownUp, Handshake, Users } from 'lucide-react';
 import { ROLE_DEFAULT_HOME } from '../components/Sidebar';
-import { Button, Field, Input, LanguageSwitcher, ThemeToggle } from '../components/ui';
+import { BrandMark, Button, Field, Input, LanguageSwitcher, ThemeToggle } from '../components/ui';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -36,81 +36,113 @@ export const LoginPage: React.FC = () => {
     }
   };
 
+  // Brend panelidagi "ichida nima bor" ro'yxati — mavjud menyu tarjimalaridan
+  const inside = [
+    { icon: Layers, label: t('menu.deals') },
+    { icon: ArrowDownUp, label: t('menu.dds_sub') },
+    { icon: Handshake, label: t('menu.trust') },
+    { icon: Users, label: t('menu.agents_sub') },
+  ];
+
   return (
-    <div className="flex min-h-screen flex-col bg-app px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
-      {/* Til va mavzu almashtirgichlari */}
-      <div className="flex items-center justify-end gap-2">
-        <LanguageSwitcher />
-        <ThemeToggle />
+    <div className="flex min-h-screen flex-col bg-app lg:flex-row">
+      {/* Brend paneli: yon menyu bilan bir xil to'q ko'k. Mobilda — yuqori tasma, lg+ da — chap ustun */}
+      <div className="fm-nav relative flex shrink-0 flex-col justify-between px-5 pb-16 pt-[max(1.25rem,env(safe-area-inset-top))] lg:w-[44%] lg:max-w-[640px] lg:p-12 xl:p-16">
+        <div className="flex items-center gap-3">
+          <BrandMark className="h-11 w-11 lg:h-12 lg:w-12" />
+          <p className="font-display text-xl font-bold tracking-tight text-white lg:text-2xl">
+            Macmobi <span className="align-middle text-xs font-semibold tracking-[0.2em] text-nav-muted">ERP</span>
+          </p>
+        </div>
+
+        <div className="hidden lg:block">
+          <p className="max-w-[14ch] font-display text-[2.75rem] font-bold leading-[1.05] tracking-tight text-white first-letter:uppercase xl:text-[3.25rem]">
+            {t('layout.tagline')}
+          </p>
+          <ul className="mt-10 grid max-w-md grid-cols-2 gap-x-6 gap-y-4">
+            {inside.map(({ icon: Icon, label }) => (
+              <li key={label} className="flex items-center gap-3 text-sm font-medium text-nav-muted">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-white/10 text-white">
+                  <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 leading-snug">{label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="hidden text-xs text-nav-muted/80 lg:block">{t('layout.tashkent_time')}: UTC+5</p>
       </div>
 
-      <div className="flex flex-1 items-center justify-center py-8">
-        <div className="w-full max-w-sm">
-          <div className="mb-6 text-center">
-            {/* Logotip rangli fon uchun chizilgan — ikkala rejimda ham to'q plashka ustida turadi */}
-            <div className="keep-colors mx-auto mb-4 inline-flex items-center justify-center rounded-card bg-slate-900 px-5 py-3">
-              <img src="/macmobi-logo.png" alt="Macmobi ERP" className="h-12 max-w-[200px] object-contain" />
-            </div>
-            <h1 className="text-xl font-semibold tracking-tight text-fg">{t('auth.title')}</h1>
-            <p className="mt-1 text-sm text-fg-muted">{t('auth.subtitle')}</p>
-          </div>
+      {/* Forma */}
+      <div className="relative -mt-10 flex flex-1 flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))] lg:mt-0 lg:px-10 lg:pt-6">
+        {/* Til va mavzu almashtirgichlari (mobilda forma ostida) */}
+        <div className="order-last mt-6 flex items-center justify-center gap-2 lg:order-first lg:mt-0 lg:justify-end">
+          <LanguageSwitcher />
+          <ThemeToggle />
+        </div>
 
-          <div className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
-            {error && (
-              <div role="alert" className="mb-4 flex items-start gap-2 rounded-control bg-danger-soft px-3 py-2.5 text-sm text-danger">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
+        <div className="flex flex-1 items-start justify-center lg:items-center">
+          <div className="w-full max-w-[25rem]">
+            <div className="rounded-sheet border border-line bg-surface p-5 shadow-pop sm:p-8 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
+              <h1 className="text-2xl font-bold leading-tight text-fg lg:text-[2rem]">{t('auth.title')}</h1>
+              <p className="mt-1.5 text-sm leading-snug text-fg-muted">{t('auth.subtitle')}</p>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <Field label={t('auth.username')} htmlFor="login-username">
-                <Input
-                  id="login-username"
-                  type="text"
-                  required
-                  autoComplete="username"
-                  autoCapitalize="none"
-                  autoFocus
-                  leftIcon={<User />}
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder={t('auth.username_placeholder')}
-                />
-              </Field>
-
-              <Field label={t('auth.password')} htmlFor="login-password">
-                <div className="relative">
-                  <Input
-                    id="login-password"
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    autoComplete="current-password"
-                    leftIcon={<Lock />}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder={t('auth.password_placeholder')}
-                    className="pr-11"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? t('auth.hide_password') : t('auth.show_password')}
-                    title={showPassword ? t('auth.hide_password') : t('auth.show_password')}
-                    className="absolute right-0 top-0 flex h-full w-11 items-center justify-center rounded-control text-fg-muted hover:text-fg"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+              {error && (
+                <div role="alert" className="mt-5 flex items-start gap-2 rounded-control bg-danger-soft px-3 py-2.5 text-sm font-medium text-danger">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{error}</span>
                 </div>
-              </Field>
+              )}
 
-              <Button type="submit" size="lg" fullWidth loading={loading} rightIcon={<ArrowRight className="h-4 w-4" />}>
-                {loading ? t('auth.submitting') : t('auth.submit')}
-              </Button>
-            </form>
+              <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+                <Field label={t('auth.username')} htmlFor="login-username">
+                  <Input
+                    id="login-username"
+                    type="text"
+                    required
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoFocus
+                    leftIcon={<User />}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder={t('auth.username_placeholder')}
+                    className="min-h-[3rem] sm:min-h-[3rem]"
+                  />
+                </Field>
+
+                <Field label={t('auth.password')} htmlFor="login-password">
+                  <div className="relative">
+                    <Input
+                      id="login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      autoComplete="current-password"
+                      leftIcon={<Lock />}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder={t('auth.password_placeholder')}
+                      className="min-h-[3rem] pr-11 sm:min-h-[3rem]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? t('auth.hide_password') : t('auth.show_password')}
+                      title={showPassword ? t('auth.hide_password') : t('auth.show_password')}
+                      className="absolute right-0 top-0 flex h-full w-11 items-center justify-center rounded-control text-fg-muted hover:text-fg"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </Field>
+
+                <Button type="submit" size="lg" fullWidth loading={loading} rightIcon={<ArrowRight className="h-4 w-4" />}>
+                  {loading ? t('auth.submitting') : t('auth.submit')}
+                </Button>
+              </form>
+            </div>
           </div>
-
-          <p className="mt-4 text-center text-xs text-fg-muted">Macmobi ERP — {t('layout.tagline')}</p>
         </div>
       </div>
     </div>

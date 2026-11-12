@@ -323,7 +323,7 @@ export const SalesPage: React.FC = () => {
   const amountClass = cn(controlClass, 'font-semibold tabular-nums');
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<BadgeDollarSign className="h-5 w-5" />}
         title={t('sales.title')}
@@ -342,7 +342,7 @@ export const SalesPage: React.FC = () => {
       )}
 
       {/* KPI */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-5">
         <StatCard
           title={t('sales.kpi.total')}
           value={<span className="text-base sm:text-lg">{formatMoney(totalSalesVolume)}</span>}
@@ -353,6 +353,7 @@ export const SalesPage: React.FC = () => {
           title={t('sales.kpi.count')}
           value={t('sales.kpi.countValue', { count: totalSalesCount })}
           hint={t('sales.kpi.countHint')}
+          tone="brand"
         />
         <StatCard
           title={t('sales.kpi.avgCheck')}
@@ -370,8 +371,8 @@ export const SalesPage: React.FC = () => {
           title={t('sales.kpi.margin')}
           value={formatPercent(avgMargin)}
           hint={t('sales.kpi.marginHint')}
-          tone="brand"
-          className="col-span-2 sm:col-span-1"
+          tone="violet"
+          className="col-span-2 lg:col-span-1"
         />
       </div>
 
@@ -424,7 +425,7 @@ export const SalesPage: React.FC = () => {
             </span>
 
             <label className="flex items-center gap-1.5">
-              <span className="text-[11px] text-fg-muted">{t('common.from')}:</span>
+              <span className="text-xs text-fg-muted">{t('common.from')}:</span>
               <Input
                 type="date"
                 value={startDate}
@@ -434,7 +435,7 @@ export const SalesPage: React.FC = () => {
             </label>
 
             <label className="flex items-center gap-1.5">
-              <span className="text-[11px] text-fg-muted">{t('common.to')}:</span>
+              <span className="text-xs text-fg-muted">{t('common.to')}:</span>
               <Input
                 type="date"
                 value={endDate}
@@ -516,16 +517,16 @@ export const SalesPage: React.FC = () => {
                         <Badge tone="warning" size="sm" className="mt-0.5">Daftar</Badge>
                       )}
                     </Td>
-                    <Td className="font-mono text-[11px] tabular-nums text-fg-muted">{item.imei || '-'}</Td>
+                    <Td className="font-mono text-xs tabular-nums text-fg-muted">{item.imei || '-'}</Td>
                     <Td align="right" numeric className="text-fg-secondary">{formatMoney(item.purchaseCost)}</Td>
                     <Td align="right" numeric>
                       <div className="font-semibold text-fg">{formatMoney(item.salePrice)}</div>
                       {Number(item.debtRemainder) > 0 ? (
-                        <div className="mt-0.5 text-[11px] font-semibold text-danger">
+                        <div className="mt-0.5 text-xs font-semibold text-danger">
                           {t('sales.debt', { amount: formatMoney(item.debtRemainder) })}
                         </div>
                       ) : Number(item.salePrice) > 0 ? (
-                        <div className="mt-0.5 text-[11px] font-medium text-success">{t('sales.fullyPaid')}</div>
+                        <div className="mt-0.5 text-xs font-medium text-success">{t('sales.fullyPaid')}</div>
                       ) : null}
                     </Td>
                     <Td align="right" numeric className="font-semibold">
@@ -539,7 +540,7 @@ export const SalesPage: React.FC = () => {
                     <Td>
                       <div className="font-medium text-fg">{buyerOf(item) || '—'}</div>
                       {item.debtDueDate && Number(item.debtRemainder) > 0 && (
-                        <div className="whitespace-nowrap text-[11px] font-medium tabular-nums text-warning">
+                        <div className="whitespace-nowrap text-xs font-medium tabular-nums text-warning">
                           {t('sales.dueDate', { date: formatDate(item.debtDueDate) })}
                         </div>
                       )}
@@ -690,7 +691,7 @@ export const SalesPage: React.FC = () => {
           {saleForm.salePrice > 0 && (
             <div className="flex items-center justify-between gap-2 rounded-card border border-line bg-surface-2 p-3 text-xs">
               <div>
-                <span className="block text-[11px] text-fg-muted">{t('sales.form.debtAmount')}:</span>
+                <span className="block text-xs text-fg-muted">{t('sales.form.debtAmount')}:</span>
                 <span
                   className={cn(
                     'text-sm font-semibold tabular-nums',
@@ -715,7 +716,7 @@ export const SalesPage: React.FC = () => {
                 <AlertTriangle className="h-4 w-4 shrink-0" />
                 <span>{t('sales.form.overdueDebt', { amount: formatMoney(existingDebtNotice) })}</span>
               </div>
-              <p className="text-[11px] text-fg-secondary">{t('sales.form.overrideHint')}</p>
+              <p className="text-xs text-fg-secondary">{t('sales.form.overrideHint')}</p>
               <Input
                 type="password"
                 placeholder={t('sales.form.adminCode')}
@@ -881,7 +882,7 @@ export const SalesPage: React.FC = () => {
                 </div>
 
                 {editForm.salePrice - editForm.paidAmount > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-control bg-warning-soft p-2 text-[11px] font-medium text-warning">
+                  <div className="flex items-center gap-1.5 rounded-control bg-warning-soft p-2 text-xs font-medium text-warning">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                     <span>{t('sales.edit.goesToDebtors')}</span>
                   </div>
@@ -933,7 +934,7 @@ export const SalesPage: React.FC = () => {
                 <RotateCcw className="h-4 w-4" />
                 {t('sales.delete.option1')}
               </span>
-              <span className="mt-0.5 pl-5 text-[11px] text-fg-muted">{t('sales.delete.option1Hint')}</span>
+              <span className="mt-0.5 pl-5 text-xs text-fg-muted">{t('sales.delete.option1Hint')}</span>
             </button>
 
             <button
@@ -946,7 +947,7 @@ export const SalesPage: React.FC = () => {
                 <Trash2 className="h-4 w-4" />
                 {t('sales.delete.option2')}
               </span>
-              <span className="mt-0.5 pl-5 text-[11px] text-fg-muted">{t('sales.delete.option2Hint')}</span>
+              <span className="mt-0.5 pl-5 text-xs text-fg-muted">{t('sales.delete.option2Hint')}</span>
             </button>
           </div>
         )}

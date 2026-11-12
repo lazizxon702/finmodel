@@ -314,7 +314,7 @@ export const AIAssistantModal: React.FC = () => {
                 >
                   {m.text}
                 </div>
-                <p className="mt-1 px-1 text-[11px] tabular-nums text-fg-muted">
+                <p className="mt-1 px-1 text-xs tabular-nums text-fg-muted">
                   {m.time}
                   {!mine && m.model ? `, ${m.model}` : ''}
                 </p>

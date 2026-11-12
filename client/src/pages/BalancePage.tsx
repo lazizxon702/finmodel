@@ -84,7 +84,7 @@ export const BalancePage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<Wallet />}
         title={t('balance.title')}
@@ -128,10 +128,10 @@ export const BalancePage: React.FC = () => {
 
           {/* Oylik yakunlar */}
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            <StatCard title={t('balance.month_deposit')} value={formatMoney(selectedPartner?.monthlyTotals?.deposit)} icon={<Wallet />} />
+            <StatCard title={t('balance.month_deposit')} value={formatMoney(selectedPartner?.monthlyTotals?.deposit)} icon={<Wallet />} tone="info" />
             <StatCard title={t('balance.month_income')} value={formatMoney(selectedPartner?.monthlyTotals?.income)} icon={<ArrowDownLeft />} tone="success" />
             <StatCard title={t('balance.month_expense')} value={formatMoney(selectedPartner?.monthlyTotals?.expense)} icon={<ArrowUpRight />} tone="danger" />
-            <StatCard title={t('balance.net_profit')} value={formatMoney(selectedPartner?.monthlyTotals?.netProfit)} icon={<Scale />} tone="brand" />
+            <StatCard title={t('balance.net_profit')} value={formatMoney(selectedPartner?.monthlyTotals?.netProfit)} icon={<Scale />} tone="success" />
           </div>
 
           {/* Kunlar bo'yicha to'liq jadval */}

@@ -25,6 +25,7 @@ import {
   Th,
   Thead,
   Tr,
+  StatCard,
 } from '../components/ui';
 
 // Server qoidalari bilan bir xil (server/src/routes/auth.routes.ts)
@@ -343,7 +344,7 @@ export const TeamPage: React.FC = () => {
   const activeCount = operators.filter((o) => o.isActive).length;
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<UsersRound />}
         title={t('team.title')}
@@ -397,6 +398,19 @@ export const TeamPage: React.FC = () => {
         <div role="alert" className="flex items-start gap-2 rounded-control bg-danger-soft px-3 py-2.5 text-sm text-danger">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{actionError}</span>
+        </div>
+      )}
+
+      {canLoad && !loading && !loadError && operators.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-3 sm:gap-4">
+          <StatCard title={t('team.stat_total')} value={formatNumber(operators.length)} icon={<UsersRound />} tone="violet" />
+          <StatCard title={t('team.stat_active')} value={formatNumber(activeCount)} icon={<UserCheck />} tone="success" />
+          <StatCard
+            title={t('team.stat_inactive')}
+            value={formatNumber(operators.length - activeCount)}
+            icon={<Ban />}
+            tone={operators.length - activeCount > 0 ? 'warning' : 'neutral'}
+          />
         </div>
       )}
 

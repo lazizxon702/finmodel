@@ -119,7 +119,7 @@ export const FinancesSummaryPage: React.FC = () => {
   const isBalanced = balanceSheet?.isBalanced !== false;
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<Landmark />}
         title={t('financesPage.title')}
@@ -169,19 +169,21 @@ export const FinancesSummaryPage: React.FC = () => {
               value={formatMoney(cards?.liquidCash)}
               hint={t('financesPage.card_cash_hint')}
               icon={<Wallet />}
+              tone="info"
             />
             <StatCard
               title={t('financesPage.card_warehouse')}
               value={formatMoney(cards?.warehouseValue)}
               hint={t('financesPage.card_warehouse_hint', { count: formatNumber(cards?.warehouseCount) })}
               icon={<Package />}
+              tone="brand"
             />
             <StatCard
               title={t('financesPage.card_receivables')}
               value={formatMoney(cards?.receivablesDebt)}
               hint={t('financesPage.card_receivables_hint')}
               icon={<Users />}
-              tone={Number(cards?.receivablesDebt) > 0 ? 'warning' : 'neutral'}
+              tone={Number(cards?.receivablesDebt) > 0 ? 'warning' : 'success'}
             />
             <StatCard
               title={t('financesPage.card_net_profit')}

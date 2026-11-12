@@ -261,7 +261,7 @@ export const AgentsPage: React.FC = () => {
   const cardHint = (count?: number) => t('agentsPage.deals_count', { count: formatNumber(count ?? 0) });
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<Briefcase />}
         title={t(isAgent ? 'agentsPage.cabinet_title' : 'agentsPage.title')}
@@ -324,7 +324,7 @@ export const AgentsPage: React.FC = () => {
             value={cardValue(cards?.month)}
             hint={cardHint(cards?.dealsMonth)}
             icon={<CalendarRange />}
-            tone="brand"
+            tone="violet"
           />
           <StatCard
             title={t('agentsPage.card_total')}

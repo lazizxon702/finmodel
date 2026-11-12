@@ -287,9 +287,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 <ExternalLink className="h-4 w-4" />
                 {t('exportModal.createSheets')}
               </span>
-              <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-medium">sheets.new</span>
+              <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-medium">sheets.new</span>
             </span>
-            <span className="text-[11px] font-normal opacity-90">{t('exportModal.createSheetsHint')}</span>
+            <span className="text-xs font-normal opacity-90">{t('exportModal.createSheetsHint')}</span>
           </button>
 
           <button
@@ -305,7 +305,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               </span>
               <Badge size="sm">{t('exportModal.offline')}</Badge>
             </span>
-            <span className="text-[11px] font-normal text-fg-muted">
+            <span className="text-xs font-normal text-fg-muted">
               {t('exportModal.downloadXlsxHint', { count: AVAILABLE_SHEETS.length })}
             </span>
           </button>
@@ -377,7 +377,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" />
           <div>
             <p className="font-semibold text-fg">{t('exportModal.noteTitle')}</p>
-            <p className="mt-0.5 text-[11px]">{t('exportModal.noteText')}</p>
+            <p className="mt-0.5 text-xs">{t('exportModal.noteText')}</p>
           </div>
         </div>
       </div>

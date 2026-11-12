@@ -11,7 +11,7 @@ interface ThemeContextType {
 const STORAGE_KEY = 'finmodel_theme';
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: 'dark',
+  theme: 'light',
   setTheme: () => {},
   toggleTheme: () => {},
 });
@@ -27,7 +27,7 @@ function applyTheme(theme: Theme) {
 
   // Mobil brauzer / PWA yuqori paneli rangi ham mavzuga mos bo'lsin
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0d1218' : '#f3f5f7');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#090f26' : '#f1f5fb');
 }
 
 function readSavedTheme(): Theme {
@@ -37,7 +37,7 @@ function readSavedTheme(): Theme {
   } catch {
     // localStorage yopiq bo'lishi mumkin — standart qiymatga qaytamiz
   }
-  return 'dark'; // Standart rejim — dark
+  return 'light'; // Standart rejim — yorug' (yangi foydalanuvchi uchun); saqlangan tanlov hurmat qilinadi
 }
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

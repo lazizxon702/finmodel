@@ -125,7 +125,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
           ].map((b, i) => (
             <div key={i} className="flex flex-col items-center rounded-control border border-line bg-surface-2 px-1 py-2">
               {b.icon}
-              <span className="text-[11px] font-medium text-fg-secondary">{b.label}</span>
+              <span className="text-xs font-medium text-fg-secondary">{b.label}</span>
             </div>
           ))}
         </div>
@@ -182,7 +182,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({ isOpen, onClos
                 {/* Bulutli APK varianti */}
                 <div className="space-y-2 rounded-card border border-info/30 bg-info-soft p-3.5">
                   <span className="font-semibold text-fg">{t('installApp.apk.title')}</span>
-                  <p className="text-[11px] leading-relaxed text-fg-secondary">{rich(t('installApp.apk.text'))}</p>
+                  <p className="text-xs leading-relaxed text-fg-secondary">{rich(t('installApp.apk.text'))}</p>
                   <Button size="sm" fullWidth leftIcon={<ExternalLink className="h-3.5 w-3.5" />} onClick={handleOpenPWABuilder}>
                     {t('installApp.apk.button')}
                   </Button>

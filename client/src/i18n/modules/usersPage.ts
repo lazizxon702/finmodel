@@ -4,6 +4,9 @@ import { defineModule } from '../types';
 // Bir martalik parol oynasi matnlari — team.ts (team.pw_*).
 export default defineModule({
   uz: {
+    'usersPage.stat_total': "Jami hisoblar",
+    'usersPage.stat_agents': "Agentlar",
+    'usersPage.stat_staff': "Xodimlar (agentsiz)",
     'usersPage.title': 'Foydalanuvchilar va rollar',
     'usersPage.subtitle': "Hisoblar, rollar va kirish huquqlari. Parollar faqat administratorga ko'rinadi.",
     'usersPage.count': '{count} ta hisob',
@@ -95,6 +98,9 @@ export default defineModule({
     'usersPage.roleDesc_CASHIER': 'Kassa harakatlari va cheklar nazorati',
   },
   ru: {
+    'usersPage.stat_total': "Всего аккаунтов",
+    'usersPage.stat_agents': "Агенты",
+    'usersPage.stat_staff': "Сотрудники (без агентов)",
     'usersPage.title': 'Пользователи и роли',
     'usersPage.subtitle': "Аккаунты, роли и права доступа. Пароли видны только администратору.",
     'usersPage.count': 'Аккаунтов: {count}',
@@ -186,6 +192,9 @@ export default defineModule({
     'usersPage.roleDesc_CASHIER': 'Движение кассы и контроль чеков',
   },
   en: {
+    'usersPage.stat_total': "Total accounts",
+    'usersPage.stat_agents': "Agents",
+    'usersPage.stat_staff': "Staff (non-agents)",
     'usersPage.title': 'Users and roles',
     'usersPage.subtitle': "Accounts, roles and access. Passwords are visible to the administrator only.",
     'usersPage.count': '{count} accounts',

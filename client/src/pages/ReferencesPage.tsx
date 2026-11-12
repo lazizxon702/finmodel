@@ -196,7 +196,7 @@ export const ReferencesPage: React.FC = () => {
   const plusIcon = <Plus className="h-4 w-4" />;
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       {/* Sarlavha */}
       <PageHeader
         icon={<Sliders />}
@@ -346,7 +346,7 @@ export const ReferencesPage: React.FC = () => {
                         {p.isDaftarDefault ? t('references.providers.daftarYes') : t('common.no')}
                       </Badge>
                     </Td>
-                    <Td align="center" numeric className="font-mono text-[11px] text-fg-muted">{p.id.slice(0, 8)}...</Td>
+                    <Td align="center" numeric className="font-mono text-xs text-fg-muted">{p.id.slice(0, 8)}...</Td>
                   </Tr>
                 ))}
               </Tbody>

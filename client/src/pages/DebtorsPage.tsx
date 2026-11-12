@@ -111,7 +111,7 @@ export const DebtorsPage: React.FC = () => {
   const overdueCount = debtors.filter((d) => d.isOverdue).length;
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<CreditCard className="h-5 w-5" />}
         title={t('menu.debtors')}
@@ -224,11 +224,11 @@ export const DebtorsPage: React.FC = () => {
                     </Td>
                     <Td>
                       <div className="text-xs font-semibold text-fg">{nameOf(d) || '—'}</div>
-                      <div className="mt-0.5 flex items-center gap-1 text-[11px] tabular-nums text-fg-muted">
+                      <div className="mt-0.5 flex items-center gap-1 text-xs tabular-nums text-fg-muted">
                         <Phone className="h-3 w-3 shrink-0" />
                         <span>{d.customerPhone1 || d.customerPhone || '—'}</span>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-1 text-[11px] tabular-nums text-fg-muted">
+                      <div className="mt-0.5 flex items-center gap-1 text-xs tabular-nums text-fg-muted">
                         <Phone className="h-3 w-3 shrink-0" />
                         <span>{d.customerPhone2 || '—'}</span>
                       </div>
@@ -236,7 +236,7 @@ export const DebtorsPage: React.FC = () => {
                     <Td className="font-medium text-fg-secondary">{d.storeName}</Td>
                     <Td>
                       <div className="font-medium text-fg">{d.productName}</div>
-                      <div className="font-mono text-[11px] text-fg-muted">{d.imeiBarcode}</div>
+                      <div className="font-mono text-xs text-fg-muted">{d.imeiBarcode}</div>
                     </Td>
                     <Td align="right" numeric className="text-fg-secondary">
                       {formatMoney(d.salePrice)}
@@ -343,13 +343,13 @@ export const DebtorsPage: React.FC = () => {
             {/* Hozirgi qarz */}
             <div className="flex items-center justify-between rounded-card border border-line bg-surface-2 p-3.5">
               <div>
-                <span className="block text-[11px] text-fg-muted">{t('debtors.currentDebt')}</span>
+                <span className="block text-xs text-fg-muted">{t('debtors.currentDebt')}</span>
                 <span className="text-lg font-semibold tabular-nums text-danger">
                   {formatMoney(selectedDebtor.debtRemainder)}
                 </span>
               </div>
               <div className="text-right">
-                <span className="block text-[11px] text-fg-muted">{t('debtors.afterPayment')}</span>
+                <span className="block text-xs text-fg-muted">{t('debtors.afterPayment')}</span>
                 <span className="text-lg font-semibold tabular-nums text-success">
                   {formatMoney(Math.max(0, selectedDebtor.debtRemainder - (Number(payAmount) || 0)))}
                 </span>
@@ -456,13 +456,13 @@ export const DebtorsPage: React.FC = () => {
                     <span className="block text-sm font-semibold tabular-nums text-success">
                       +{formatMoney(p.amount)}
                     </span>
-                    <span className="text-[11px] text-fg-muted">
+                    <span className="text-xs text-fg-muted">
                       {t(`accounts.${p.accountType}`, p.accountType)} • {p.paidBy || t('debtors.defaultPayer')}
                     </span>
                   </div>
                   <div className="text-right">
-                    <span className="block text-[11px] tabular-nums text-fg-secondary">{formatDate(p.date)}</span>
-                    <span className="text-[11px] text-fg-muted">{p.note || '—'}</span>
+                    <span className="block text-xs tabular-nums text-fg-secondary">{formatDate(p.date)}</span>
+                    <span className="text-xs text-fg-muted">{p.note || '—'}</span>
                   </div>
                 </div>
               ))

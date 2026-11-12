@@ -72,7 +72,7 @@ export const DailyAccountingPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<CalendarCheck />}
         title={t('daily.title')}
@@ -94,6 +94,7 @@ export const DailyAccountingPage: React.FC = () => {
           title={t('daily.devices_bought')}
           value={t('daily.deals_count', { count: summary?.totalDevicesBought ?? 0 })}
           icon={<ShoppingBag />}
+          tone="violet"
         />
         <StatCard title={t('daily.revenue')} value={formatMoney(summary?.totalRevenue)} icon={<ArrowDownLeft />} tone="success" />
         <StatCard title={t('daily.net_profit_ebitda')} value={formatMoney(summary?.netProfit)} icon={<TrendingUp />} tone="brand" />
@@ -248,7 +249,7 @@ export const DailyAccountingPage: React.FC = () => {
                   </td>
                 ))}
               </tr>
-              <tr className="text-[11px] font-semibold">
+              <tr className="text-xs font-semibold">
                 <td className={labelCell}>{t('daily.liquidity')}</td>
                 <td className={cn(totalCell, isDeficit ? 'text-danger' : 'text-success')}>
                   {isDeficit ? t('daily.liq_risk') : t('daily.liq_ok')}

@@ -285,7 +285,7 @@ export const DdsPage: React.FC = () => {
   const breakdown: any[] = summary?.categoriesBreakdown || [];
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<ArrowDownUp />}
         title={t('ddsPage.title')}
@@ -363,14 +363,14 @@ export const DdsPage: React.FC = () => {
       {/* Hisob qoldiqlari — AccountBalance (haqiqiy joriy qoldiq, filtrga bog'liq emas) */}
       <section aria-label={t('ddsPage.balances_title')} className="space-y-2">
         <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-          <StatCard title={t('ddsPage.balance_cash')} value={formatMoney(balances?.CASH)} icon={<Wallet />} />
-          <StatCard title={t('ddsPage.balance_card')} value={formatMoney(balances?.BANK_CARD)} icon={<CreditCard />} />
-          <StatCard title={t('ddsPage.balance_settlement')} value={formatMoney(balances?.SETTLEMENT_ACCOUNT)} icon={<Building />} />
+          <StatCard title={t('ddsPage.balance_cash')} value={formatMoney(balances?.CASH)} icon={<Wallet />} tone="info" />
+          <StatCard title={t('ddsPage.balance_card')} value={formatMoney(balances?.BANK_CARD)} icon={<CreditCard />} tone="violet" />
+          <StatCard title={t('ddsPage.balance_settlement')} value={formatMoney(balances?.SETTLEMENT_ACCOUNT)} icon={<Building />} tone="brand" />
           <StatCard
             title={t('ddsPage.balance_total')}
             value={formatMoney(balances?.total)}
             icon={<Scale />}
-            tone="brand"
+            tone="success"
             className="border-line-strong"
           />
         </div>
@@ -389,7 +389,7 @@ export const DdsPage: React.FC = () => {
         <StatCard
           title={t('ddsPage.flow_net')}
           value={formatMoney(filteredNetFlow)}
-          tone={filteredNetFlow < 0 ? 'danger' : 'neutral'}
+          tone={filteredNetFlow < 0 ? 'danger' : 'brand'}
           hint={t('ddsPage.flow_net_hint')}
           icon={<ArrowDownUp />}
         />
@@ -398,6 +398,7 @@ export const DdsPage: React.FC = () => {
           value={formatNumber(totalCount)}
           hint={t('ddsPage.flow_avg', { value: formatMoney(avgCheck) })}
           icon={<Layers />}
+          tone="violet"
         />
       </div>
 

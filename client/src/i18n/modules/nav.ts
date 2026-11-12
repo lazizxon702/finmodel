@@ -48,6 +48,10 @@ export default defineModule({
     'menu.team': 'Jamoam',
     'menu.team_sub': 'Operatorlarni boshqarish',
     'menu.all': 'Menyu',
+    'menu.group.sales': 'Savdo',
+    'menu.group.finance': 'Moliya',
+    'menu.group.team': 'Jamoa',
+    'menu.group.settings': 'Sozlamalar',
 
     'title.dashboard': 'SWOT Boshqaruv Paneli va Moliya Xulosasi',
     'title.deals': 'Bitimlar va Ombor Jadvali',
@@ -145,6 +149,10 @@ export default defineModule({
     'menu.team': 'Моя команда',
     'menu.team_sub': 'Управление операторами',
     'menu.all': 'Меню',
+    'menu.group.sales': 'Продажи',
+    'menu.group.finance': 'Финансы',
+    'menu.group.team': 'Команда',
+    'menu.group.settings': 'Настройки',
 
     'title.dashboard': 'Панель Управления SWOT и Свод Финансов',
     'title.deals': 'Таблица Сделок и Склада',
@@ -242,6 +250,10 @@ export default defineModule({
     'menu.team': 'My team',
     'menu.team_sub': 'Manage operators',
     'menu.all': 'Menu',
+    'menu.group.sales': 'Sales',
+    'menu.group.finance': 'Finance',
+    'menu.group.team': 'Team',
+    'menu.group.settings': 'Settings',
 
     'title.dashboard': 'SWOT Control Panel and Finance Summary',
     'title.deals': 'Deals and Stock',

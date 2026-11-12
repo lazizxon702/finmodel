@@ -96,17 +96,18 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onOpenSidebar }) => {
 
   const itemClass = (active: boolean) =>
     cn(
-      'relative flex min-w-0 flex-col items-center justify-center gap-1 px-1 text-[11px] leading-none transition-colors',
+      'relative flex min-w-0 flex-col items-center justify-center gap-0.5 px-1 text-[11px] leading-tight transition-colors',
       active ? 'font-semibold text-accent' : 'font-medium text-fg-muted hover:text-fg'
     );
 
-  // Aktiv tab ustidagi ingichka chiziq
-  const activeBar = <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-accent" aria-hidden="true" />;
+  // Ikonka atrofidagi "tabletka": faol tabda yumshoq brend foni
+  const iconWrap = (active: boolean) =>
+    cn('relative flex h-8 w-14 items-center justify-center rounded-full transition-colors', active && 'bg-brand-soft');
 
   return (
     <nav
       aria-label={t('layout.bottom_nav')}
-      className="no-print fixed bottom-0 left-0 right-0 z-40 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
+      className="no-print fixed bottom-0 left-0 right-0 z-40 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-12px_rgb(var(--shadow-color)/0.18)] backdrop-blur-md lg:hidden"
     >
       <div
         className="mx-auto grid h-16 max-w-md items-stretch"
@@ -117,8 +118,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onOpenSidebar }) => {
           const active = isTabActive(tab);
           return (
             <NavLink key={tab.to} to={tab.to} className={itemClass(active)} aria-current={active ? 'page' : undefined}>
-              {active && activeBar}
-              <Icon className="h-5 w-5" aria-hidden="true" />
+              <span className={iconWrap(active)}>
+                <Icon className="h-5 w-5" aria-hidden="true" />
+              </span>
               <span className="max-w-full truncate">{t(`menu.short.${tab.key}`)}</span>
             </NavLink>
           );
@@ -126,12 +128,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onOpenSidebar }) => {
 
         {/* Oxirgi tab: to'liq menyu */}
         <button type="button" onClick={onOpenSidebar} className={itemClass(isOtherActive)} aria-label={t('layout.open_menu')}>
-          {isOtherActive && activeBar}
-          <span className="relative">
+          <span className={iconWrap(isOtherActive)}>
             <Menu className="h-5 w-5" aria-hidden="true" />
             {notifications.length > 0 && (
               <span
-                className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-surface bg-danger"
+                className="absolute right-3 top-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface bg-danger-solid"
                 aria-label={t('layout.new_notifications', { count: notifications.length })}
               />
             )}

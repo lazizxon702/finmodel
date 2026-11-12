@@ -327,7 +327,7 @@ export const DealsPage: React.FC = () => {
   ];
 
   return (
-    <div className="w-full space-y-4 sm:space-y-5">
+    <div className="w-full space-y-5 sm:space-y-6">
       <PageHeader
         className="mb-0 sm:mb-0"
         icon={<Layers />}

@@ -3,6 +3,7 @@ import { Menu, FileSpreadsheet, LogOut, Smartphone, Bot, Bell } from 'lucide-rea
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
 import { LanguageSwitcher, ThemeToggle } from './ui/Switchers';
+import { BrandMark } from './ui/BrandMark';
 
 interface HeaderProps {
   onOpenSidebar: () => void;
@@ -14,7 +15,7 @@ interface HeaderProps {
 
 // Yuqori paneldagi ikonka-tugmalar uchun umumiy klass (44px mobil, 40px desktop)
 const iconButton =
-  'inline-flex h-11 min-w-touch shrink-0 items-center justify-center gap-2 rounded-control border border-line bg-surface px-2.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg sm:h-10';
+  'inline-flex h-11 min-w-touch shrink-0 items-center justify-center gap-2 rounded-control border border-line bg-surface px-2.5 text-xs font-semibold text-fg-secondary transition-colors hover:border-line-strong hover:text-fg sm:h-10';
 
 export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, onOpenExport, onOpenInstall, onOpenNotifications, title }) => {
   const { user, logout } = useAuth();
@@ -29,7 +30,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, onOpenExport, onO
     .join('');
 
   return (
-    <header className="no-print sticky top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-line bg-surface/95 px-3 backdrop-blur sm:px-4 lg:px-8">
+    // Sahifa foni bilan bir xil (shaffof-xira) — kontent ustida "suzadi", alohida oq tasma emas
+    <header className="no-print sticky top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-line/70 bg-app/85 px-3 backdrop-blur-md sm:px-6 lg:px-8">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <button
           type="button"
@@ -39,7 +41,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, onOpenExport, onO
         >
           <Menu className="h-5 w-5" />
         </button>
-        <h2 className="truncate text-sm font-semibold tracking-tight text-fg sm:text-base">{title}</h2>
+        {/* Mobil/planshetda yon menyu yopiq — brend belgisi shu yerda ko'rinadi */}
+        <BrandMark className="h-8 w-8 lg:hidden" />
+        {/* Sahifaning o'zida katta sarlavha bor — bu yerda faqat yo'l ko'rsatkich sifatida, sokin */}
+        <p className="hidden truncate text-sm font-medium text-fg-secondary xl:block">{title}</p>
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -88,15 +93,15 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, onOpenExport, onO
         )}
 
         {/* Foydalanuvchi */}
-        <div className="flex items-center gap-2 border-l border-line pl-2 sm:pl-3">
+        <div className="flex items-center gap-2.5 border-l border-line pl-2 sm:pl-3">
           <div
-            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-accent sm:flex"
+            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-bold text-brand-fg sm:flex"
             aria-hidden="true"
           >
             {initials || '?'}
           </div>
           <div className="hidden min-w-0 leading-tight lg:block">
-            <p className="max-w-[160px] truncate text-sm font-medium text-fg">{fullName}</p>
+            <p className="max-w-[160px] truncate text-sm font-semibold text-fg">{fullName}</p>
             <p className="max-w-[160px] truncate text-xs text-fg-muted">
               {t(`roles.${user?.role || 'OPERATOR'}`, t('roles.unknown'))}
             </p>

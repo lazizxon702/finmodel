@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, Search, Send, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, KeyRound, Pencil, Plus, RefreshCw, Search, Send, ShieldCheck, Trash2, UserCheck, UsersRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { PasswordCell } from '../components/PasswordCell';
 import { useTranslation } from '../context/LanguageContext';
@@ -15,6 +15,7 @@ import {
   Modal,
   PageHeader,
   Select,
+  StatCard,
   Table,
   TableContainer,
   TableEmpty,
@@ -358,7 +359,7 @@ export const UsersPage: React.FC = () => {
   const editingSelf = !!editing && editing.id === currentUser?.id;
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<ShieldCheck />}
         title={t('usersPage.title')}
@@ -396,6 +397,14 @@ export const UsersPage: React.FC = () => {
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           )}
           <span>{alert.message}</span>
+        </div>
+      )}
+
+      {users.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-3 sm:gap-4">
+          <StatCard title={t('usersPage.stat_total')} value={users.length} icon={<UsersRound />} tone="brand" />
+          <StatCard title={t('usersPage.stat_agents')} value={agentUsers.length} icon={<UserCheck />} tone="violet" />
+          <StatCard title={t('usersPage.stat_staff')} value={users.length - agentUsers.length} icon={<ShieldCheck />} tone="info" />
         </div>
       )}
 

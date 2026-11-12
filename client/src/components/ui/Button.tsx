@@ -2,10 +2,11 @@ import React from 'react';
 import { cn } from '../../lib/cn';
 import { Spinner } from './Spinner';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
+export type ButtonVariant = 'primary' | 'secondary' | 'soft' | 'ghost' | 'danger' | 'success';
 export type ButtonSize = 'sm' | 'md' | 'lg' | 'icon';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  /** primary — sahifaning asosiy amali (ko'k); secondary — oddiy; soft — yumshoq ko'k; ghost — fonsiz */
   variant?: ButtonVariant;
   size?: ButtonSize;
   /** true bo'lsa spinner ko'rsatiladi va tugma bosilmaydi */
@@ -15,19 +16,29 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   fullWidth?: boolean;
 }
 
+// To'ldirilgan tugmalar ostida o'z rangidagi yumshoq soya — sirtdan "ko'tarilib" turadi
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-brand text-brand-fg hover:bg-brand-hover border border-transparent',
-  secondary: 'bg-surface text-fg border border-line-strong hover:bg-surface-2',
+  primary:
+    'bg-brand text-brand-fg border border-transparent hover:bg-brand-hover ' +
+    'shadow-[0_1px_2px_rgb(var(--shadow-color)/0.18),0_6px_14px_-6px_rgb(var(--brand)/0.65)]',
+  secondary:
+    'bg-surface text-fg border border-line-strong hover:border-accent/50 hover:bg-surface-2 ' +
+    'shadow-[0_1px_2px_rgb(var(--shadow-color)/0.05)]',
+  soft: 'bg-brand-soft text-accent border border-transparent hover:bg-brand/20',
   ghost: 'bg-transparent text-fg-secondary border border-transparent hover:bg-surface-2 hover:text-fg',
-  danger: 'bg-danger-solid text-white border border-transparent hover:brightness-110',
-  success: 'bg-success-solid text-white border border-transparent hover:brightness-110',
+  danger:
+    'bg-danger-solid text-white border border-transparent hover:brightness-110 ' +
+    'shadow-[0_1px_2px_rgb(var(--shadow-color)/0.18),0_6px_14px_-6px_rgb(var(--danger-solid)/0.6)]',
+  success:
+    'bg-success-solid text-white border border-transparent hover:brightness-110 ' +
+    'shadow-[0_1px_2px_rgb(var(--shadow-color)/0.18),0_6px_14px_-6px_rgb(var(--success-solid)/0.6)]',
 };
 
 // Mobil qurilmada 44px teginish maydoni, sm+ ekranda ixchamroq
 const SIZES: Record<ButtonSize, string> = {
-  sm: 'min-h-touch sm:min-h-[2rem] px-3 text-xs gap-1.5',
+  sm: 'min-h-touch sm:min-h-[2rem] px-3 text-[13px] gap-1.5',
   md: 'min-h-touch sm:min-h-[2.5rem] px-4 text-sm gap-2',
-  lg: 'min-h-[3rem] px-5 text-sm gap-2',
+  lg: 'min-h-[3rem] px-5 text-[15px] gap-2',
   icon: 'min-h-touch min-w-touch sm:min-h-[2.5rem] sm:min-w-[2.5rem] px-0 text-sm',
 };
 
@@ -49,7 +60,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       aria-busy={loading || undefined}
       className={cn(
         'inline-flex select-none items-center justify-center whitespace-nowrap rounded-control font-semibold',
-        'transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-55',
+        'transition-[background-color,border-color,color,filter,transform] duration-150 active:translate-y-px',
+        'disabled:cursor-not-allowed disabled:opacity-55 disabled:shadow-none disabled:active:translate-y-0',
         VARIANTS[variant],
         SIZES[size],
         fullWidth && 'w-full',

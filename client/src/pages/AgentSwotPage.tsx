@@ -89,14 +89,14 @@ export const AgentSwotPage: React.FC = () => {
   const agencies: any[] = data?.agencies || [];
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader className="mb-0 sm:mb-0" title={t('agentSwot.title')} description={t('agentSwot.subtitle')} />
 
       {/* Asosiy ko'rsatkichlar */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-        <StatCard title={t('agentSwot.kpi_total_limit')} value={formatMoney(data?.totals?.totalLimit)} icon={<Wallet />} />
+        <StatCard title={t('agentSwot.kpi_total_limit')} value={formatMoney(data?.totals?.totalLimit)} icon={<Wallet />} tone="brand" />
         <StatCard title={t('agentSwot.kpi_company_revenue')} value={formatMoney(data?.totals?.companyRevenue)} icon={<Building2 />} tone="info" />
-        <StatCard title={t('agentSwot.kpi_agency_payout')} value={formatMoney(data?.totals?.agencyPayout)} icon={<HandCoins />} tone="brand" />
+        <StatCard title={t('agentSwot.kpi_agency_payout')} value={formatMoney(data?.totals?.agencyPayout)} icon={<HandCoins />} tone="violet" />
         <StatCard title={t('agentSwot.kpi_net_profit')} value={formatMoney(data?.totals?.netProfit)} icon={<TrendingUp />} tone="success" />
       </div>
 

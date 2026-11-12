@@ -4,6 +4,8 @@ import { defineModule } from '../types';
 // `period_*` kalitlari Trust / DDS / Moliya sahifalarida ham davr nomi uchun ishlatiladi (components/dashboard/period.ts).
 export default defineModule({
   uz: {
+    'dashboardPage.today_empty': "Bugun hali bitim yo'q — Hafta yoki Oy ni tanlang",
+    'dashboardPage.today_empty_action': "Oy ko'rsatilsin",
     'dashboardPage.title': 'Boshqaruv paneli',
     'dashboardPage.period_shown': 'Davr: {period}',
     'dashboardPage.period_all': 'Butun davr',
@@ -78,6 +80,8 @@ export default defineModule({
     'dashboardPage.col_share': "Ko'rsatkichdagi ulushi",
   },
   ru: {
+    'dashboardPage.today_empty': 'Сегодня сделок ещё нет — выберите неделю или месяц',
+    'dashboardPage.today_empty_action': 'Показать месяц',
     'dashboardPage.title': 'Панель управления',
     'dashboardPage.period_shown': 'Период: {period}',
     'dashboardPage.period_all': 'Весь период',
@@ -152,6 +156,8 @@ export default defineModule({
     'dashboardPage.col_share': 'Доля в показателе',
   },
   en: {
+    'dashboardPage.today_empty': 'No deals today yet — pick Week or Month',
+    'dashboardPage.today_empty_action': 'Show month',
     'dashboardPage.title': 'Dashboard',
     'dashboardPage.period_shown': 'Period: {period}',
     'dashboardPage.period_all': 'All time',

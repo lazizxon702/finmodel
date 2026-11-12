@@ -5,11 +5,11 @@ import { cn } from '../../lib/cn';
 /** Barcha forma boshqaruvlari uchun umumiy klass (o'z elementingizga ham qo'llash mumkin). */
 export const controlClass =
   'block w-full min-h-touch sm:min-h-[2.5rem] rounded-control border border-line-strong bg-surface px-3 py-2 text-sm text-fg ' +
-  'placeholder:text-fg-muted transition-colors duration-150 ' +
-  'focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25 ' +
+  'placeholder:text-fg-muted transition-[border-color,box-shadow] duration-150 hover:border-fg-muted/60 ' +
+  'focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15 ' +
   'disabled:cursor-not-allowed disabled:bg-surface-2 disabled:opacity-60';
 
-const invalidClass = 'border-danger focus:border-danger focus:ring-danger/25';
+const invalidClass = 'border-danger hover:border-danger focus:border-danger focus:ring-danger/15';
 
 // ---------------------------------------------------------------------------
 // Field — label + boshqaruv + xato/izoh matni
@@ -34,7 +34,7 @@ export interface FieldProps {
 export const Field: React.FC<FieldProps> = ({ label, error, hint, required, htmlFor, className, children }) => (
   <div className={cn('min-w-0', className)}>
     {label && (
-      <label htmlFor={htmlFor} className="mb-1.5 block text-xs font-medium text-fg-secondary">
+      <label htmlFor={htmlFor} className="mb-1.5 block text-[13px] font-medium leading-snug text-fg-secondary">
         {label}
         {required && (
           <span className="ml-0.5 text-danger" aria-hidden="true">

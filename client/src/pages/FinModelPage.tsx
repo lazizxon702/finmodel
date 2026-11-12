@@ -56,7 +56,7 @@ export const FinModelPage: React.FC = () => {
   const monthCell = 'border-b border-line px-3 py-2 text-right whitespace-nowrap';
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader icon={<Calculator />} title={t('finmodel.title')} description={t('finmodel.subtitle')} />
 
       {/* Yillik ko'rsatkichlar */}
@@ -66,6 +66,7 @@ export const FinModelPage: React.FC = () => {
           value={t('finmodel.devices_count', { count: yearSummary?.totalDeals ?? 0 })}
           hint={t('finmodel.avg_deals', { count: yearSummary?.avgDealsPerMonth ?? 0 })}
           icon={<Layers />}
+          tone="violet"
         />
         <StatCard
           title={t('finmodel.kpi_revenue')}
@@ -220,7 +221,7 @@ export const FinModelPage: React.FC = () => {
                   </td>
                 ))}
               </tr>
-              <tr className="text-[11px] text-fg-muted">
+              <tr className="text-xs text-fg-muted">
                 <td className={cn(labelCell, 'border-b-0 py-1.5')}>{t('finmodel.row_net_margin')}</td>
                 <td className="bg-surface-2 px-3 py-1.5 text-right font-semibold">{formatPercent(yearSummary?.netMarginPct)}</td>
                 {monthList.map((m: any) => (

@@ -200,7 +200,7 @@ export const BotPaymentsPage: React.FC = () => {
   const setField = (patch: Partial<typeof formData>) => setFormData({ ...formData, ...patch });
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<CreditCard />}
         title={t('botPayments.title')}
@@ -326,10 +326,10 @@ export const BotPaymentsPage: React.FC = () => {
 
       {/* 2-tab: operatorlar hisoboti */}
       {activeTab === 'OPERATOR_REPORTS' && (
-        <div className="space-y-4 sm:space-y-5">
+        <div className="space-y-5 sm:space-y-6">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-            <StatCard title={t('botPayments.stat_actual')} value={formatMoney(reportTotals.totalActual)} hint={t('botPayments.stat_actual_hint')} icon={<ShoppingCart />} />
-            <StatCard title={t('botPayments.stat_purchase')} value={formatMoney(reportTotals.totalPurchase)} hint={t('botPayments.stat_purchase_hint')} icon={<DollarSign />} tone="info" />
+            <StatCard title={t('botPayments.stat_actual')} value={formatMoney(reportTotals.totalActual)} hint={t('botPayments.stat_actual_hint')} icon={<ShoppingCart />} tone="brand" />
+            <StatCard title={t('botPayments.stat_purchase')} value={formatMoney(reportTotals.totalPurchase)} hint={t('botPayments.stat_purchase_hint')} icon={<DollarSign />} tone="danger" />
             <StatCard title={t('botPayments.stat_paid')} value={formatMoney(reportTotals.totalPaid)} hint={t('botPayments.stat_paid_hint')} icon={<Wallet />} tone="warning" />
             <StatCard title={t('botPayments.stat_profit')} value={formatMoney(reportTotals.totalProfit)} hint={t('botPayments.stat_profit_hint')} icon={<TrendingUp />} tone="success" />
           </div>

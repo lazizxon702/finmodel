@@ -10,6 +10,7 @@ import {
   Receipt,
   RefreshCw,
   TrendingUp,
+  Info,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -40,14 +41,15 @@ import { formatDate, formatMoney, formatNumber, todayYmd } from '../utils/format
 type SegmentTab = 'daily' | 'providers' | 'stores' | 'agencies';
 
 // KPI kartochkalari — tartib va ko'rinish. Qiymatlar serverdagi `summary` dan (faqat tasdiqlangan bitimlar).
-const KPI_CARDS: { metric: KpiMetric; icon: React.ReactNode; tone: Tone }[] = [
-  { metric: 'totalDeals', icon: <Layers />, tone: 'brand' },
-  { metric: 'totalLimitVolume', icon: <CreditCard />, tone: 'brand' },
-  { metric: 'totalAgentCommission', icon: <Users />, tone: 'neutral' },
-  { metric: 'totalBuyoutExpense', icon: <Package />, tone: 'neutral' },
-  { metric: 'totalPayout', icon: <Wallet />, tone: 'neutral' },
-  { metric: 'grossMargin', icon: <TrendingUp />, tone: 'success' },
-  { metric: 'totalQodirChekExpense', icon: <Receipt />, tone: 'neutral' },
+// Birinchi 3 tasi yirik (asosiy hajm, foyda, bitimlar soni), qolgan 4 tasi ixcham — lg da 4+4+4 / 3+3+3+3 (teshiksiz panjara).
+const KPI_CARDS: { metric: KpiMetric; icon: React.ReactNode; tone: Tone; big?: boolean }[] = [
+  { metric: 'totalLimitVolume', icon: <CreditCard />, tone: 'brand', big: true },
+  { metric: 'grossMargin', icon: <TrendingUp />, tone: 'success', big: true },
+  { metric: 'totalDeals', icon: <Layers />, tone: 'brand', big: true },
+  { metric: 'totalAgentCommission', icon: <Users />, tone: 'violet' },
+  { metric: 'totalBuyoutExpense', icon: <Package />, tone: 'danger' },
+  { metric: 'totalPayout', icon: <Wallet />, tone: 'info' },
+  { metric: 'totalQodirChekExpense', icon: <Receipt />, tone: 'warning' },
 ];
 
 const axisTick = { fontSize: 11, fill: chartColors.tick };
@@ -113,7 +115,7 @@ export const DashboardPage: React.FC = () => {
   const formatAxisMoney = (v: number) => (Math.abs(v) >= 1e6 ? `${(v / 1e6).toFixed(0)}M` : formatNumber(v));
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         icon={<LayoutDashboard />}
         title={t('dashboardPage.title')}
@@ -151,12 +153,24 @@ export const DashboardPage: React.FC = () => {
         </Card>
       )}
 
+      {swotData && isTodayRange && !loading && Number(summary.totalDeals) === 0 && (
+        <div className="flex flex-col gap-2 rounded-card border border-warning/30 bg-warning-soft px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex items-center gap-2 text-sm text-fg">
+            <Info className="h-4 w-4 shrink-0 text-warning" />
+            {t('dashboardPage.today_empty')}
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => setRange(defaultDateRange('month'))}>
+            {t('dashboardPage.today_empty_action')}
+          </Button>
+        </div>
+      )}
+
       {swotData && (
         <>
           {/* 7 ta KPI — bosilganda tarkibidagi bitimlar ro'yxati ochiladi */}
           <section aria-label={t('dashboardPage.kpi_section', { period })}>
-            <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-              {KPI_CARDS.map(({ metric, icon, tone }) => (
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-12">
+              {KPI_CARDS.map(({ metric, icon, tone, big }) => (
                 <StatCard
                   key={metric}
                   title={t(`dashboardPage.kpi_${metric}`)}
@@ -168,6 +182,7 @@ export const DashboardPage: React.FC = () => {
                   }
                   icon={icon}
                   tone={tone}
+                  className={big ? 'col-span-2 lg:col-span-4 lg:p-5 [&_p.text-xl]:lg:text-3xl' : 'lg:col-span-3'}
                   onClick={() => setDetailsMetric(metric)}
                   active={detailsMetric === metric}
                 />
@@ -187,7 +202,7 @@ export const DashboardPage: React.FC = () => {
                   {t('dashboardPage.deals_count', { count: formatNumber(buyout.needToBuyCount) })}
                 </Badge>
               </div>
-              <p className="mt-2 text-xl font-semibold tabular-nums text-fg">{formatMoney(buyout.needToBuyTotal)}</p>
+              <p className="mt-2 text-xl font-semibold tabular-nums text-warning">{formatMoney(buyout.needToBuyTotal)}</p>
               <p className="mt-1 text-xs text-fg-muted">{t('dashboardPage.need_to_buy_hint')}</p>
             </Card>
 
@@ -201,7 +216,7 @@ export const DashboardPage: React.FC = () => {
                   {t('dashboardPage.deals_count', { count: formatNumber(buyout.boughtGoodsCount) })}
                 </Badge>
               </div>
-              <p className="mt-2 text-xl font-semibold tabular-nums text-fg">{formatMoney(buyout.boughtGoodsTotal)}</p>
+              <p className="mt-2 text-xl font-semibold tabular-nums text-success">{formatMoney(buyout.boughtGoodsTotal)}</p>
               <p className="mt-1 truncate text-xs text-fg-muted" title={buyout.boughtGoodsList?.join(', ') || undefined}>
                 {buyout.boughtGoodsList?.length > 0 ? buyout.boughtGoodsList.slice(0, 3).join(', ') : t('dashboardPage.bought_goods_hint')}
               </p>
@@ -210,14 +225,14 @@ export const DashboardPage: React.FC = () => {
             <Card>
               <div className="flex items-start justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-xs font-medium text-fg-muted">
-                  <Wallet className="h-4 w-4 text-accent" />
+                  <Wallet className="h-4 w-4 text-info" />
                   {t('dashboardPage.free_cash')}
                 </p>
-                <Badge tone="neutral" size="sm">
+                <Badge tone="info" size="sm">
                   {t('dashboardPage.free_cash_badge')}
                 </Badge>
               </div>
-              <p className="mt-2 text-xl font-semibold tabular-nums text-fg">{formatMoney(buyout.liquidCash)}</p>
+              <p className="mt-2 text-xl font-semibold tabular-nums text-info">{formatMoney(buyout.liquidCash)}</p>
               <p className="mt-1 text-xs text-fg-muted">{t('dashboardPage.free_cash_hint')}</p>
             </Card>
           </div>
@@ -251,7 +266,7 @@ export const DashboardPage: React.FC = () => {
                         stroke={chartColors.primary}
                         strokeWidth={2}
                         fill={chartColors.primary}
-                        fillOpacity={0.14}
+                        fillOpacity={0.18}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
