@@ -20,10 +20,11 @@ import {
   canonicalAgencyName,
   canonicalProviderName,
   canonicalStoreName,
+  isQodirPaymentCategory,
   normalizeDealItems,
   normalizeName,
 } from './calculation.service';
-import { isTrustIncomeCategory, rebuildAccountBalances, syncTrustDebtForDeal } from './ledger.service';
+import { isTrustIncomeCategory, rebuildAccountBalances, syncStoreDebtForDeal, syncTrustDebtForDeal } from './ledger.service';
 
 export const DEFAULT_SHEETS_URL =
   'https://docs.google.com/spreadsheets/d/1Xas4V79zUAOQGx0ZePPd-VwhhARE3-nsq98rL9vEvUo/edit?usp=sharing';
@@ -1220,6 +1221,8 @@ export async function syncDealsFromGoogleSheets(customUrl?: string, localFilePat
         });
         // Trust / Trust 1 bitimi bo'lsa — Trust daftariga qarz (yechilgan limit × 16%) yoziladi
         await syncTrustDebtForDeal(tx, created.id);
+        // Do'kon bilan hisob-kitob qarzi (mijozga berilgan summa) — do'kon daftariga
+        await syncStoreDebtForDeal(tx, created.id);
       });
       inserted++;
     }
@@ -1237,6 +1240,7 @@ export async function syncDealsFromGoogleSheets(customUrl?: string, localFilePat
           data: { ...(row.dateInfo ? { date: row.dateInfo.date } : {}), ...dealFields(row, refs) },
         });
         await syncTrustDebtForDeal(tx, db.id);
+        await syncStoreDebtForDeal(tx, db.id);
       });
       updated++;
     }
@@ -1473,6 +1477,8 @@ export async function syncDdsFromGoogleSheets(customUrl?: string, options: SyncD
       if (type === TransactionType.INCOME) {
         expenseType = ExpenseCategoryType.INCOME_TRANSFER;
       } else if (
+        // Qodir akaga to'lov — qarzni qaytarish, operatsion xarajat (OPEX) emas
+        isQodirPaymentCategory(categoryStr) ||
         expenseTypeStr.includes('cogs') ||
         expenseTypeStr.includes('перемен') ||
         categoryStr.toLowerCase().includes('выкуп') ||

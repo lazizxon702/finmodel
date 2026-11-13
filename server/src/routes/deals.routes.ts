@@ -19,6 +19,7 @@ import {
   createCheckExpenseInTx,
   getAccountBalances,
   rejectDeal,
+  syncStoreDebtForDeal,
   syncTrustDebtForDeal,
 } from '../services/ledger.service';
 import { pushDealToGoogleSheets } from '../services/sheetsSync.service';
@@ -1310,10 +1311,13 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       }
 
       let trustDebt = 0;
+      let storeDebt = 0;
       let check: Awaited<ReturnType<typeof createCheckExpenseInTx>> | null = null;
       if (isApproved) {
         // Darhol tasdiqlangan bitim: Trust qarzi va (so'ralgan bo'lsa) chek xarajati shu tranzaksiyada
         trustDebt = await syncTrustDebtForDeal(tx, created.id);
+        // Do'kon bilan hisob-kitob qarzi (mijozga berilgan summa) do'kon daftariga yoziladi
+        storeDebt = await syncStoreDebtForDeal(tx, created.id);
         if (wantsExpense) {
           check = await createCheckExpenseInTx(tx, created.id, {
             account: expenseAccount,
@@ -1322,7 +1326,7 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
           });
         }
       }
-      return { id: created.id, trustDebt, check };
+      return { id: created.id, trustDebt, storeDebt, check };
     });
 
     const newDeal = await prisma.deal.findUnique({ where: { id: result.id }, include: DEAL_INCLUDE });
@@ -1333,6 +1337,7 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
     emitRealtime('deals:updated', { id: result.id, action: 'created', approvalStatus });
     if (result.check?.created) emitRealtime('dds:updated', {});
     if (result.trustDebt > 0) emitRealtime('trust:updated', {});
+    if (result.storeDebt > 0) emitRealtime('stores:updated', {});
 
     pushToSheetsIfApproved(newDeal);
 
@@ -1502,8 +1507,9 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
     }
 
     const hadTrustEntry = await prisma.trustLedgerEntry.count({ where: { dealId: id } });
+    const hadStoreEntry = await prisma.storeLedgerEntry.count({ where: { dealId: id } });
 
-    const trustDebt = await prisma.$transaction(async (tx) => {
+    const { trustDebt, storeDebt } = await prisma.$transaction(async (tx) => {
       await tx.deal.update({ where: { id }, data });
       if (products.items) {
         await tx.dealItem.deleteMany({ where: { dealId: id } });
@@ -1512,7 +1518,10 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
         }
       }
       // Limit / do'kon / provayder o'zgargan bo'lishi mumkin — Trust qarzi daftar bilan qayta moslanadi
-      return syncTrustDebtForDeal(tx, id);
+      const trustDebt = await syncTrustDebtForDeal(tx, id);
+      // Mijozga berilgan summa / do'kon / sana / tasdiq holati o'zgargan bo'lishi mumkin — do'kon daftari ham qayta moslanadi
+      const storeDebt = await syncStoreDebtForDeal(tx, id);
+      return { trustDebt, storeDebt };
     }, TX_OPTIONS);
 
     const updated = await prisma.deal.findUnique({ where: { id }, include: DEAL_INCLUDE });
@@ -1522,6 +1531,7 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
 
     emitRealtime('deals:updated', { id, action: 'updated', approvalStatus: updated?.approvalStatus });
     if (trustDebt > 0 || hadTrustEntry > 0) emitRealtime('trust:updated', {});
+    if (storeDebt > 0 || hadStoreEntry > 0) emitRealtime('stores:updated', {});
 
     pushToSheetsIfApproved(updated);
 
@@ -1670,6 +1680,7 @@ router.delete('/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdmi
     const result = await prisma.deal.deleteMany({});
     emitRealtime('deals:updated', { action: 'deleted-all' });
     emitRealtime('trust:updated', {});
+    emitRealtime('stores:updated', {});
     return res.json({
       success: true,
       deletedCount: result.count,
@@ -1700,6 +1711,8 @@ router.delete('/:id', authenticateToken, async (req: AuthRequest, res: Response)
 
     emitRealtime('deals:updated', { id, action: 'deleted' });
     if (hadTrustEntry > 0) emitRealtime('trust:updated', {});
+    // Do'kon daftaridagi qarz yozuvi ham kaskad bilan o'chgan bo'lishi mumkin
+    emitRealtime('stores:updated', {});
 
     return res.json({ success: true, message: "Bitim o'chirildi" });
   } catch (error: any) {

@@ -14,6 +14,7 @@ import {
   Layers,
   PieChart,
   Plus,
+  Receipt,
   RefreshCw,
   Scale,
   Search,
@@ -26,6 +27,7 @@ import {
   Button,
   Card,
   CardHeader,
+  DateRangeFilter,
   EmptyState,
   Field,
   Input,
@@ -43,12 +45,16 @@ import {
   Thead,
   Tr,
   cn,
+  defaultDateRange,
+  type DateRangeValue,
   type Tone,
 } from '../components/ui';
-import { apiErrorMessage } from '../components/dashboard/period';
+import { apiErrorMessage, periodLabel, rangeParams } from '../components/dashboard/period';
+import { CheckTransferModal, type CheckTransferResult } from '../components/dds/CheckTransferModal';
 import { DdsFormModal } from '../components/dds/DdsFormModal';
 import {
   DDS_ACCOUNTS,
+  DDS_CHECK_TRANSFER_ROLES,
   DDS_DELETE_ROLES,
   DDS_SOURCES,
   DDS_SYNC_ROLES,
@@ -67,6 +73,8 @@ const SOURCE_TONE: Record<DdsSource, Tone> = {
   MANUAL: 'neutral',
   DEAL_CHECK: 'info',
   TRUST_PAYMENT: 'brand',
+  STORE_PAYMENT: 'success',
+  QODIR_PAYMENT: 'danger',
   SYNC: 'warning',
 };
 
@@ -83,6 +91,7 @@ export const DdsPage: React.FC = () => {
   const canWrite = DDS_WRITE_ROLES.includes(role);
   const canDelete = DDS_DELETE_ROLES.includes(role);
   const canSync = DDS_SYNC_ROLES.includes(role);
+  const canTransferChecks = DDS_CHECK_TRANSFER_ROLES.includes(role);
 
   const [transactions, setTransactions] = useState<DdsTransaction[]>([]);
   const [totalOnServer, setTotalOnServer] = useState(0);
@@ -93,6 +102,8 @@ export const DdsPage: React.FC = () => {
   const [notice, setNotice] = useState<Notice | null>(null);
 
   // Filtrlar
+  // Davr: standart "Hammasi" (sana chegarasiz) — avvalgi ko'rinish saqlanadi; "dan–gacha" qo'lda tanlanadi
+  const [range, setRange] = useState<DateRangeValue>(() => defaultDateRange('all'));
   const [typeFilter, setTypeFilter] = useState('');
   const [accountFilter, setAccountFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
@@ -104,6 +115,7 @@ export const DdsPage: React.FC = () => {
 
   // Modallar
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [checkTransferOpen, setCheckTransferOpen] = useState(false);
   const [syncingDds, setSyncingDds] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DdsTransaction | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -142,9 +154,12 @@ export const DdsPage: React.FC = () => {
         setLoadError(null);
       }
       try {
+        // Davr (startDate/endDate) ikkala so'rovga ham yuboriladi; bo'sh sana — chegarasiz
+        const dateParams = rangeParams(range);
         const [txRes, sumRes] = await Promise.all([
           axios.get('/api/dds', {
             params: {
+              ...dateParams,
               type: typeFilter || undefined,
               account: accountFilter || undefined,
               source: sourceFilter || undefined,
@@ -153,7 +168,7 @@ export const DdsPage: React.FC = () => {
               sortOrder: 'desc',
             },
           }),
-          axios.get('/api/dds/summary'),
+          axios.get('/api/dds/summary', { params: dateParams }),
         ]);
         if (id !== requestId.current) return; // eskirgan javob
 
@@ -173,7 +188,7 @@ export const DdsPage: React.FC = () => {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [typeFilter, accountFilter, sourceFilter, search]
+    [typeFilter, accountFilter, sourceFilter, search, range.startDate, range.endDate]
   );
 
   useEffect(() => {
@@ -227,6 +242,22 @@ export const DdsPage: React.FC = () => {
     fetchDdsData(true);
   };
 
+  // Cheklar DDS'ga yozilgach: oyna ochiq qoladi (natijani ko'rsatadi), sahifa esa fon rejimida yangilanadi
+  const handleChecksApplied = (result: CheckTransferResult) => {
+    if (result?.balances) setBalances(result.balances);
+    setNotice({
+      tone: result.failed.length > 0 ? 'danger' : 'success',
+      text:
+        t('ddsPage.ct_done', {
+          created: formatNumber(result.created),
+          skipped: formatNumber(result.skipped),
+          total: formatMoney(result.total),
+        }) + (result.failed.length > 0 ? ` ${t('ddsPage.ct_failed_title', { count: formatNumber(result.failed.length) })}` : ''),
+    });
+    fetchDdsData(true);
+    fetchCategories();
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget || deleting) return;
     setDeleting(true);
@@ -266,6 +297,7 @@ export const DdsPage: React.FC = () => {
   };
 
   const resetFilters = () => {
+    setRange(defaultDateRange('all'));
     setTypeFilter('');
     setAccountFilter('');
     setSourceFilter('');
@@ -280,7 +312,8 @@ export const DdsPage: React.FC = () => {
   const filteredNetFlow = filteredIncome - filteredExpense;
   const avgCheck = totalCount > 0 ? Math.round((filteredIncome + filteredExpense) / totalCount) : 0;
 
-  const hasFilters = !!(typeFilter || accountFilter || sourceFilter || searchInput);
+  const hasDateFilter = !!(range.startDate || range.endDate);
+  const hasFilters = !!(typeFilter || accountFilter || sourceFilter || searchInput || hasDateFilter);
   const colCount = canDelete ? 10 : 9;
   const breakdown: any[] = summary?.categoriesBreakdown || [];
 
@@ -312,6 +345,11 @@ export const DdsPage: React.FC = () => {
             >
               {t('ddsPage.breakdown')}
             </Button>
+            {canTransferChecks && (
+              <Button variant="secondary" onClick={() => setCheckTransferOpen(true)} leftIcon={<Receipt className="h-4 w-4" />}>
+                {t('ddsPage.check_transfer')}
+              </Button>
+            )}
             {isAdmin && (
               <Button
                 variant="ghost"
@@ -404,7 +442,7 @@ export const DdsPage: React.FC = () => {
 
       {showCategoryBreakdown && (
         <Card>
-          <CardHeader title={t('ddsPage.breakdown_title')} description={t('ddsPage.breakdown_count', { count: breakdown.length })} />
+          <CardHeader title={t('ddsPage.breakdown_title')} description={t('ddsPage.breakdown_count', { count: breakdown.length, period: periodLabel(range, t) })} />
           {breakdown.length === 0 ? (
             <p className="text-sm text-fg-muted">{t('ddsPage.breakdown_empty')}</p>
           ) : (
@@ -432,8 +470,12 @@ export const DdsPage: React.FC = () => {
       )}
 
       <Card padding="none">
+        {/* Davr filtri (dan–gacha): tez tugmalar + qo'lda sana oralig'i; tor ekranda qatorga sinadi */}
+        <div className="border-b border-line px-4 py-3 sm:px-5">
+          <DateRangeFilter value={range} onChange={setRange} />
+        </div>
         {/* Qidiruv va filtrlar */}
-        <div className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 lg:flex-row lg:items-center">
+        <div className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:px-5 xl:flex-row xl:items-center">
           <div className="min-w-0 flex-1">
             <Input
               type="search"
@@ -444,8 +486,8 @@ export const DdsPage: React.FC = () => {
               leftIcon={<Search />}
             />
           </div>
-          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:grid-cols-3 lg:flex lg:w-auto">
-            <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label={t('common.type')} className="lg:w-40">
+          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:grid-cols-3 xl:flex xl:w-auto">
+            <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label={t('common.type')} className="xl:w-40">
               <option value="">{t('ddsPage.filter_all_types')}</option>
               <option value="INCOME">{t('common.income')}</option>
               <option value="EXPENSE">{t('common.expense')}</option>
@@ -454,7 +496,7 @@ export const DdsPage: React.FC = () => {
               value={accountFilter}
               onChange={(e) => setAccountFilter(e.target.value)}
               aria-label={t('accounts.label')}
-              className="lg:w-44"
+              className="xl:w-44"
             >
               <option value="">{t('ddsPage.filter_all_accounts')}</option>
               {DDS_ACCOUNTS.map((a) => (
@@ -467,7 +509,7 @@ export const DdsPage: React.FC = () => {
               value={sourceFilter}
               onChange={(e) => setSourceFilter(e.target.value)}
               aria-label={t('ddsPage.col_source')}
-              className="lg:w-40"
+              className="xl:w-40"
             >
               <option value="">{t('ddsPage.filter_all_sources')}</option>
               {DDS_SOURCES.map((s) => (
@@ -603,6 +645,10 @@ export const DdsPage: React.FC = () => {
         onSaved={handleCreated}
       />
 
+      {canTransferChecks && (
+        <CheckTransferModal open={checkTransferOpen} onClose={() => setCheckTransferOpen(false)} onApplied={handleChecksApplied} />
+      )}
+
       {/* O'chirishni tasdiqlash */}
       <Modal
         open={deleteTarget !== null}
@@ -640,6 +686,12 @@ export const DdsPage: React.FC = () => {
               <p className="flex items-start gap-2 rounded-control bg-warning-soft px-3 py-2 text-xs text-warning">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>{t('ddsPage.delete_trust_note')}</span>
+              </p>
+            )}
+            {(deleteTarget.source === 'STORE_PAYMENT' || deleteTarget.source === 'QODIR_PAYMENT') && (
+              <p className="flex items-start gap-2 rounded-control bg-warning-soft px-3 py-2 text-xs text-warning">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{t('ddsPage.delete_settlement_note')}</span>
               </p>
             )}
             {deleteError && (

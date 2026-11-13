@@ -35,6 +35,8 @@ import { UsersPage } from './pages/UsersPage';
 import { LoginPage } from './pages/LoginPage';
 import { TrustPage } from './pages/TrustPage';
 import { TeamPage } from './pages/TeamPage';
+import { StoresPage } from './pages/StoresPage';
+import { StoreDetailPage } from './pages/StoreDetailPage';
 import { LoadingBlock } from './components/ui';
 
 // Layout wrapper for authenticated pages
@@ -65,6 +67,8 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     '/agents-swot': 'title.agents_swot',
     '/dds': 'title.dds',
     '/trust': 'title.trust',
+    '/stores': 'title.stores',
+    '/qodir-ledger': 'title.qodir_ledger',
     '/team': 'title.team',
     '/balance': 'title.balance',
     '/daily': 'title.daily',
@@ -78,7 +82,18 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     '/users': 'title.users',
     '/handover': 'title.handover',
   };
-  const getPageTitle = (pathname: string): string => t(TITLE_KEYS[pathname] || 'title.default');
+  // Ichki yo'llar (masalan /stores/:storeId) uchun alohida sarlavha; bo'lmasa eng uzun mos ota yo'lniki olinadi
+  const PREFIX_TITLE_KEYS: Record<string, string> = {
+    '/stores': 'title.store_detail',
+  };
+  const getPageTitle = (pathname: string): string => {
+    const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+    if (TITLE_KEYS[path]) return t(TITLE_KEYS[path]);
+    const parent = Object.keys({ ...TITLE_KEYS, ...PREFIX_TITLE_KEYS })
+      .filter((p) => p !== '/' && path.startsWith(p + '/'))
+      .sort((a, b) => b.length - a.length)[0];
+    return t((parent && (PREFIX_TITLE_KEYS[parent] || TITLE_KEYS[parent])) || 'title.default');
+  };
 
   return (
     <div className="flex min-h-screen bg-app text-fg">
@@ -174,6 +189,9 @@ export const App: React.FC = () => {
                 <Route path="/agents-swot" element={<ProtectedRoute><AgentSwotPage /></ProtectedRoute>} />
                 <Route path="/dds" element={<ProtectedRoute><DdsPage /></ProtectedRoute>} />
                 <Route path="/trust" element={<ProtectedRoute><TrustPage /></ProtectedRoute>} />
+                <Route path="/stores" element={<ProtectedRoute><StoresPage /></ProtectedRoute>} />
+                <Route path="/stores/:storeId" element={<ProtectedRoute><StoreDetailPage /></ProtectedRoute>} />
+                <Route path="/qodir-ledger" element={<ProtectedRoute><StoreDetailPage qodir /></ProtectedRoute>} />
                 <Route path="/team" element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
                 <Route path="/balance" element={<ProtectedRoute><BalancePage /></ProtectedRoute>} />
                 <Route path="/daily" element={<ProtectedRoute><DailyAccountingPage /></ProtectedRoute>} />

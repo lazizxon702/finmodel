@@ -6,7 +6,21 @@ import { AmountInput } from '../AmountInput';
 import { useTranslation } from '../../context/LanguageContext';
 import { todayYmd } from '../../utils/format';
 import { apiErrorMessage } from '../dashboard/period';
-import { CHECK_EXPENSE_CATEGORY, DDS_ACCOUNTS, isTrustIncomeCategory, type DdsAccount } from './constants';
+import { isStoreIncomeCandidate } from '../stores/storeUtils';
+import {
+  CHECK_EXPENSE_CATEGORY,
+  DDS_ACCOUNTS,
+  isQodirPaymentCategory,
+  isSettlementCategory,
+  isStoreIncomeCategory,
+  isTrustIncomeCategory,
+  type DdsAccount,
+} from './constants';
+
+interface StoreOption {
+  id: string;
+  name: string;
+}
 
 type TxType = 'INCOME' | 'EXPENSE';
 type ExpenseType = 'COGS' | 'OPEX' | 'INCOME_TRANSFER';
@@ -30,6 +44,8 @@ interface FormState {
   sourcePerson: string;
   amount: number;
   description: string;
+  /** Faqat «Do'kondan tushum» kirimi uchun — qaysi do'kon to'lagani */
+  storeId: string;
 }
 
 /**
@@ -37,27 +53,38 @@ interface FormState {
  * - "Saqlash" bosilganda tugma bloklanadi — ikki marta yuborilmaydi.
  * - Server xatosi (`error`) forma ichida ko'rsatiladi.
  * - Sana bugun bo'lsa server hozirgi vaqtni yozadi (faqat "YYYY-MM-DD" yuboriladi).
+ * - «Do'kondan tushum» kirimida do'kon tanlash majburiy (`storeId` yuboriladi) — do'kon qarzi kamayadi.
+ * - «Qodir aka to'lovi» faqat chiqim — Qodir akaga qarzimiz kamayadi.
  */
 export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categories, defaultPerson, onSaved }) => {
   const { t } = useTranslation();
+
+  // Oddiy (hisob-kitobga ta'sir qilmaydigan) kategoriya — standart tanlov; qarz tasodifan kamayib ketmasin
+  const neutralCategory = () => categories.find((c) => !isSettlementCategory(c)) || CHECK_EXPENSE_CATEGORY;
 
   const initial = (): FormState => ({
     date: todayYmd(),
     type: 'EXPENSE',
     account: 'CASH',
     expenseType: 'OPEX',
-    categoryName: categories.find((c) => !isTrustIncomeCategory(c)) || CHECK_EXPENSE_CATEGORY,
+    categoryName: neutralCategory(),
     sourcePerson: defaultPerson,
     amount: 0,
     description: '',
+    storeId: '',
   });
 
   const [form, setForm] = useState<FormState>(initial);
   const [isNewCategory, setIsNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<{ amount?: string; category?: string }>({});
+  const [errors, setErrors] = useState<{ amount?: string; category?: string; store?: string }>({});
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // «Do'kondan tushum» uchun do'konlar (bitim formasi ishlatadigan spravochnik); Qodir aka va Trust kirmaydi
+  const [stores, setStores] = useState<StoreOption[]>([]);
+  const [storesLoading, setStoresLoading] = useState(false);
+  const [storesError, setStoresError] = useState(false);
 
   // Har ochilganda formani boshlang'ich holatga qaytaramiz
   useEffect(() => {
@@ -75,19 +102,55 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
 
   const effectiveCategory = (isNewCategory ? newCategoryName : form.categoryName).trim();
   const isTrust = isTrustIncomeCategory(effectiveCategory);
+  const isStoreIncome = isStoreIncomeCategory(effectiveCategory);
+  const isQodirPayment = isQodirPaymentCategory(effectiveCategory);
+  // Do'kon tanlash faqat kirim + «Do'kondan tushum» bo'lganda kerak (va majburiy)
+  const needsStore = form.type === 'INCOME' && isStoreIncome;
+
+  // Do'konlar ro'yxati birinchi marta kerak bo'lganda yuklanadi
+  useEffect(() => {
+    if (!open || !needsStore || stores.length > 0 || storesLoading) return;
+    let cancelled = false;
+    setStoresLoading(true);
+    setStoresError(false);
+    axios
+      .get('/api/references/stores')
+      .then((res) => {
+        if (cancelled) return;
+        const list: StoreOption[] = (Array.isArray(res.data) ? res.data : [])
+          .filter((s: any) => s && s.id && isStoreIncomeCandidate(s))
+          .map((s: any) => ({ id: String(s.id), name: String(s.name || '') }))
+          .sort((a: StoreOption, b: StoreOption) => a.name.localeCompare(b.name));
+        setStores(list);
+      })
+      .catch(() => {
+        if (!cancelled) setStoresError(true);
+      })
+      // Bekor qilingan bo'lsa ham bayroq tushiriladi — aks holda keyingi safar yuklanmay qoladi
+      .finally(() => setStoresLoading(false));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, needsStore]);
 
   const changeType = (type: TxType) => {
-    // "Trust 1 daromadi" faqat kirim bo'la oladi — chiqimga o'tilganda boshqa kategoriya tanlanadi
-    if (type === 'EXPENSE' && !isNewCategory && isTrustIncomeCategory(form.categoryName)) {
-      patch({ type, categoryName: categories.find((c) => !isTrustIncomeCategory(c)) || CHECK_EXPENSE_CATEGORY });
+    // Faqat kirim («Trust 1 daromadi», «Do'kondan tushum») yoki faqat chiqim («Qodir aka to'lovi»)
+    // bo'la oladigan kategoriya turga mos kelmasa — oddiy kategoriyaga almashtiriladi
+    const incomeOnly = isTrustIncomeCategory(form.categoryName) || isStoreIncomeCategory(form.categoryName);
+    const mismatch = (type === 'EXPENSE' && incomeOnly) || (type === 'INCOME' && isQodirPaymentCategory(form.categoryName));
+    if (!isNewCategory && mismatch) {
+      patch({ type, categoryName: neutralCategory(), storeId: '' });
     } else {
       patch({ type });
     }
   };
 
   const changeCategory = (categoryName: string) => {
-    // Trust kategoriyasi tanlansa operatsiya turi avtomatik "Kirim" bo'ladi
-    patch(isTrustIncomeCategory(categoryName) ? { categoryName, type: 'INCOME' } : { categoryName });
+    // Tizim kategoriyasi tanlansa operatsiya turi avtomatik mos keladi: Trust / do'kon tushumi — kirim, Qodir aka — chiqim
+    if (isTrustIncomeCategory(categoryName) || isStoreIncomeCategory(categoryName)) patch({ categoryName, type: 'INCOME' });
+    else if (isQodirPaymentCategory(categoryName)) patch({ categoryName, type: 'EXPENSE' });
+    else patch({ categoryName });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -97,6 +160,11 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
     const nextErrors: typeof errors = {};
     if (!form.amount || form.amount <= 0) nextErrors.amount = t('ddsPage.form_amount_required');
     if (!effectiveCategory) nextErrors.category = t('ddsPage.form_category_required');
+    // Tur va tizim kategoriyasi mos kelmasa (yangi kategoriya qo'lda yozilganda) — yuborilmaydi
+    else if (form.type === 'EXPENSE' && isTrust) nextErrors.category = t('ddsPage.form_trust_income_only');
+    else if (form.type === 'EXPENSE' && isStoreIncome) nextErrors.category = t('ddsPage.form_store_income_only');
+    else if (form.type === 'INCOME' && isQodirPayment) nextErrors.category = t('ddsPage.form_qodir_expense_only');
+    if (needsStore && !form.storeId) nextErrors.store = t('ddsPage.form_store_required');
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
@@ -113,6 +181,8 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
         sourcePerson: form.sourcePerson.trim(),
         amount: Number(form.amount), // AmountInput butun son qaytaradi
         description: form.description.trim(),
+        // Faqat «Do'kondan tushum» kirimida — server shu do'kon qarzini kamaytiradi
+        ...(needsStore ? { storeId: form.storeId } : {}),
       });
       onSaved(res.data);
     } catch (err) {
@@ -282,7 +352,46 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
               <span>{form.type === 'INCOME' ? t('ddsPage.form_trust_note') : t('ddsPage.form_trust_income_only')}</span>
             </p>
           )}
+          {isStoreIncome && (
+            <p className="mt-2 flex items-start gap-2 rounded-control bg-info-soft px-3 py-2 text-xs text-info">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{form.type === 'INCOME' ? t('ddsPage.form_store_income_note') : t('ddsPage.form_store_income_only')}</span>
+            </p>
+          )}
+          {isQodirPayment && (
+            <p className="mt-2 flex items-start gap-2 rounded-control bg-info-soft px-3 py-2 text-xs text-info">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{form.type === 'EXPENSE' ? t('ddsPage.form_qodir_note') : t('ddsPage.form_qodir_expense_only')}</span>
+            </p>
+          )}
         </div>
+
+        {needsStore && (
+          <Field
+            label={t('ddsPage.form_store')}
+            required
+            htmlFor="dds-form-store"
+            error={errors.store || (storesError ? t('ddsPage.form_store_load_error') : undefined)}
+          >
+            <Select
+              id="dds-form-store"
+              value={form.storeId}
+              onChange={(e) => {
+                patch({ storeId: e.target.value });
+                if (e.target.value) setErrors((prev) => ({ ...prev, store: undefined }));
+              }}
+              invalid={!!errors.store}
+              disabled={saving || storesLoading}
+            >
+              <option value="">{storesLoading ? t('common.loading') : t('ddsPage.form_store_placeholder')}</option>
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         <Field label={t('ddsPage.form_person')} htmlFor="dds-form-person" hint={t('ddsPage.form_person_hint')}>
           <Input

@@ -675,6 +675,8 @@ async function main() {
           if (dupIds.length) {
             await tx.deal.updateMany({ where: { storeId: { in: dupIds } }, data: { storeId: g.survivor.id } });
             await tx.commissionRule.updateMany({ where: { storeId: { in: dupIds } }, data: { storeId: g.survivor.id } });
+            // Do'kon daftari yozuvlari ham omon qoluvchiga ko'chadi (aks holda Cascade ularni o'chirib yuborardi)
+            await tx.storeLedgerEntry.updateMany({ where: { storeId: { in: dupIds } }, data: { storeId: g.survivor.id } });
             await tx.store.deleteMany({ where: { id: { in: dupIds } } });
           }
           // Nom unique — dublikatlar o'chirilgandan KEYIN qayta nomlanadi

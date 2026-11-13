@@ -18,6 +18,19 @@ import {
   normalizeDealItems,
   summarizeTrustLedger,
 } from '../src/services/calculation.service';
+import {
+  QODIR_PAYMENT_CATEGORY,
+  STORE_INCOME_CATEGORY,
+  STORE_LEDGER_START_YMD,
+  calcStoreDebt,
+  isOnOrAfterStoreLedgerStart,
+  isQodirPaymentCategory,
+  isStoreIncomeCategory,
+  isTrustIncomeCategory,
+  storeLedgerStartDate,
+  storeSettlementKind,
+  summarizeLedger,
+} from '../src/services/calculation.service';
 
 describe('Trust 16% qarzi', () => {
   it('10 000 000 yechilsa Trust qarzi 1 600 000', () => {
@@ -203,5 +216,82 @@ describe('Sana va vaqt (Asia/Tashkent)', () => {
     expect(formatTashkentDateTime('2026-11-09T19:30:00.000Z')).toBe('10.11.2026 00:30');
     expect(formatTashkentDateTime('2026-11-09T07:05:00.000Z')).toBe('09.11.2026 12:05');
     expect(formatTashkentDateTime(null)).toBe('');
+  });
+});
+
+describe("Do'konlar bilan hisob-kitob (do'kon daftari)", () => {
+  const approved = { approvalStatus: 'APPROVED', date: '2026-11-11T07:00:00.000Z' };
+
+  it("yo'nalish: Qodir aka — biz qarzdormiz, Trust — o'z daftari, qolganlar — do'kon qarzdor", () => {
+    expect(storeSettlementKind('Qodir aka')).toBe('WE_OWE');
+    expect(storeSettlementKind('Кодир ока')).toBe('WE_OWE');
+    expect(storeSettlementKind('Trust')).toBe('TRUST');
+    expect(storeSettlementKind('trust 1')).toBe('TRUST');
+    expect(storeSettlementKind('Novza')).toBe('STORE_OWES');
+    expect(storeSettlementKind('Trustbank')).toBe('STORE_OWES');
+    expect(storeSettlementKind(null)).toBe('STORE_OWES');
+  });
+
+  it("qarz = mijozga berilgan summa — oddiy do'kon uchun ham, Qodir aka uchun ham", () => {
+    expect(calcStoreDebt({ ...approved, calculatedAmount: 3_500_000, storeName: 'Novza' })).toBe(3_500_000);
+    expect(calcStoreDebt({ ...approved, calculatedAmount: 2_000_000, storeName: 'Qodir oka' })).toBe(2_000_000);
+    expect(calcStoreDebt({ ...approved, calculatedAmount: '1234.567', storeName: 'Angren' })).toBe(1234.57);
+  });
+
+  it("qarz yozilmaydi: tasdiqlanmagan, Trust do'koni, summa 0 yoki manfiy", () => {
+    expect(calcStoreDebt({ ...approved, approvalStatus: 'PENDING_APPROVAL', calculatedAmount: 1_000_000, storeName: 'Novza' })).toBe(0);
+    expect(calcStoreDebt({ ...approved, approvalStatus: 'REJECTED', calculatedAmount: 1_000_000, storeName: 'Novza' })).toBe(0);
+    expect(calcStoreDebt({ ...approved, approvalStatus: undefined, calculatedAmount: 1_000_000, storeName: 'Novza' })).toBe(0);
+    expect(calcStoreDebt({ ...approved, calculatedAmount: 1_000_000, storeName: 'Trust' })).toBe(0);
+    expect(calcStoreDebt({ ...approved, calculatedAmount: 0, storeName: 'Novza' })).toBe(0);
+    expect(calcStoreDebt({ ...approved, calculatedAmount: -5, storeName: 'Novza' })).toBe(0);
+  });
+
+  it('daftar 10.11.2026 (Toshkent) dan boshlanadi: undan oldingi bitimga qarz yozilmaydi', () => {
+    expect(STORE_LEDGER_START_YMD).toBe('2026-11-10');
+    expect(storeLedgerStartDate().toISOString()).toBe('2026-11-09T19:00:00.000Z');
+    // 09.11.2026 23:59 (Toshkent) — oldin; 10.11.2026 00:00 (Toshkent) — ichida
+    expect(isOnOrAfterStoreLedgerStart('2026-11-09T18:59:59.999Z')).toBe(false);
+    expect(isOnOrAfterStoreLedgerStart('2026-11-09T19:00:00.000Z')).toBe(true);
+    expect(isOnOrAfterStoreLedgerStart(null)).toBe(false);
+    expect(isOnOrAfterStoreLedgerStart('bugun')).toBe(false);
+
+    const base = { approvalStatus: 'APPROVED', calculatedAmount: 1_000_000, storeName: 'Novza' };
+    expect(calcStoreDebt({ ...base, date: '2026-11-09T18:59:59.999Z' })).toBe(0);
+    expect(calcStoreDebt({ ...base, date: '2026-11-09T19:00:00.000Z' })).toBe(1_000_000);
+    expect(calcStoreDebt({ ...base, date: null })).toBe(0);
+    // Boshlanish kuni almashtirilsa (egasi keyin o'zgartirishi mumkin) qoida shunga moslashadi
+    expect(calcStoreDebt({ ...base, date: '2026-11-05T07:00:00.000Z', startYmd: '2026-11-01' })).toBe(1_000_000);
+    expect(isOnOrAfterStoreLedgerStart('2026-11-11T07:00:00.000Z', '2026-12-01')).toBe(false);
+  });
+
+  it("DDS kategoriyalari: yozilish variantlari bilan taniladi, o'xshash nomlar adashtirilmaydi", () => {
+    expect(isQodirPaymentCategory(QODIR_PAYMENT_CATEGORY)).toBe(true);
+    expect(isQodirPaymentCategory("  qodir AKA  to`lovi ")).toBe(true);
+    expect(isQodirPaymentCategory('Qodir akaga to‘lov')).toBe(true);
+    expect(isQodirPaymentCategory('Qodir aka')).toBe(false);
+    expect(isQodirPaymentCategory(null)).toBe(false);
+
+    expect(isStoreIncomeCategory(STORE_INCOME_CATEGORY)).toBe(true);
+    expect(isStoreIncomeCategory('DOʻKONDAN TUSHUM')).toBe(true);
+    expect(isStoreIncomeCategory("Do'kon ijarasi")).toBe(false);
+    expect(isStoreIncomeCategory('')).toBe(false);
+
+    expect(isTrustIncomeCategory('Trust 1 daromadi')).toBe(true);
+    expect(isTrustIncomeCategory(STORE_INCOME_CATEGORY)).toBe(false);
+  });
+
+  it("umumiy daftar yig'masi: qoldiq = qarz − to'langan; Trust yig'masi shu asosda", () => {
+    expect(summarizeLedger([])).toEqual({ debt: 0, paid: 0, balance: 0 });
+    const entries = [
+      { type: 'DEBT', amount: 3_500_000 },
+      { type: 'DEBT', amount: '1200000' },
+      { type: 'PAYMENT', amount: 1_000_000 },
+      { type: 'BOSHQA', amount: 999 },
+    ];
+    expect(summarizeLedger(entries)).toEqual({ debt: 4_700_000, paid: 1_000_000, balance: 3_700_000 });
+    expect(summarizeTrustLedger(entries)).toEqual({ totalDebt: 4_700_000, totalPaid: 1_000_000, balance: 3_700_000 });
+    // Ortiqcha to'lov — manfiy qoldiq (yashirilmaydi)
+    expect(summarizeLedger([{ type: 'PAYMENT', amount: 500 }]).balance).toBe(-500);
   });
 });

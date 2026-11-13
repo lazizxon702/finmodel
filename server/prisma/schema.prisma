@@ -39,6 +39,13 @@ enum DdsSource {
   DEAL_CHECK
   TRUST_PAYMENT
   SYNC
+  QODIR_PAYMENT // Qodir akaga to'lov (chiqim) — uning daftaridagi qarzimizni kamaytiradi
+  STORE_PAYMENT // Do'kondan tushum (kirim) — do'konning bizga qarzini kamaytiradi
+}
+
+enum StoreEntryType {
+  DEBT
+  PAYMENT
 }
 
 enum DealStatus {
@@ -109,6 +116,7 @@ model Store {
   isActive        Boolean          @default(true)
   deals           Deal[]
   commissionRules CommissionRule[]
+  ledgerEntries   StoreLedgerEntry[]
 }
 
 model Provider {
@@ -245,6 +253,7 @@ model Deal {
   items               DealItem[]
   ddsTransactions     DdsTransaction[]
   trustEntry          TrustLedgerEntry?
+  storeEntry          StoreLedgerEntry?
 
   @@index([approvalStatus])
   @@index([createdById])
@@ -287,6 +296,7 @@ model DdsTransaction {
   dealId       String?
   deal         Deal?               @relation(fields: [dealId], references: [id], onDelete: SetNull)
   trustEntry   TrustLedgerEntry?
+  storeEntry   StoreLedgerEntry?
 
   // Bitta bitim uchun chek xarajati faqat bir marta yoziladi
   @@unique([dealId, source])
@@ -315,6 +325,28 @@ model TrustLedgerEntry {
   createdAt        DateTime        @default(now())
 
   @@index([dateTime])
+}
+
+// Do'kon bilan o'zaro hisob-kitob daftari (Qodir aka daftari ham shu jadvalda).
+// DEBT = bitim bo'yicha mijozga berilgan summa; PAYMENT = DDS orqali yopilgan qism.
+// Yo'nalish do'konga bog'liq: Qodir aka — biz unga qarzdormiz (to'lov = DDS chiqimi);
+// boshqa do'konlar — do'kon bizga qarzdor (to'lov = DDS kirimi).
+model StoreLedgerEntry {
+  id               String          @id @default(uuid())
+  storeId          String
+  store            Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  type             StoreEntryType
+  amount           Decimal
+  dateTime         DateTime        @default(now())
+  dealId           String?         @unique
+  deal             Deal?           @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  ddsTransactionId String?         @unique
+  ddsTransaction   DdsTransaction? @relation(fields: [ddsTransactionId], references: [id], onDelete: Cascade)
+  note             String?
+  createdById      String?
+  createdAt        DateTime        @default(now())
+
+  @@index([storeId, dateTime])
 }
 
 // FCM push tokenlari (Android ilova)

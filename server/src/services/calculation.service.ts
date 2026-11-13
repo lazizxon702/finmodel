@@ -36,6 +36,18 @@ export const TRUST_INCOME_CATEGORY = 'Trust 1 daromadi';
 /** DDS'da chek (mijozga to'lov) xarajati yoziladigan kategoriya nomi */
 export const CHECK_EXPENSE_CATEGORY = 'Mijozga berilgan summa (Tovar xaridi)';
 
+/** DDS'da Qodir akaga to'lov (CHIQIM) yoziladigan kategoriya — uning daftaridagi qarzimizni kamaytiradi */
+export const QODIR_PAYMENT_CATEGORY = "Qodir aka to'lovi";
+
+/** DDS'da do'kondan kelgan pul (KIRIM) yoziladigan kategoriya — do'konning bizga qarzini kamaytiradi */
+export const STORE_INCOME_CATEGORY = "Do'kondan tushum";
+
+/**
+ * Do'konlar bilan hisob-kitob daftari shu kundan (Asia/Tashkent) boshlanadi:
+ * undan OLDINGI sanali bitimlarga qarz yozuvi yaratilmaydi. Egasi keyin o'zgartirishi mumkin — faqat shu yerda.
+ */
+export const STORE_LEDGER_START_YMD = '2026-11-10';
+
 /** Nomni solishtirish uchun normallashtirish: kichik harf, ortiqcha bo'shliq va tirnoqlarsiz */
 export function normalizeName(name?: string | null): string {
   return (name || '')
@@ -122,6 +134,64 @@ export function isQodirStore(storeName?: string | null): boolean {
   return canonicalStoreName(storeName) === 'Qodir aka';
 }
 
+/** Kategoriya "Trust 1 daromadi" mi (Trust bergan pul) */
+export function isTrustIncomeCategory(categoryName?: string | null): boolean {
+  const n = normalizeName(categoryName);
+  return n === normalizeName(TRUST_INCOME_CATEGORY) || n === 'trust daromadi' || n === 'trust 1 daromad';
+}
+
+/** Kategoriya "Qodir aka to'lovi" mi (yozilish variantlari bilan) */
+const QODIR_PAYMENT_NAMES = new Set([
+  normalizeName(QODIR_PAYMENT_CATEGORY),
+  'qodir aka tolov',
+  'qodir akaga tolov',
+  'qodir akaga tolovi',
+  'qodir oka tolovi',
+  'qodir oka tolov',
+]);
+export function isQodirPaymentCategory(categoryName?: string | null): boolean {
+  return QODIR_PAYMENT_NAMES.has(normalizeName(categoryName));
+}
+
+/** Kategoriya "Do'kondan tushum" mi (yozilish variantlari bilan) */
+const STORE_INCOME_NAMES = new Set([
+  normalizeName(STORE_INCOME_CATEGORY),
+  'dokondan tushumi',
+  'dokon tushumi',
+  'dokondan tushim',
+  'dukondan tushum',
+]);
+export function isStoreIncomeCategory(categoryName?: string | null): boolean {
+  return STORE_INCOME_NAMES.has(normalizeName(categoryName));
+}
+
+/**
+ * Do'kon bilan hisob-kitob yo'nalishi:
+ *   WE_OWE     — "Qodir aka": mijozga U to'laydi, shuning uchun BIZ undan qarzdormiz;
+ *   TRUST      — Trust / Trust 1 do'koni: o'zining Trust daftari bor, do'kon daftariga yozilmaydi;
+ *   STORE_OWES — qolgan barcha do'konlar: DO'KON bizdan qarzdor.
+ */
+export type StoreSettlement = 'WE_OWE' | 'STORE_OWES' | 'TRUST';
+export function storeSettlementKind(storeName?: string | null): StoreSettlement {
+  if (isTrustName(storeName)) return 'TRUST';
+  if (isQodirStore(storeName)) return 'WE_OWE';
+  return 'STORE_OWES';
+}
+
+/** Do'kon daftari boshlanadigan lahza: boshlanish kunining 00:00 i (Asia/Tashkent) */
+export function storeLedgerStartDate(startYmd: string = STORE_LEDGER_START_YMD): Date {
+  return new Date(`${startYmd}T00:00:00+05:00`);
+}
+/** Sana do'kon daftari boshlangan kunda yoki undan keyinmi */
+export function isOnOrAfterStoreLedgerStart(
+  date: Date | string | null | undefined,
+  startYmd: string = STORE_LEDGER_START_YMD
+): boolean {
+  if (!date) return false;
+  const d = new Date(date);
+  return !isNaN(d.getTime()) && d.getTime() >= storeLedgerStartDate(startYmd).getTime();
+}
+
 /** Imanum provayderi (Imanium / Imaniom variantlari bilan) */
 export function isImanumProvider(providerName?: string | null): boolean {
   return canonicalProviderName(providerName) === 'Imanum';
@@ -151,6 +221,26 @@ export function calcCheckExpense(input: { calculatedAmount: number; storeName?: 
   return amt > 0 ? round2(amt) : 0;
 }
 
+/**
+ * Do'kon bilan hisob-kitob qarzi (bitta bitim) = "mijozga berilgan summa" (calculatedAmount), Qodir aka uchun ham.
+ * 0 qaytadi: bitim tasdiqlanmagan, Trust do'koni (o'z daftari bor), bitim sanasi daftar boshlanishidan oldin, summa 0.
+ * Yo'nalish (kim kimdan qarzdor) — storeSettlementKind.
+ */
+export function calcStoreDebt(input: {
+  calculatedAmount: number | string | { toString(): string };
+  storeName?: string | null;
+  approvalStatus?: string | null;
+  date?: Date | string | null;
+  /** Sinov uchun: boshlanish kunini almashtirish (standart — STORE_LEDGER_START_YMD) */
+  startYmd?: string;
+}): number {
+  if (input.approvalStatus !== 'APPROVED') return 0;
+  if (storeSettlementKind(input.storeName) === 'TRUST') return 0;
+  if (!isOnOrAfterStoreLedgerStart(input.date, input.startYmd)) return 0;
+  const amt = Number(input.calculatedAmount) || 0;
+  return amt > 0 ? round2(amt) : 0;
+}
+
 /** Bitim hisob-kitoblarga (foyda, DDS, qarzlar, dashboard) kiradimi — faqat ADMIN tasdiqlagani */
 export function countsInTotals(approvalStatus?: string | null): boolean {
   return !approvalStatus || approvalStatus === 'APPROVED';
@@ -171,16 +261,21 @@ export interface TrustLedgerLike {
   type: 'DEBT' | 'PAYMENT' | string;
   amount: number | string | { toString(): string };
 }
-/** Trust hisob-kitobi: Jami qarz, Trust bergan pul, Qoldiq */
-export function summarizeTrustLedger(entries: TrustLedgerLike[]) {
-  let totalDebt = 0;
-  let totalPaid = 0;
+/** Umumiy daftar yig'masi (Trust va do'kon daftarlari uchun): qarz, to'langan, qoldiq = qarz − to'langan */
+export function summarizeLedger(entries: TrustLedgerLike[]) {
+  let debt = 0;
+  let paid = 0;
   for (const e of entries) {
     const a = Number(e.amount) || 0;
-    if (e.type === 'DEBT') totalDebt += a;
-    else if (e.type === 'PAYMENT') totalPaid += a;
+    if (e.type === 'DEBT') debt += a;
+    else if (e.type === 'PAYMENT') paid += a;
   }
-  return { totalDebt: round2(totalDebt), totalPaid: round2(totalPaid), balance: round2(totalDebt - totalPaid) };
+  return { debt: round2(debt), paid: round2(paid), balance: round2(debt - paid) };
+}
+/** Trust hisob-kitobi: Jami qarz, Trust bergan pul, Qoldiq */
+export function summarizeTrustLedger(entries: TrustLedgerLike[]) {
+  const s = summarizeLedger(entries);
+  return { totalDebt: s.debt, totalPaid: s.paid, balance: s.balance };
 }
 
 export interface DealItemInput {
@@ -259,6 +354,9 @@ export class CalculationService {
   static initialApprovalStatus = initialApprovalStatus;
   static balanceDelta = balanceDelta;
   static summarizeTrustLedger = summarizeTrustLedger;
+  static summarizeLedger = summarizeLedger;
+  static calcStoreDebt = calcStoreDebt;
+  static storeSettlementKind = storeSettlementKind;
   static normalizeDealItems = normalizeDealItems;
 
   /**

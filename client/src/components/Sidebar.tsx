@@ -24,6 +24,8 @@ import {
   ShieldCheck,
   Handshake,
   UsersRound,
+  Store,
+  BookOpen,
   FileSpreadsheet,
   Bell,
   type LucideIcon,
@@ -60,13 +62,15 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
   ADMIN: [
     '/', '/leads', '/deals', '/warehouse', '/sales', '/debtors', '/agents',
     '/agents-swot', '/hr', '/dds', '/trust', '/balance', '/daily', '/finmodel',
-    '/bot-deals', '/bot-payments', '/finances', '/references', '/users', '/team'
+    '/bot-deals', '/bot-payments', '/finances', '/references', '/users', '/team',
+    '/stores', '/qodir-ledger'
   ],
   CFO: [
-    '/dds', '/trust', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references'
+    '/dds', '/trust', '/stores', '/qodir-ledger', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references'
   ],
   COO: [
-    '/deals', '/warehouse', '/sales', '/leads', '/debtors', '/agents', '/agents-swot', '/daily', '/trust'
+    '/deals', '/warehouse', '/sales', '/leads', '/debtors', '/agents', '/agents-swot', '/daily', '/trust',
+    '/stores', '/qodir-ledger'
   ],
   CALL_CENTER_HEAD: [
     '/leads', '/hr', '/deals', '/agents', '/agents-swot'
@@ -92,10 +96,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     '/hr', '/daily'
   ],
   VIEWER: [
-    '/', '/finances', '/finmodel', '/agents-swot', '/trust'
+    '/', '/finances', '/finmodel', '/agents-swot', '/trust', '/stores', '/qodir-ledger'
   ],
-  MANAGER: ['/deals', '/warehouse', '/sales', '/debtors', '/agents', '/daily', '/trust'],
-  CASHIER: ['/dds', '/daily', '/balance', '/bot-payments', '/trust']
+  MANAGER: ['/deals', '/warehouse', '/sales', '/debtors', '/agents', '/daily', '/trust', '/stores', '/qodir-ledger'],
+  CASHIER: ['/dds', '/daily', '/balance', '/bot-payments', '/trust', '/stores', '/qodir-ledger']
 };
 
 /** Berilgan yo'l rol uchun ochiqmi. `/agents` ruxsati `/agents-swot` ni OCHMAYDI (aniq yoki ichki yo'l). */
@@ -128,6 +132,8 @@ const MENU: MenuItem[] = [
 
   { to: '/dds', key: 'dds', icon: ArrowDownUp, group: 'finance' },
   { to: '/trust', key: 'trust', icon: Handshake, group: 'finance' },
+  { to: '/stores', key: 'stores', icon: Store, group: 'finance' },
+  { to: '/qodir-ledger', key: 'qodir_ledger', icon: BookOpen, group: 'finance' },
   { to: '/balance', key: 'balance', icon: Wallet, group: 'finance' },
   { to: '/daily', key: 'daily', icon: CalendarCheck, group: 'finance' },
   { to: '/bot-payments', key: 'bot_payments', icon: Receipt, group: 'finance' },

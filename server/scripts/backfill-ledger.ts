@@ -2,15 +2,16 @@
  * Eski ma'lumotlarni yangi modellarga to'ldirish (qayta ishga tushirsa ham xavfsiz — idempotent):
  *   1) DealItem     — Deal.deviceItems (Json) yoki eski yagona maydonlardan (productName, imeiBarcode ...)
  *   2) Trust daftari — har bir tasdiqlangan Trust / Trust 1 bitimi uchun DEBT yozuvi (yechilgan limit × 16%)
- *   3) Hisob qoldiqlari — barcha DDS yozuvlaridan qayta hisoblanadi
+ *   3) Do'kon daftari — tasdiqlangan bitimlar uchun DEBT yozuvi (mijozga berilgan summa); batafsil: backfill-store-ledger.ts
+ *   4) Hisob qoldiqlari — barcha DDS yozuvlaridan qayta hisoblanadi
  *
  *   npx ts-node --transpile-only scripts/backfill-ledger.ts            (dry-run: faqat ko'rsatadi)
  *   npx ts-node --transpile-only scripts/backfill-ledger.ts --apply    (bazaga yozadi)
  */
 import 'dotenv/config';
 import { prisma } from '../src/lib/prisma';
-import { calcTrustDebt, isTrustDeal, normalizeDealItems } from '../src/services/calculation.service';
-import { rebuildAccountBalances, syncTrustDebtForDeal } from '../src/services/ledger.service';
+import { calcStoreDebt, calcTrustDebt, isTrustDeal, normalizeDealItems } from '../src/services/calculation.service';
+import { rebuildAccountBalances, syncStoreDebtForDeal, syncTrustDebtForDeal } from '../src/services/ledger.service';
 
 const APPLY = process.argv.includes('--apply');
 const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU');
@@ -55,14 +56,32 @@ async function main() {
   }
   console.log(`   JAMI Trust qarzi: ${fmt(totalDebt)}`);
 
-  // 3) Hisob qoldiqlari
+  // 3) Do'kon daftari (do'konlar bilan hisob-kitob) — batafsil ro'yxat: scripts/backfill-store-ledger.ts
+  let storeDebtDeals = 0;
+  let storeDebtTotal = 0;
+  for (const d of deals) {
+    const debt = calcStoreDebt({
+      calculatedAmount: Number(d.calculatedAmount),
+      storeName: d.store?.name,
+      approvalStatus: d.approvalStatus,
+      date: d.date,
+    });
+    if (debt > 0) {
+      storeDebtDeals++;
+      storeDebtTotal += debt;
+    }
+    if (APPLY) await prisma.$transaction((tx) => syncStoreDebtForDeal(tx, d.id), { timeout: 60000, maxWait: 20000 });
+  }
+  console.log(`\n3) Do'kon daftari: ${storeDebtDeals} ta bitim uchun qarz yozuvi, jami ${fmt(storeDebtTotal)}`);
+
+  // 4) Hisob qoldiqlari
   if (APPLY) {
     const totals = await rebuildAccountBalances();
-    console.log('\n3) Hisob qoldiqlari qayta hisoblandi:');
+    console.log('\n4) Hisob qoldiqlari qayta hisoblandi:');
     for (const [k, v] of Object.entries(totals)) console.log(`   ${k.padEnd(20)} ${fmt(v)}`);
   } else {
     const grouped = await prisma.ddsTransaction.groupBy({ by: ['account', 'type'], _sum: { amount: true } });
-    console.log('\n3) Hisob qoldiqlari (DDS bo\'yicha, hali yozilmagan):');
+    console.log('\n4) Hisob qoldiqlari (DDS bo\'yicha, hali yozilmagan):');
     for (const g of grouped) console.log(`   ${g.account.padEnd(20)} ${g.type.padEnd(8)} ${fmt(Number(g._sum.amount))}`);
   }
 }

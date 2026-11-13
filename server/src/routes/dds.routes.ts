@@ -7,6 +7,8 @@ import { emitRealtime } from '../lib/realtime';
 import { isScopedRole } from '../services/access.service';
 import {
   CHECK_EXPENSE_CATEGORY,
+  QODIR_PAYMENT_CATEGORY,
+  STORE_INCOME_CATEGORY,
   TRUST_INCOME_CATEGORY,
   balanceDelta,
   formatTashkentDateTime,
@@ -14,11 +16,15 @@ import {
 } from '../services/calculation.service';
 import {
   LedgerError,
+  applyPendingCheckExpenses,
   createDds,
   deleteDds,
   getAccountBalances,
   getTrustLedger,
+  isQodirPaymentCategory,
+  isStoreIncomeCategory,
   isTrustIncomeCategory,
+  listPendingCheckExpenses,
   rebuildAccountBalances,
 } from '../services/ledger.service';
 
@@ -30,7 +36,10 @@ import {
  *   GET    /api/dds/categories        — kategoriya nomlari (?detailed=true → obyektlar)
  *   GET    /api/dds/summary           — davr aylanmasi + haqiqiy hisob qoldiqlari (balances)
  *   POST   /api/dds                   — yangi kirim/chiqim → { ...tranzaksiya, balances, trust }
+ *                                       ("Do'kondan tushum" kirimida body.storeId majburiy; "Qodir aka to'lovi" — chiqim)
  *   POST   /api/dds/rebuild-balances  — qoldiqlarni DDS yozuvlaridan qayta hisoblash (ADMIN)
+ *   GET    /api/dds/check-expenses/preview — DDS'ga yozilmagan chek xarajatlari, sanadan boshlab (ADMIN)
+ *   POST   /api/dds/check-expenses/apply   — ularni DDS'ga ommaviy yozish, bitim sanasi bilan (ADMIN)
  *   DELETE /api/dds/all               — hammasini o'chirish (ADMIN + tasdiqlash kodi)
  *   DELETE /api/dds/:id               — bitta yozuvni o'chirish (qoldiq orqaga qaytadi)
  */
@@ -126,7 +135,7 @@ function serializeTx(tx: DdsRow | (Omit<DdsRow, 'deal'> & { deal?: DdsRow['deal'
     description: tx.description,
     createdById: tx.createdById,
     createdAt: tx.createdAt,
-    source: tx.source, // MANUAL | DEAL_CHECK | TRUST_PAYMENT | SYNC
+    source: tx.source, // MANUAL | DEAL_CHECK | TRUST_PAYMENT | SYNC | QODIR_PAYMENT | STORE_PAYMENT
     dealId: tx.dealId,
     deal: tx.deal ? { id: tx.deal.id, dealNumber: tx.deal.dealNumber } : null,
   };
@@ -234,10 +243,13 @@ router.get('/categories', authenticateToken, denyScopedRoles, async (req: AuthRe
       _count: { _all: true },
     });
 
-    // Tizim kategoriyalari doim ro'yxatda: Trust to'lovi (KIRIM) va chek xarajati (CHIQIM)
+    // Tizim kategoriyalari doim ro'yxatda: Trust to'lovi (KIRIM), chek xarajati (CHIQIM),
+    // Qodir akaga to'lov (CHIQIM, COGS) va do'kondan tushum (KIRIM)
     const system = [
       { name: TRUST_INCOME_CATEGORY, type: TransactionType.INCOME, expenseType: ExpenseCategoryType.INCOME_TRANSFER },
       { name: CHECK_EXPENSE_CATEGORY, type: TransactionType.EXPENSE, expenseType: ExpenseCategoryType.COGS },
+      { name: QODIR_PAYMENT_CATEGORY, type: TransactionType.EXPENSE, expenseType: ExpenseCategoryType.COGS },
+      { name: STORE_INCOME_CATEGORY, type: TransactionType.INCOME, expenseType: ExpenseCategoryType.INCOME_TRANSFER },
     ];
     const byName = new Map<string, { name: string; type: string; expenseType: string; system: boolean; count: number }>();
     for (const s of system) byName.set(s.name, { ...s, system: true, count: 0 });
@@ -245,7 +257,14 @@ router.get('/categories', authenticateToken, denyScopedRoles, async (req: AuthRe
       const name = (r.categoryName || '').trim();
       if (!name) continue;
       // "Trust daromadi" kabi variantlar yagona tizim nomiga birlashadi
-      const key = r.type === TransactionType.INCOME && isTrustIncomeCategory(name) ? TRUST_INCOME_CATEGORY : name;
+      const key =
+        r.type === TransactionType.INCOME && isTrustIncomeCategory(name)
+          ? TRUST_INCOME_CATEGORY
+          : r.type === TransactionType.EXPENSE && isQodirPaymentCategory(name)
+            ? QODIR_PAYMENT_CATEGORY
+            : r.type === TransactionType.INCOME && isStoreIncomeCategory(name)
+              ? STORE_INCOME_CATEGORY
+              : name;
       const existing = byName.get(key);
       if (existing) {
         existing.count += r._count._all;
@@ -435,6 +454,8 @@ router.post('/', authenticateToken, requireRoles(WRITE_ROLES), async (req: AuthR
       amount: Math.round(amount * 100) / 100,
       description,
       createdById: author.id,
+      // "Do'kondan tushum" kirimi uchun: qaysi do'konning qarzi kamayadi (ledger tekshiradi)
+      storeId: typeof body.storeId === 'string' && body.storeId.trim() ? body.storeId.trim() : null,
     });
 
     const isTrustPayment = created.source === DdsSource.TRUST_PAYMENT;
@@ -467,6 +488,101 @@ router.post('/rebuild-balances', authenticateToken, requireRoles([Role.ADMIN]), 
   }
 });
 
+/** from (majburiy) / to (ixtiyoriy) — YYYY-MM-DD; bitim sanasi Toshkent kuni bo'yicha olinadi */
+function checkExpenseRange(fromRaw: unknown, toRaw: unknown) {
+  const ymd = (value: unknown, label: string, required: boolean): string | null => {
+    const s = value === undefined || value === null ? '' : String(value).trim();
+    if (!s) {
+      if (required) throw new LedgerError(`"${label}" sanasi majburiy (YYYY-MM-DD ko'rinishida)`);
+      return null;
+    }
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00Z`) : null;
+    if (!d || isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) {
+      throw new LedgerError(`"${label}" sanasi noto'g'ri — YYYY-MM-DD ko'rinishida bo'lishi kerak (masalan 2026-11-10)`);
+    }
+    return s;
+  };
+  const from = ymd(fromRaw, 'from', true)!;
+  const to = ymd(toRaw, 'to', false);
+  if (to && to < from) throw new LedgerError('"to" sanasi "from" sanasidan oldin bo\'lishi mumkin emas');
+  return { from, to, range: tashkentDayRange(from, to) };
+}
+
+// GET /api/dds/check-expenses/preview?from=YYYY-MM-DD&to=YYYY-MM-DD — DDS'ga hali yozilmagan chek xarajatlari (ADMIN)
+router.get('/check-expenses/preview', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
+  try {
+    const { from, to, range } = checkExpenseRange((req.query as any).from, (req.query as any).to);
+    const pending = await listPendingCheckExpenses(range);
+    return res.json({
+      from,
+      to,
+      count: pending.count,
+      total: pending.total,
+      items: pending.items.map((i) => ({
+        dealId: i.dealId,
+        dealNumber: i.dealNumber,
+        date: i.date,
+        dateLabel: formatTashkentDateTime(i.date),
+        customerName: i.customerName,
+        storeName: i.storeName,
+        amount: i.amount,
+      })),
+      // Qodir aka cheklari xarajatga olinmaydi; total — bitimlardagi "mijozga berilgan summa" yig'indisi
+      qodirSkipped: { count: pending.qodirCount, total: pending.qodirTotal },
+      zeroSkipped: { count: pending.zeroCount },
+    });
+  } catch (error: any) {
+    return sendError(res, error, "Chek xarajatlari ro'yxatini yuklashda xatolik");
+  }
+});
+
+// POST /api/dds/check-expenses/apply { from, to?, account? } — chek xarajatlarini DDS'ga ommaviy yozish (ADMIN).
+// Har bir yozuv BITIM SANASI bilan yoziladi. Idempotent: yozilgani qayta yozilmaydi.
+router.post('/check-expenses/apply', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
+  try {
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    const { range } = checkExpenseRange(body.from, body.to);
+
+    const rawAccount = body.account === undefined || body.account === null ? '' : String(body.account).trim().toUpperCase();
+    if (rawAccount && !ACCOUNTS.includes(rawAccount)) {
+      throw new LedgerError("Hisob turi noto'g'ri (CASH, BANK_CARD yoki SETTLEMENT_ACCOUNT bo'lishi kerak)");
+    }
+    const account = (rawAccount || AccountType.CASH) as AccountType;
+
+    // Token eskirgan bo'lishi mumkin — aks holda har bir yozuv FK xatosi bilan yiqilardi
+    const author = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { id: true } });
+    if (!author) return res.status(401).json({ error: 'Sessiya eskirgan — tizimga qaytadan kiring' });
+
+    // Ko'rsatilgan ro'yxat bilan hozirgi holat mos kelishi shart — orada yangi bitim tasdiqlangan bo'lsa,
+    // foydalanuvchi ko'rmagan summa yozilib ketmasin.
+    if (body.expectedCount !== undefined || body.expectedTotal !== undefined) {
+      const now = await listPendingCheckExpenses(range);
+      const expCount = Number(body.expectedCount);
+      const expTotal = Number(body.expectedTotal);
+      if (now.count !== expCount || Math.abs(now.total - expTotal) > 0.5) {
+        return res.status(409).json({
+          error: "Ro'yxat o'zgargan — «Ko'rsatish» tugmasini qayta bosing va yangi ro'yxatni tekshiring",
+          count: now.count,
+          total: now.total,
+        });
+      }
+    }
+
+    const result = await applyPendingCheckExpenses(range, { account, createdById: author.id });
+    const balances = await getAccountBalances();
+    return res.json({
+      success: result.failed.length === 0,
+      created: result.created,
+      skipped: result.skipped,
+      total: result.total,
+      failed: result.failed,
+      balances,
+    });
+  } catch (error: any) {
+    return sendError(res, error, "Chek xarajatlarini DDS'ga yozishda xatolik");
+  }
+});
+
 // DELETE /api/dds/all — barcha tranzaksiyalarni o'chirish (qoldiqlar 0, Trust to'lovlari ham o'chadi)
 router.delete('/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdminConfirm, async (req: AuthRequest, res: Response) => {
   try {
@@ -476,6 +592,7 @@ router.delete('/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdmi
     const balances = await getAccountBalances();
     emitRealtime('dds:updated', { cleared: true });
     emitRealtime('trust:updated', {});
+    emitRealtime('stores:updated', {});
     return res.json({
       success: true,
       deletedCount: result.count,

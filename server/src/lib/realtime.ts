@@ -8,8 +8,9 @@ import { Server as SocketIOServer } from 'socket.io';
  *   deals:updated   — bitim yaratildi / o'zgardi / tasdiqlandi / rad etildi
  *   dds:updated     — DDS tranzaksiyasi qo'shildi / o'chirildi (hisob qoldiqlari o'zgardi)
  *   trust:updated   — Trust qarzi yoki to'lovi o'zgardi
+ *   stores:updated  — do'kon daftari (qarz yoki to'lov) o'zgardi
  */
-export type RealtimeEvent = 'deals:updated' | 'dds:updated' | 'trust:updated';
+export type RealtimeEvent = 'deals:updated' | 'dds:updated' | 'trust:updated' | 'stores:updated';
 
 let io: SocketIOServer | null = null;
 

@@ -208,7 +208,7 @@ export interface DdsTransaction {
   /** DD.MM.YYYY HH:mm (Asia/Tashkent) */
   dateTimeLabel?: string;
   /** Yozuv manbasi */
-  source?: 'MANUAL' | 'DEAL_CHECK' | 'TRUST_PAYMENT' | 'SYNC';
+  source?: 'MANUAL' | 'DEAL_CHECK' | 'TRUST_PAYMENT' | 'STORE_PAYMENT' | 'QODIR_PAYMENT' | 'SYNC';
   dealId?: string | null;
   deal?: { id: string; dealNumber: number | string } | null;
 }

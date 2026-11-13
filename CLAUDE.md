@@ -33,7 +33,7 @@ Foydalanuvchi bilan muloqot va kod izohlari **o'zbek tilida (lotin)**.
 - Lokal git'da `pre-clean-backup` tegi bor (ichida biznes ma'lumotli fayllar) — uni PUSH QILMA.
 
 ## Tekshiruv buyruqlari
-- Server: `cd server; npx tsc --noEmit; npx vitest run` (193 test, fayllar ketma-ket — integratsion testlar lokal bazani ishlatadi).
+- Server: `cd server; npx tsc --noEmit; npx vitest run` (219 test, fayllar ketma-ket — integratsion testlar lokal bazani ishlatadi).
 - Klient: `cd client; npm run build; node src/i18n/check-keys.mjs` (uz/ru/en kalitlari bir xil bo'lishi shart).
 - API tutun-sinovi: `server/scripts/smoke-api.ts`.
 
@@ -57,6 +57,24 @@ Foydalanuvchi bilan muloqot va kod izohlari **o'zbek tilida (lotin)**.
 - **Skriptlar** (`server/scripts/`): `backup-db-raw.ts` (sxemaga bog'liq emas), `restore-db.ts` (faqat lokal), `backfill-ledger.ts`,
   `merge-references.ts`, `import-sheets-day.ts --date=DD.MM.YYYY`, `create-agent-logins.ts` — hammasi standart dry-run, `--apply` bilan yozadi.
 
+## Do'kon daftari va cheklarni DDS'ga o'tkazish (2026-11-13, FAQAT LOKALDA — commit/deploy qilinmagan)
+- **Egasi qarorlari:** do'kon qarzi = bitimdagi mijozga berilgan summa (`calculatedAmount`); Qodir aka — BIZ unga qarzdormiz
+  (cheki DDS xarajatiga tushmaydi), boshqa do'konlar — do'kon BIZGA qarzdor. Qarz DDS orqali yopiladi: "Qodir aka to'lovi"
+  (chiqim, majburan COGS, `QODIR_PAYMENT`) va "Do'kondan tushum" (kirim, `storeId` majburiy, `STORE_PAYMENT`).
+- **Sxema:** `StoreLedgerEntry` (DEBT/PAYMENT, `dealId @unique`, `ddsTransactionId @unique`), `DdsSource` ga 2 qiymat. Jonli bazaga hali `db push` qilinmagan.
+- **calculation.service.ts:** `STORE_LEDGER_START_YMD = '2026-11-10'` (daftar boshlanishi — bitta konstanta), `calcStoreDebt`,
+  `storeSettlementKind` (WE_OWE | STORE_OWES | TRUST), `summarizeLedger`. Trust do'konlari do'kon daftariga kirmaydi.
+- **ledger.service.ts:** `syncStoreDebtForDeal` (syncTrustDebtForDeal chaqirilgan hamma joyda), `getStoreLedger`, `getStoresReport`,
+  `listPendingCheckExpenses` / `applyPendingCheckExpenses` (chek DDS'ga BITIM SANASI bilan yoziladi).
+- **Routelar:** `/api/store-reports` (`/`, `/qodir`, `/:storeId`), `/api/dds/check-expenses/preview|apply` (ADMIN; apply `expectedCount/expectedTotal` mos kelmasa 409).
+- **Klient:** `/stores`, `/stores/:id`, `/qodir-ledger` (`pages/StoresPage`, `StoreDetailPage`, `components/stores/`), DDS sahifasida davr filtri va
+  `CheckTransferModal`, DDS formasida do'kon tanlash.
+- **Skriptlar:** `move-checks-to-dds.ts --from=DD.MM.YYYY`, `backfill-store-ledger.ts` (ikkalasi standart dry-run, `--apply`).
+  Lokal bazada `backfill-store-ledger --apply` bajarilgan (22 yozuv); cheklar lokalda ham hali o'tkazilmagan.
+- **Jonliga chiqarish tartibi:** zaxira → `prisma db push` → deploy → `backfill-store-ledger` dry-run/apply → `move-checks-to-dds` dry-run/apply.
+  Cheklarni o'tkazishdan oldin tekshir: shu davrda "Mijozga berilgan summa (Tovar xaridi)" kategoriyasida bitimga bog'lanmagan
+  (qo'lda/Sheets'dan) DDS qatorlari bo'lsa, ikki marta yozilib qoladi.
+
 ## Jonli muhit holati (2026-11-12)
 - Deploy qilingan: server va klient. Jonli baza: sxema yangilangan, eski bitimlar to'ldirilgan (DealItem, Trust daftari, kassa qoldiqlari),
   dublikatlar birlashtirilgan (do'kon 22, provayder 16, agentlik 10), 5 agent logini (nazirbek, asadbek, farida, jahongir, macmobi).
@@ -72,6 +90,13 @@ Foydalanuvchi bilan muloqot va kod izohlari **o'zbek tilida (lotin)**.
 4. **Telegram bot:** avtorizatsiyasiz, DDS'ni ledger'siz yozadi (`telegram.bot.ts:~526`, `bot.routes.ts:~135`). Tuzatilsinmi?
 5. **Bitim formasi:** tayyor qiymatlar (limit 10 000 000, yechilgan 2 800 000) olib tashlansinmi?
 6. **Eski 99 bitim foydasi:** egasi "hozircha yo'q" dedi — qayta hisoblanmagan; P&L'da 41 052 100 so'mlik "Tuzatish" qatori turibdi.
+
+7. **Do'kon daftari boshlanishi** 10.11.2026 deb qo'yilgan (egasi tasdiqlamagan) — undan oldingi bitimlar qarzga kirmaydi.
+8. **Trust:** Trust do'konlari do'kon daftaridan chiqarilgan, lekin Trust bitimlari cheklari DDS xarajatiga yoziladi — ikkalasi ham tasdiqlanmagan.
+   Provayderi Trust, do'koni oddiy bo'lgan bitim ham Trust qarzi (16%), ham do'kon qarzini oladi — shundaymi?
+9. **Ombor ko'chirishi** (`inventory.routes.ts` transfer-accept) bitim do'konini o'zgartiradi, do'kon qarzi eski do'konda qoladi — ko'chsinmi?
+10. **Sheets'dan kelgan "Do'kondan tushum"** qatorida do'kon yo'q — daftarga to'lov bo'lib tushmaydi; "Qodir aka to'lovi" ham Sheets'dan kelsa daftarni kamaytirmaydi (faqat COGS bo'ladi).
+11. **Ortiqcha to'lov** cheklanmagan (qoldiq manfiy bo'lishi mumkin); CASHIER va MANAGER do'konlar hisobotida foydani ko'radi — shundaymi?
 
 ## Ma'lum kamchiliklar / keyingi ishlar
 - Tor oynada (~1024px) Sotuv/DDS kartochkalaridagi uzun raqamlar sinadi; Bitimlar yig'ma panelining o'ng kataklari kesiladi; jadval biroz o'ngga suriladi.

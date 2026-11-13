@@ -25,7 +25,7 @@ const SocketContext = createContext<SocketContextType>({
 });
 
 /** Server yuboradigan "ma'lumot yangilandi" hodisalari (useRealtime bilan tinglanadi). */
-export type RealtimeEvent = 'deals:updated' | 'dds:updated' | 'trust:updated';
+export type RealtimeEvent = 'deals:updated' | 'dds:updated' | 'trust:updated' | 'stores:updated';
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { t } = useTranslation();

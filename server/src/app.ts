@@ -34,6 +34,7 @@ import syncRoutes from './routes/sync.routes';
 import trustRoutes from './routes/trust.routes';
 import notificationsRoutes from './routes/notifications.routes';
 import teamRoutes from './routes/team.routes';
+import storeReportsRoutes from './routes/storeReports.routes';
 
 const app = express();
 
@@ -72,6 +73,7 @@ app.use('/api/sync', syncRoutes);
 app.use('/api/trust', trustRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/team', teamRoutes);
+app.use('/api/store-reports', storeReportsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
