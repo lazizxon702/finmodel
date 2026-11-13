@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   BadgeDollarSign,
@@ -11,21 +11,35 @@ import {
   Edit3,
   Trash2,
   RotateCcw,
+  ChevronDown,
+  ChevronRight,
+  DollarSign,
 } from 'lucide-react';
 import { formatMoney, formatPercent, formatDate, todayYmd, toYmdTashkent, addDaysYmd } from '../utils/format';
 import { useTranslation } from '../context/LanguageContext';
+import { useRealtime } from '../context/SocketContext';
 import { Store } from '../types';
 import { AmountInput } from '../components/AmountInput';
 import {
   Button, Card, Modal, PageHeader, StatCard, Badge, Field, Input, Select,
   TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, LoadingBlock, controlClass, cn,
 } from '../components/ui';
+import { NewSaleModal } from '../components/sales/NewSaleModal';
+import { EditSaleModal, SalePaymentModal, SaleReturnModal, SaleReturnTarget } from '../components/sales/SaleModals';
+import { SaleDetails } from '../components/sales/SaleDetails';
+import {
+  EMPTY_TOTALS, SaleRow, SalesTotals, StockRow, legacyInventoryShape, num,
+  paymentStatusTone, paymentTypeTone, saleDisplayNumber,
+} from '../components/sales/saleTypes';
+
+const SALES_COLS = 11;
 
 export const SalesPage: React.FC = () => {
   const { t } = useTranslation();
 
-  const [salesItems, setSalesItems] = useState<any[]>([]);
-  const [availableStock, setAvailableStock] = useState<any[]>([]);
+  const [sales, setSales] = useState<SaleRow[]>([]);
+  const [totals, setTotals] = useState<SalesTotals>(EMPTY_TOTALS);
+  const [availableStock, setAvailableStock] = useState<StockRow[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -33,26 +47,18 @@ export const SalesPage: React.FC = () => {
   const [storeFilter, setStoreFilter] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  // Ochilgan (tovarlari ko'rsatilayotgan) sotuvlar
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Eskirgan javob yangisining ustiga yozilmasligi uchun so'rov tartib raqami
+  const fetchSeq = useRef(0);
 
-  // Yangi sotuv oynasi
+  // Yangi sotuv oynasi (ko'p tovarli) va yangi sotuvlar amallari
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
-  const [selectedStockId, setSelectedStockId] = useState('');
-  const [saleForm, setSaleForm] = useState({
-    saleDate: todayYmd(),
-    salePrice: 0,
-    buyerName: '',
-    paidAmount: 0,
-    paymentType: 'CASH',
-    dueDate: '',
-    note: '',
-    adminOverrideCode: '',
-  });
-  const [selling, setSelling] = useState(false);
-  const [saleError, setSaleError] = useState('');
-  const [requiresOverride, setRequiresOverride] = useState(false);
-  const [existingDebtNotice, setExistingDebtNotice] = useState(0);
+  const [editingMulti, setEditingMulti] = useState<SaleRow | null>(null);
+  const [payingSale, setPayingSale] = useState<SaleRow | null>(null);
+  const [returnTarget, setReturnTarget] = useState<SaleReturnTarget | null>(null);
 
-  // Sotuvni tahrirlash oynasi
+  // Eski (legacy) sotuvni tahrirlash oynasi
   const [editingSale, setEditingSale] = useState<any | null>(null);
   const [editForm, setEditForm] = useState({
     saleDate: todayYmd(),
@@ -70,10 +76,38 @@ export const SalesPage: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    fetchSales();
     fetchStores();
     fetchAvailableStock();
-  }, [search, startDate, endDate]);
+  }, []);
+
+  // Qidiruv, sana va do'kon filtrlari serverda bajariladi (qidiruv yozilayotganda biroz kutiladi)
+  useEffect(() => {
+    const timer = setTimeout(() => fetchSales(), 250);
+    return () => clearTimeout(timer);
+  }, [search, startDate, endDate, storeFilter]);
+
+  // Ro'yxat qayta yuklanganda ochiq oynalardagi sotuv ham yangilanadi (eskirgan jami/qarz ko'rinib qolmasin)
+  useEffect(() => {
+    const fresh = (row: SaleRow) => sales.find((s) => !s.legacy && s.id === row.id);
+    setEditingMulti((prev) => (prev && fresh(prev)) || prev);
+    setPayingSale((prev) => (prev && fresh(prev)) || prev);
+    setReturnTarget((prev) => {
+      if (!prev) return prev;
+      const sale = fresh(prev.sale);
+      if (!sale) return prev;
+      if (!prev.item) return { sale };
+      const item = sale.items.find((it) => it.dealId === prev.item!.dealId);
+      return item ? { sale, item } : prev;
+    });
+  }, [sales]);
+
+  // Real vaqt: bitim yoki kassa o'zgarsa ro'yxat jim (spinnersiz) yangilanadi
+  const reloadAll = () => {
+    fetchSales(true);
+    fetchAvailableStock();
+  };
+  useRealtime('deals:updated', reloadAll);
+  useRealtime('dds:updated', reloadAll);
 
   const fetchStores = async () => {
     try {
@@ -84,22 +118,26 @@ export const SalesPage: React.FC = () => {
     }
   };
 
-  const fetchSales = async () => {
+  const fetchSales = async (silent: boolean = false) => {
+    const seq = ++fetchSeq.current;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setLoadError('');
       const params = new URLSearchParams();
-      if (search) params.append('search', search);
+      if (search.trim()) params.append('search', search.trim());
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      params.append('status', 'SOLD');
-      const res = await axios.get(`/api/inventory?${params.toString()}`);
-      setSalesItems(res.data.items || []);
+      if (storeFilter) params.append('storeId', storeFilter);
+      const res = await axios.get(`/api/sales?${params.toString()}`);
+      if (seq !== fetchSeq.current) return;
+      setSales(Array.isArray(res.data?.sales) ? res.data.sales : []);
+      setTotals({ ...EMPTY_TOTALS, ...(res.data?.totals || {}) });
     } catch (err: any) {
+      if (seq !== fetchSeq.current) return;
       console.error('Fetch sales error:', err);
       setLoadError(err.response?.data?.error || t('common.load_error'));
     } finally {
-      setLoading(false);
+      if (seq === fetchSeq.current) setLoading(false);
     }
   };
 
@@ -112,19 +150,13 @@ export const SalesPage: React.FC = () => {
     }
   };
 
-  // Do'kon bo'yicha filtr
-  const filteredSales = salesItems.filter((it) => {
-    if (storeFilter && it.storeId !== storeFilter && it.storeName !== storeFilter) return false;
-    return true;
-  });
-
-  // KPI hisob-kitoblari
-  const totalSalesCount = filteredSales.length;
-  const totalSalesVolume = filteredSales.reduce((sum, it) => sum + (Number(it.salePrice) || 0), 0);
-  const totalProfit = filteredSales.reduce((sum, it) => sum + (Number(it.profit) || 0), 0);
+  // KPI — server qaytargan `totals` dan (filtrlar serverda qo'llangan)
+  const totalSalesCount = num(totals.count);
+  const totalSalesVolume = num(totals.totalPrice);
+  const totalProfit = num(totals.profit);
   const avgCheck = totalSalesCount > 0 ? Math.round(totalSalesVolume / totalSalesCount) : 0;
-  const totalMarginSum = filteredSales.reduce((sum, it) => sum + (Number(it.marginPercent) || 0), 0);
-  const avgMargin = totalSalesCount > 0 ? totalMarginSum / totalSalesCount : 0;
+  // O'rtacha marja = jami foyda / jami sotuv (sotuv hajmiga ko'ra tortilgan)
+  const avgMargin = totalSalesVolume > 0 ? (totalProfit / totalSalesVolume) * 100 : 0;
 
   // Haridor ismi: server buyerName (xaridor yoki mijoz) qaytaradi; "-" bo'lsa mijoz ismi
   const buyerOf = (item: any): string => {
@@ -132,67 +164,12 @@ export const SalesPage: React.FC = () => {
     return b || item.customerName || '';
   };
 
+  const toggleExpanded = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+
   const handleOpenNewSale = () => {
+    // Oyna ochilganda ombor ro'yxati yangilanadi (boshqa foydalanuvchi sotgan bo'lishi mumkin)
+    fetchAvailableStock();
     setIsSellModalOpen(true);
-    setSelectedStockId(availableStock.length > 0 ? availableStock[0].id : '');
-    const firstItem = availableStock[0];
-    const initialPrice = firstItem ? (firstItem.salePrice > 0 ? firstItem.salePrice : Math.round(firstItem.purchaseCost * 1.12)) : 0;
-    setSaleForm({
-      saleDate: todayYmd(),
-      salePrice: initialPrice,
-      buyerName: '',
-      paidAmount: initialPrice,
-      paymentType: 'CASH',
-      dueDate: '',
-      note: '',
-      adminOverrideCode: '',
-    });
-    setSaleError('');
-    setRequiresOverride(false);
-    setExistingDebtNotice(0);
-  };
-
-  const handleStockSelectChange = (id: string) => {
-    setSelectedStockId(id);
-    const item = availableStock.find((it) => it.id === id);
-    if (item) {
-      const initialPrice = item.salePrice > 0 ? item.salePrice : Math.round(item.purchaseCost * 1.12);
-      setSaleForm((prev) => ({
-        ...prev,
-        salePrice: initialPrice,
-        paidAmount: initialPrice,
-      }));
-    }
-  };
-
-  const handleSaleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStockId) {
-      alert(t('sales.form.pickDevice'));
-      return;
-    }
-    if (!saleForm.buyerName.trim()) {
-      alert(t('sales.form.buyerRequired'));
-      return;
-    }
-
-    try {
-      setSelling(true);
-      setSaleError('');
-      await axios.put(`/api/inventory/${selectedStockId}/sell`, saleForm);
-      setIsSellModalOpen(false);
-      fetchSales();
-      fetchAvailableStock();
-      alert(t('sales.form.done'));
-    } catch (err: any) {
-      if (err.response?.data?.requiresOverride) {
-        setRequiresOverride(true);
-        setExistingDebtNotice(err.response.data.totalExistingDebt || 0);
-      }
-      setSaleError(err.response?.data?.error || err.message);
-    } finally {
-      setSelling(false);
-    }
   };
 
   const handleOpenEditSale = (item: any) => {
@@ -346,13 +323,19 @@ export const SalesPage: React.FC = () => {
         <StatCard
           title={t('sales.kpi.total')}
           value={<span className="text-base sm:text-lg">{formatMoney(totalSalesVolume)}</span>}
-          hint={t('sales.kpi.totalHint')}
+          hint={
+            num(totals.debt) > 0 ? (
+              <span className="whitespace-nowrap">{t('sales.debt', { amount: formatMoney(totals.debt) })}</span>
+            ) : (
+              t('sales.kpi.totalHint')
+            )
+          }
           tone="success"
         />
         <StatCard
           title={t('sales.kpi.count')}
           value={t('sales.kpi.countValue', { count: totalSalesCount })}
-          hint={t('sales.kpi.countHint')}
+          hint={t('sales.itemsCount', { count: num(totals.itemsCount) })}
           tone="brand"
         />
         <StatCard
@@ -393,7 +376,7 @@ export const SalesPage: React.FC = () => {
             <Select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)} className="md:w-56">
               <option value="">{t('sales.allStores')}</option>
               {stores.map((s) => (
-                <option key={s.id} value={s.name}>
+                <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
               ))}
@@ -472,11 +455,11 @@ export const SalesPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* Sotuvlar jadvali */}
+      {/* Sotuvlar jadvali: har bir sotuv — bitta qator, bosilganda tovarlari ochiladi */}
       <Card padding="none">
         <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 text-xs text-fg-muted lg:hidden">
           <span>{t('sales.swipeHint')}</span>
-          <span className="font-semibold tabular-nums text-success">{t('sales.listCount', { count: filteredSales.length })}</span>
+          <span className="font-semibold tabular-nums text-success">{t('sales.listCount', { count: sales.length })}</span>
         </div>
         <TableContainer bare>
           <Table>
@@ -484,14 +467,13 @@ export const SalesPage: React.FC = () => {
               <Tr>
                 <Th>№</Th>
                 <Th>{t('common.date')}</Th>
-                <Th>{t('sales.col.store')}</Th>
-                <Th>{t('common.product_name')}</Th>
-                <Th>{t('sales.col.imei')}</Th>
+                <Th>{t('sales.col.buyer')}</Th>
+                <Th>{t('sales.col.items')}</Th>
                 <Th align="right">{t('sales.col.purchase')}</Th>
                 <Th align="right">{t('sales.col.salePrice')}</Th>
                 <Th align="right">{t('sales.col.profit')}</Th>
                 <Th align="center">{t('common.margin')}</Th>
-                <Th>{t('sales.col.buyer')}</Th>
+                <Th align="center">{t('sales.col.payType')}</Th>
                 <Th align="center">{t('common.status')}</Th>
                 <Th align="center" className="sticky right-0 z-20">{t('common.actions')}</Th>
               </Tr>
@@ -499,238 +481,187 @@ export const SalesPage: React.FC = () => {
             <Tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12}>
+                  <td colSpan={SALES_COLS}>
                     <LoadingBlock label={t('sales.loading')} />
                   </td>
                 </tr>
-              ) : filteredSales.length === 0 ? (
-                <TableEmpty colSpan={12} title={t('sales.empty')} icon={<ShoppingBag />} />
+              ) : sales.length === 0 ? (
+                <TableEmpty colSpan={SALES_COLS} title={t('sales.empty')} icon={<ShoppingBag />} />
               ) : (
-                filteredSales.map((item, idx) => (
-                  <Tr key={item.id}>
-                    <Td numeric className="font-semibold text-fg-muted">{idx + 1}</Td>
-                    <Td numeric className="text-fg-secondary">{formatDate(item.dealDate)}</Td>
-                    <Td className="font-medium text-fg-secondary">{item.storeName || '—'}</Td>
-                    <Td>
-                      <div className="font-semibold text-fg">{item.productName}</div>
-                      {item.isDaftar && (
-                        <Badge tone="warning" size="sm" className="mt-0.5">Daftar</Badge>
-                      )}
-                    </Td>
-                    <Td className="font-mono text-xs tabular-nums text-fg-muted">{item.imei || '-'}</Td>
-                    <Td align="right" numeric className="text-fg-secondary">{formatMoney(item.purchaseCost)}</Td>
-                    <Td align="right" numeric>
-                      <div className="font-semibold text-fg">{formatMoney(item.salePrice)}</div>
-                      {Number(item.debtRemainder) > 0 ? (
-                        <div className="mt-0.5 text-xs font-semibold text-danger">
-                          {t('sales.debt', { amount: formatMoney(item.debtRemainder) })}
-                        </div>
-                      ) : Number(item.salePrice) > 0 ? (
-                        <div className="mt-0.5 text-xs font-medium text-success">{t('sales.fullyPaid')}</div>
-                      ) : null}
-                    </Td>
-                    <Td align="right" numeric className="font-semibold">
-                      <span className={Number(item.profit) >= 0 ? 'text-success' : 'text-danger'}>
-                        {formatMoney(item.profit)}
-                      </span>
-                    </Td>
-                    <Td align="center" numeric>
-                      <Badge tone="brand" size="sm">{formatPercent(item.marginPercent)}</Badge>
-                    </Td>
-                    <Td>
-                      <div className="font-medium text-fg">{buyerOf(item) || '—'}</div>
-                      {item.debtDueDate && Number(item.debtRemainder) > 0 && (
-                        <div className="whitespace-nowrap text-xs font-medium tabular-nums text-warning">
-                          {t('sales.dueDate', { date: formatDate(item.debtDueDate) })}
-                        </div>
-                      )}
-                    </Td>
-                    <Td align="center">
-                      <Badge tone="success" size="sm">{t('dealStatus.SOLD')}</Badge>
-                    </Td>
-                    <Td align="center" className="sticky right-0 z-10 whitespace-nowrap bg-surface">
-                      <div className="inline-flex items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          leftIcon={<Edit3 className="h-3.5 w-3.5" />}
-                          onClick={() => handleOpenEditSale(item)}
-                          title={t('sales.editTooltip')}
+                sales.map((sale) => {
+                  const rowKey = `${sale.legacy ? 'L' : 'S'}-${sale.id}`;
+                  const isOpen = !!expanded[rowKey];
+                  const debt = num(sale.debtRemainder);
+                  const firstItem = sale.items?.[0];
+                  return (
+                    <React.Fragment key={rowKey}>
+                      <Tr clickable onClick={() => toggleExpanded(rowKey)} aria-expanded={isOpen}>
+                        <Td numeric className="font-mono font-semibold text-accent">
+                          <span className="inline-flex items-center gap-1">
+                            {isOpen ? (
+                              <ChevronDown className="h-4 w-4 shrink-0 text-fg-muted" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0 text-fg-muted" />
+                            )}
+                            №{saleDisplayNumber(sale)}
+                          </span>
+                        </Td>
+                        <Td numeric className="text-fg-secondary">
+                          {sale.dateLabel || (sale.saleDate ? formatDate(sale.saleDate) : '—')}
+                        </Td>
+                        <Td>
+                          <div className="font-medium text-fg">{buyerOf(sale) || '—'}</div>
+                          {sale.debtDueDate && debt > 0 && (
+                            <div className="whitespace-nowrap text-xs font-medium tabular-nums text-warning">
+                              {t('sales.dueDate', { date: formatDate(sale.debtDueDate) })}
+                            </div>
+                          )}
+                        </Td>
+                        <Td>
+                          <div className="whitespace-nowrap font-semibold text-fg">
+                            {t('sales.itemsCount', { count: num(sale.itemsCount) || sale.items?.length || 0 })}
+                          </div>
+                          <div className="max-w-[14rem] truncate text-xs text-fg-muted" title={firstItem?.productName || undefined}>
+                            {firstItem?.productName || '—'}
+                          </div>
+                        </Td>
+                        <Td align="right" numeric className="text-fg-secondary">{formatMoney(sale.totalCost)}</Td>
+                        <Td align="right" numeric>
+                          <div className="font-semibold text-fg">{formatMoney(sale.totalPrice)}</div>
+                          {debt > 0 ? (
+                            <div className="mt-0.5 text-xs font-semibold text-danger">
+                              {t('sales.debt', { amount: formatMoney(debt) })}
+                            </div>
+                          ) : num(sale.totalPrice) > 0 ? (
+                            <div className="mt-0.5 text-xs font-medium text-success">{t('sales.fullyPaid')}</div>
+                          ) : null}
+                        </Td>
+                        <Td align="right" numeric className="font-semibold">
+                          <span className={num(sale.profit) >= 0 ? 'text-success' : 'text-danger'}>
+                            {formatMoney(sale.profit)}
+                          </span>
+                        </Td>
+                        <Td align="center" numeric>
+                          <Badge tone="brand" size="sm">{formatPercent(sale.marginPct)}</Badge>
+                        </Td>
+                        <Td align="center">
+                          {sale.paymentType ? (
+                            <Badge tone={paymentTypeTone(sale.paymentType)} size="sm">
+                              {t(`sales.ptype.${sale.paymentType}`, sale.paymentType)}
+                            </Badge>
+                          ) : (
+                            <span className="text-fg-muted">—</span>
+                          )}
+                        </Td>
+                        <Td align="center">
+                          <Badge tone={paymentStatusTone(sale.paymentStatus)} size="sm">
+                            {t(`paymentStatus.${sale.paymentStatus}`, sale.paymentStatus || '—')}
+                          </Badge>
+                        </Td>
+                        <Td
+                          align="center"
+                          className="sticky right-0 z-10 whitespace-nowrap bg-surface"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {t('sales.change')}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="text-danger"
-                          leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-                          onClick={() => setDeletingSale(item)}
-                          title={t('sales.deleteTooltip')}
-                        >
-                          {t('common.delete')}
-                        </Button>
-                      </div>
-                    </Td>
-                  </Tr>
-                ))
+                          <div className="inline-flex items-center gap-1.5">
+                            {sale.legacy ? (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="secondary"
+                                  onClick={() => handleOpenEditSale(legacyInventoryShape(sale))}
+                                  title={t('sales.editTooltip')}
+                                  aria-label={t('sales.editTooltip')}
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="secondary"
+                                  className="text-danger"
+                                  onClick={() => setDeletingSale(legacyInventoryShape(sale))}
+                                  title={t('sales.deleteTooltip')}
+                                  aria-label={t('sales.deleteTooltip')}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="secondary"
+                                  onClick={() => setEditingMulti(sale)}
+                                  title={t('sales.editTooltip')}
+                                  aria-label={t('sales.editTooltip')}
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </Button>
+                                {debt > 0 && (
+                                  <Button
+                                    size="icon"
+                                    variant="success"
+                                    onClick={() => setPayingSale(sale)}
+                                    title={t('sales.payment.title')}
+                                    aria-label={t('sales.payment.title')}
+                                  >
+                                    <DollarSign className="h-4 w-4" />
+                                  </Button>
+                                )}
+                                <Button
+                                  size="icon"
+                                  variant="secondary"
+                                  className="text-danger"
+                                  onClick={() => setReturnTarget({ sale })}
+                                  title={t('sales.return.titleSale')}
+                                  aria-label={t('sales.return.titleSale')}
+                                >
+                                  <RotateCcw className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </Td>
+                      </Tr>
+                      {isOpen && (
+                        <tr>
+                          <td colSpan={SALES_COLS} className="border-b border-line p-0">
+                            <SaleDetails sale={sale} onReturnItem={(item) => setReturnTarget({ sale, item })} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               )}
             </Tbody>
           </Table>
         </TableContainer>
       </Card>
 
-      {/* Yangi sotuv oynasi */}
-      <Modal
+      {/* Yangi sotuv oynasi (bir nechta tovar, bitta narx, bitta to'lov) */}
+      <NewSaleModal
         open={isSellModalOpen}
         onClose={() => setIsSellModalOpen(false)}
-        size="md"
-        title={
-          <span className="flex items-center gap-2">
-            <BadgeDollarSign className="h-5 w-5 text-accent" />
-            {t('sales.newSale')}
-          </span>
-        }
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setIsSellModalOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" form="sale-new-form" loading={selling}>
-              {selling ? t('sales.form.submitting') : t('sales.form.submit')}
-            </Button>
-          </>
-        }
-      >
-        <form id="sale-new-form" onSubmit={handleSaleSubmit} className="space-y-4">
-          <Field label={t('sales.form.stock')} required>
-            <Select value={selectedStockId} onChange={(e) => handleStockSelectChange(e.target.value)} required>
-              {availableStock.length === 0 ? (
-                <option value="">{t('sales.form.noStock')}</option>
-              ) : (
-                availableStock.map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {st.productName} — IMEI: {st.imei || t('sales.form.noImei')} ({st.storeName})
-                  </option>
-                ))
-              )}
-            </Select>
-          </Field>
+        stock={availableStock}
+        onSaved={() => {
+          fetchSales(true);
+          fetchAvailableStock();
+        }}
+        onStockStale={fetchAvailableStock}
+      />
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label={t('sales.form.saleDate')} required>
-              <Input
-                type="date"
-                value={saleForm.saleDate}
-                onChange={(e) => setSaleForm({ ...saleForm, saleDate: e.target.value })}
-                required
-              />
-            </Field>
-            <Field label={t('sales.form.buyer')} required>
-              <Input
-                type="text"
-                value={saleForm.buyerName}
-                onChange={(e) => setSaleForm({ ...saleForm, buyerName: e.target.value })}
-                placeholder={t('sales.form.buyerPlaceholder')}
-                required
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label={t('sales.form.salePrice')} required>
-              <AmountInput
-                value={saleForm.salePrice}
-                onChange={(val) => {
-                  if (saleForm.paymentType === 'INSTALLMENT') {
-                    setSaleForm({ ...saleForm, salePrice: val });
-                  } else {
-                    setSaleForm({ ...saleForm, salePrice: val, paidAmount: val });
-                  }
-                }}
-                placeholder={t('sales.form.salePricePlaceholder')}
-                className={amountClass}
-                required
-              />
-            </Field>
-            <Field label={t('sales.form.paid')}>
-              <AmountInput
-                value={saleForm.paidAmount}
-                onChange={(val) => setSaleForm({ ...saleForm, paidAmount: val })}
-                placeholder="0"
-                className={amountClass}
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label={t('sales.form.payType')}>
-              <Select
-                value={saleForm.paymentType}
-                onChange={(e) => {
-                  const pType = e.target.value;
-                  if (pType === 'INSTALLMENT') {
-                    setSaleForm({ ...saleForm, paymentType: pType, paidAmount: 0 });
-                  } else {
-                    setSaleForm({ ...saleForm, paymentType: pType, paidAmount: saleForm.salePrice });
-                  }
-                }}
-              >
-                {paymentOptions}
-              </Select>
-            </Field>
-            <Field label={t('sales.form.dueDate')}>
-              <Input
-                type="date"
-                value={saleForm.dueDate}
-                onChange={(e) => setSaleForm({ ...saleForm, dueDate: e.target.value })}
-              />
-            </Field>
-          </div>
-
-          {/* Qarz ko'rsatkichi */}
-          {saleForm.salePrice > 0 && (
-            <div className="flex items-center justify-between gap-2 rounded-card border border-line bg-surface-2 p-3 text-xs">
-              <div>
-                <span className="block text-xs text-fg-muted">{t('sales.form.debtAmount')}:</span>
-                <span
-                  className={cn(
-                    'text-sm font-semibold tabular-nums',
-                    saleForm.salePrice - saleForm.paidAmount > 0 ? 'text-danger' : 'text-success'
-                  )}
-                >
-                  {formatMoney(Math.max(0, saleForm.salePrice - saleForm.paidAmount))}
-                </span>
-              </div>
-              {saleForm.salePrice - saleForm.paidAmount > 0 ? (
-                <Badge tone="danger" size="sm">{t('sales.form.goesToDebtors')}</Badge>
-              ) : (
-                <Badge tone="success" size="sm">{t('sales.fullyPaid')}</Badge>
-              )}
-            </div>
-          )}
-
-          {/* Qarz haqida ogohlantirish va admin kodi */}
-          {requiresOverride && (
-            <div className="space-y-2 rounded-card border border-danger/30 bg-danger-soft p-3.5">
-              <div className="flex items-center gap-2 text-xs font-semibold text-danger">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                <span>{t('sales.form.overdueDebt', { amount: formatMoney(existingDebtNotice) })}</span>
-              </div>
-              <p className="text-xs text-fg-secondary">{t('sales.form.overrideHint')}</p>
-              <Input
-                type="password"
-                placeholder={t('sales.form.adminCode')}
-                value={saleForm.adminOverrideCode}
-                onChange={(e) => setSaleForm({ ...saleForm, adminOverrideCode: e.target.value })}
-              />
-            </div>
-          )}
-
-          {saleError && (
-            <p role="alert" className="text-xs font-semibold text-danger">{saleError}</p>
-          )}
-        </form>
-      </Modal>
+      {/* Yangi sotuvlar: tahrirlash, to'lov qo'shish, omborga qaytarish */}
+      <EditSaleModal sale={editingMulti} onClose={() => setEditingMulti(null)} onSaved={() => fetchSales(true)} />
+      <SalePaymentModal sale={payingSale} onClose={() => setPayingSale(null)} onSaved={() => fetchSales(true)} />
+      <SaleReturnModal
+        target={returnTarget}
+        onClose={() => setReturnTarget(null)}
+        onDone={() => {
+          fetchSales(true);
+          fetchAvailableStock();
+        }}
+      />
 
       {/* Sotuvni tahrirlash oynasi */}
       <Modal

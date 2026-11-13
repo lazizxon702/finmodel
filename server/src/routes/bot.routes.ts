@@ -7,6 +7,7 @@ import { CalculationService } from '../services/calculation.service';
 import { DealStatus } from '@prisma/client';
 import { webhookCallback } from 'grammy';
 import { bot, botEnabled } from '../bot/telegram.bot';
+import { SaleError, assertDealNotInSale } from '../services/sale.service';
 
 const router = Router();
 
@@ -198,6 +199,9 @@ router.delete('/deals/:id', authenticateToken, async (req: AuthRequest, res: Res
       return res.status(404).json({ error: 'Bot bitimi topilmadi' });
     }
 
+    // Ko'p tovarli sotuvga kirgan bitim o'chirilmaydi — avval sotuv Sotuvlar bo'limida qaytariladi (boshqa routelar bilan bir xil 409)
+    await assertDealNotInSale(botDeal.deal?.saleId);
+
     await prisma.$transaction(async (tx) => {
       // 1. Delete associated bot payments (by botDealId and checkNumber)
       await tx.botPayment.deleteMany({
@@ -211,9 +215,12 @@ router.delete('/deals/:id', authenticateToken, async (req: AuthRequest, res: Res
 
       // 2. If main deal exists, delete it
       if (botDeal.deal) {
-        await tx.deal.delete({
-          where: { id: botDeal.deal.id },
-        });
+        // Shartli o'chirish: tekshiruvdan keyin parallel sotuvga kirgan bo'lsa hech narsa o'chmaydi → 409
+        const removed = await tx.deal.deleteMany({ where: { id: botDeal.deal.id, saleId: null } });
+        if (removed.count === 0) {
+          const now = await tx.deal.findUnique({ where: { id: botDeal.deal.id }, select: { saleId: true } });
+          await assertDealNotInSale(now?.saleId, tx);
+        }
       }
 
       // 3. Delete the bot deal itself
@@ -227,6 +234,7 @@ router.delete('/deals/:id', authenticateToken, async (req: AuthRequest, res: Res
       message: `Chek №${botDeal.checkNumber || ''} muvaffaqiyatli o'chirildi`,
     });
   } catch (error: any) {
+    if (error instanceof SaleError) return res.status(error.status).json({ error: error.message, ...error.extra });
     console.error('Delete bot deal error:', error);
     return res.status(500).json({ error: 'Bot bitimini o\'chirishda xatolik: ' + (error.message || error) });
   }

@@ -3,13 +3,29 @@ import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
 import { PaymentStatus, AccountType, Prisma, TransactionType, ExpenseCategoryType } from '@prisma/client';
 import { emitRealtime } from '../lib/realtime';
-import { APPROVED_ONLY, dealScopeWhere } from '../services/access.service';
+import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../services/access.service';
 import { LedgerError, createDdsInTx } from '../services/ledger.service';
+import { saleManagedMessage } from '../services/sale.service';
 import { cleanCustomerText, dealDateTimeLabel } from './deals.routes';
 
 const router = Router();
 
+/** Sotuv qarzi qatoridagi bitta tovar (ombor qatori) */
+interface SaleDebtItem {
+  dealId: string;
+  dealNumber: number;
+  productName: string;
+  imeiBarcode: string;
+  storeName: string;
+  salePrice: number;
+  receivedFromBuyer: number;
+  debtRemainder: number;
+}
+
 // GET /api/debtors — faol qarzdorlar (doira + faqat tasdiqlangan bitimlar)
+// Ikki xil qator qaytadi (`kind`):
+//   DEAL — eski yo'l bilan (bitta tovar) sotilgan bitim qarzi;
+//   SALE — ko'p tovarli sotuv qarzi: bitta sotuvga BITTA qator (ichidagi bitimlar alohida ko'rsatilmaydi).
 router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { search, page = '1', limit = '100' } = req.query as any;
@@ -18,24 +34,46 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
     const skip = (pageNum - 1) * limitNum;
 
     const scope = await dealScopeWhere(req.user!);
-    const and: Prisma.DealWhereInput[] = [scope, APPROVED_ONLY, { debtRemainder: { gt: 0 } }];
+    // Sotuvga kirgan bitimlar alohida qator bo'lmaydi — ular sotuv qatorida (ikki marta sanalmasin)
+    const and: Prisma.DealWhereInput[] = [scope, APPROVED_ONLY, { debtRemainder: { gt: 0 } }, { saleId: null }];
+    // Sotuv: ichida foydalanuvchi doirasidagi tasdiqlangan bitim bo'lsa ko'rinadi
+    const saleAnd: Prisma.SaleWhereInput[] = [
+      { debtRemainder: { gt: 0 } },
+      { deals: { some: { AND: [scope, APPROVED_ONLY] } } },
+    ];
+    // Cheklangan rollar (OPERATOR/AGENT): sotuv qatori faqat ichidagi BARCHA bitimlar doirada bo'lsa ko'rinadi —
+    // aks holda birovning bitimlari (tovar, narx, qarz) ko'rinib qolardi; bunday sotuv jami qarzga ham kirmaydi
+    if (isScopedRole(req.user!.role)) saleAnd.push({ deals: { every: scope } });
 
     if (search && String(search).trim()) {
       const s = String(search).trim();
+      const contains = { contains: s, mode: 'insensitive' as const };
+      const isNum = /^\d{1,9}$/.test(s);
       const or: Prisma.DealWhereInput[] = [
-        { customerName: { contains: s, mode: 'insensitive' } },
-        { customerPhone1: { contains: s, mode: 'insensitive' } },
-        { customerPhone2: { contains: s, mode: 'insensitive' } },
-        { productName: { contains: s, mode: 'insensitive' } },
-        { buyer: { name: { contains: s, mode: 'insensitive' } } },
+        { customerName: contains },
+        { customerPhone1: contains },
+        { customerPhone2: contains },
+        { productName: contains },
+        { buyer: { name: contains } },
       ];
-      if (/^\d{1,9}$/.test(s)) or.push({ dealNumber: Number(s) });
+      if (isNum) or.push({ dealNumber: Number(s) });
       and.push({ OR: or });
+
+      const dealOr: Prisma.DealWhereInput[] = [{ productName: contains }, { imeiBarcode: contains }];
+      if (isNum) dealOr.push({ dealNumber: Number(s) });
+      const saleOr: Prisma.SaleWhereInput[] = [
+        { buyer: { name: contains } },
+        { buyer: { phone: contains } },
+        { deals: { some: { OR: dealOr } } },
+      ];
+      if (isNum) saleOr.push({ saleNumber: Number(s) });
+      saleAnd.push({ OR: saleOr });
     }
     const where: Prisma.DealWhereInput = { AND: and };
+    const saleWhere: Prisma.SaleWhereInput = { AND: saleAnd };
 
-    const [totalCount, items, debtSum] = await Promise.all([
-      prisma.deal.count({ where }),
+    // Ikki manba birlashtirilib sana bo'yicha tartiblanadi, sahifalash xotirada bajariladi
+    const [items, sales, debtSum, saleDebtSum] = await Promise.all([
       prisma.deal.findMany({
         where,
         include: {
@@ -45,15 +83,78 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
             orderBy: { date: 'desc' },
           },
         },
-        orderBy: { date: 'desc' },
-        skip,
-        take: limitNum,
+      }),
+      prisma.sale.findMany({
+        where: saleWhere,
+        include: {
+          buyer: true,
+          deals: { orderBy: { dealNumber: 'asc' }, include: { store: true } },
+          payments: { orderBy: [{ date: 'desc' }, { createdAt: 'desc' }] },
+        },
       }),
       // Jami qarz — faqat shu sahifadagilar emas, mos keladigan barcha (tasdiqlangan) bitimlar bo'yicha
       prisma.deal.aggregate({ where, _sum: { debtRemainder: true } }),
+      // Sotuv qarzi = ichidagi bitimlar qarzlarining yig'indisi (ulushlar aynan shunday taqsimlanadi)
+      prisma.sale.aggregate({ where: saleWhere, _sum: { debtRemainder: true } }),
     ]);
 
-    const formatted = items.map((deal) => {
+    const saleRows = sales.map((sale) => {
+      const buyerName = cleanCustomerText(sale.buyer?.name) || '';
+      const first = sale.deals[0];
+      const firstName = first?.productName || 'Texnika';
+      const stores = Array.from(new Set(sale.deals.map((d) => d.store?.name).filter(Boolean)));
+      return {
+        kind: 'SALE' as const,
+        // To'lov manzili: POST /api/sales/:id/payments (id = saleId)
+        id: sale.id,
+        saleId: sale.id as string | null,
+        saleNumber: sale.saleNumber as number | null,
+        itemsCount: sale.deals.length,
+        dealNumber: null as number | null,
+        date: sale.saleDate,
+        dateTimeLabel: dealDateTimeLabel({ date: sale.saleDate, createdAt: sale.createdAt }),
+        debtorName: buyerName,
+        buyerName,
+        customerName: buyerName,
+        customerPhone: '',
+        customerPhone1: '',
+        customerPhone2: '',
+        buyerPhone: cleanCustomerText(sale.buyer?.phone) || '',
+        // Mahsulotlar qisqacha: "iPhone 15 +2 ta"
+        productName: sale.deals.length > 1 ? `${firstName} +${sale.deals.length - 1} ta` : firstName,
+        imeiBarcode: first?.imeiBarcode || '-',
+        storeName: stores.join(', ') || "Do'kon",
+        salePrice: Number(sale.totalPrice) || 0,
+        receivedFromBuyer: Number(sale.receivedAmount) || 0,
+        debtRemainder: Number(sale.debtRemainder) || 0,
+        debtDueDate: sale.debtDueDate,
+        isOverdue: sale.debtDueDate ? new Date(sale.debtDueDate) < new Date() : false,
+        paymentStatus: sale.paymentStatus,
+        // Manfiy summa — xaridorga qaytarilgan pul
+        payments: sale.payments.map((p) => ({
+          id: p.id,
+          amount: Number(p.amount),
+          date: p.date,
+          paidBy: buyerName as string | null,
+          accountType: p.accountType,
+          note: p.note,
+        })),
+        items: sale.deals.map(
+          (d): SaleDebtItem => ({
+            dealId: d.id,
+            dealNumber: d.dealNumber,
+            productName: d.productName || 'Texnika',
+            imeiBarcode: d.imeiBarcode || '-',
+            storeName: d.store?.name || "Do'kon",
+            salePrice: Number(d.salePrice) || 0,
+            receivedFromBuyer: Number(d.receivedFromBuyer) || 0,
+            debtRemainder: Number(d.debtRemainder) || 0,
+          })
+        ),
+      };
+    });
+
+    const dealRows = items.map((deal) => {
       const salePrice = Number(deal.salePrice) || 0;
       const received = Number(deal.receivedFromBuyer) || 0;
       const debt = Number(deal.debtRemainder) || 0;
@@ -65,8 +166,12 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       const phone2 = cleanCustomerText(deal.customerPhone2);
 
       return {
+        kind: 'DEAL' as const,
         id: deal.id,
-        dealNumber: deal.dealNumber,
+        saleId: null as string | null,
+        saleNumber: null as number | null,
+        itemsCount: 1,
+        dealNumber: deal.dealNumber as number | null,
         date: deal.saleDate || deal.date,
         dateTimeLabel: dealDateTimeLabel({ date: deal.saleDate || deal.date, createdAt: deal.createdAt }),
         // Qarzdor — tovarni olgan xaridor; xaridor yozilmagan bo'lsa bitim mijozi
@@ -95,12 +200,17 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
           accountType: p.accountType,
           note: p.note,
         })),
+        items: [] as SaleDebtItem[],
       };
     });
 
+    const all = [...dealRows, ...saleRows].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const totalCount = all.length;
+    const formatted = all.slice(skip, skip + limitNum);
+
     return res.json({
       items: formatted,
-      totalDebtSum: Number(debtSum._sum.debtRemainder) || 0,
+      totalDebtSum: (Number(debtSum._sum.debtRemainder) || 0) + (Number(saleDebtSum._sum.debtRemainder) || 0),
       pagination: {
         total: totalCount,
         page: pageNum,
@@ -185,6 +295,16 @@ router.post('/:id/payment', authenticateToken, async (req: AuthRequest, res: Res
 
     if (!deal) {
       return res.status(404).json({ error: 'Bitim (qarzdorlik) topilmadi' });
+    }
+    // Ko'p tovarli sotuvga kirgan bitim: qarz sotuv bo'yicha yuritiladi — to'lov sotuvga qo'shiladi
+    if (deal.saleId) {
+      const sale = await prisma.sale.findUnique({ where: { id: deal.saleId }, select: { saleNumber: true } });
+      return res.status(409).json({
+        error: `${saleManagedMessage(sale?.saleNumber ?? '?')} (to'lov: POST /api/sales/${deal.saleId}/payments)`,
+        saleId: deal.saleId,
+        saleNumber: sale?.saleNumber ?? null,
+        paymentUrl: `/api/sales/${deal.saleId}/payments`,
+      });
     }
     if (deal.approvalStatus !== 'APPROVED') {
       return res.status(409).json({ error: "Bitim hali tasdiqlanmagan — to'lov qabul qilib bo'lmaydi" });

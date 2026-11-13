@@ -33,7 +33,7 @@ Foydalanuvchi bilan muloqot va kod izohlari **o'zbek tilida (lotin)**.
 - Lokal git'da `pre-clean-backup` tegi bor (ichida biznes ma'lumotli fayllar) — uni PUSH QILMA.
 
 ## Tekshiruv buyruqlari
-- Server: `cd server; npx tsc --noEmit; npx vitest run` (219 test, fayllar ketma-ket — integratsion testlar lokal bazani ishlatadi).
+- Server: `cd server; npx tsc --noEmit; npx vitest run` (252 test, fayllar ketma-ket — integratsion testlar lokal bazani ishlatadi).
 - Klient: `cd client; npm run build; node src/i18n/check-keys.mjs` (uz/ru/en kalitlari bir xil bo'lishi shart).
 - API tutun-sinovi: `server/scripts/smoke-api.ts`.
 
@@ -75,6 +75,21 @@ Foydalanuvchi bilan muloqot va kod izohlari **o'zbek tilida (lotin)**.
   Cheklarni o'tkazishdan oldin tekshir: shu davrda "Mijozga berilgan summa (Tovar xaridi)" kategoriyasida bitimga bog'lanmagan
   (qo'lda/Sheets'dan) DDS qatorlari bo'lsa, ikki marta yozilib qoladi.
 
+## Ko'p tovarli sotuv (2026-11-13, FAQAT LOKALDA — deploy qilinmagan)
+- **Egasi qarorlari:** bitta sotuv = bir nechta ombor qatori (bitim) bitta xaridorga; BITTA umumiy narx (bitimlarga `totalPurchaseCost` ga
+  mutanosib taqsimlanadi); BITTA to'lov, qarz SOTUV bo'yicha; to'lov turi CASH / BANK_CARD / SETTLEMENT_ACCOUNT / DEBT (nasiya);
+  omborga qaytarilganda tushum ham bekor bo'ladi. Alohida telefon (DealItem) darajasida sotish QILINMAGAN (tannarx faqat bitimda).
+- **Sxema:** `Sale` (saleNumber, totalPrice, receivedAmount, debtRemainder, paymentType), `SalePayment` (manfiy = xaridorga qaytarilgan,
+  `ddsTransactionId`), `Deal.saleId`, `DdsSource.SALE_PAYMENT`. Jonli bazaga hali `db push` qilinmagan.
+- **Kod:** `services/sale.service.ts` (`createSale`, `updateSale`, `addSalePayment`, `returnSale`, `applySaleToDeals` — bitimdagi sotuv
+  maydonlarini sotuvdan ulush bo'yicha qayta yozadi), `routes/sales.routes.ts` (`/api/sales`, `/:id`, `/:id/payments`, `/:id/return`;
+  rollar ADMIN, MANAGER, COO, SELLER; to'lovga + CASHIER, CFO). Taqsimlash: `allocateProportional/allocateCapped/allocateRefundByAccount`.
+- **Himoya:** `saleId` bor bitim eski yo'llar bilan o'zgartirilmaydi (inventory sell/sale/status/transfer/receive, bitimni o'chirish, bot — 409);
+  bitim tahriri va Sheets importi sotuv maydonlarini ustidan yozmaydi; sotuv to'loviga bog'langan DDS qatori alohida o'chirilmaydi.
+- **Eski sotuvlar** (`saleId` yo'q) ro'yxatda `legacy: true` bitta tovarli sotuv bo'lib ko'rinadi va eski route'lar bilan ishlaydi.
+- **Qaytarish:** butun sotuv — DDS qatorlari O'CHIRILADI; qisman — ortiqcha to'lov bugungi sana bilan chiqim (COGS) bo'lib qaytariladi.
+- **Klient:** `components/sales/` (`NewSaleModal`, `SaleModals`, `SaleDetails`), `SalesPage` (ochiladigan qatorlar), `DebtorsPage` (`kind: SALE`).
+
 ## Jonli muhit holati (2026-11-12)
 - Deploy qilingan: server va klient. Jonli baza: sxema yangilangan, eski bitimlar to'ldirilgan (DealItem, Trust daftari, kassa qoldiqlari),
   dublikatlar birlashtirilgan (do'kon 22, provayder 16, agentlik 10), 5 agent logini (nazirbek, asadbek, farida, jahongir, macmobi).
@@ -98,7 +113,13 @@ Foydalanuvchi bilan muloqot va kod izohlari **o'zbek tilida (lotin)**.
 10. **Sheets'dan kelgan "Do'kondan tushum"** qatorida do'kon yo'q — daftarga to'lov bo'lib tushmaydi; "Qodir aka to'lovi" ham Sheets'dan kelsa daftarni kamaytirmaydi (faqat COGS bo'ladi).
 11. **Ortiqcha to'lov** cheklanmagan (qoldiq manfiy bo'lishi mumkin); CASHIER va MANAGER do'konlar hisobotida foydani ko'radi — shundaymi?
 
+12. **Sotuv:** butun sotuv qaytarilganda eski DDS qatorlari o'chiriladi (yopilgan davr o'zgaradi) — o'rniga bugungi sana bilan teskari yozuv bo'lsinmi?
+    Sotuv paytidagi to'lov DDS'ga bugungi sana bilan yoziladi (orqa sana bilan sotuvda ham) — sotuv sanasi bilan bo'lsinmi?
+    Sotilgan bitim foydasi = narx ulushi − xarid summasi (Trust 16% / hamkor 5% bonussiz, eski sotuv yo'li kabi) — shundaymi?
+    Tannarxi 0 tovar aralash sotuvda 0 narx ulushi oladi. Sotuv tahririda narx oshirilsa (boshqa qarzi yo'q xaridor) admin kodi so'ralmaydi.
+
 ## Ma'lum kamchiliklar / keyingi ishlar
+- Eski sotuv va qarz to'lovi route'larida (`/api/inventory/:id/sell`, `/api/debtors/:id/payment`) rol tekshiruvi yo'q; yangi `/api/sales` da bor.
 - Tor oynada (~1024px) Sotuv/DDS kartochkalaridagi uzun raqamlar sinadi; Bitimlar yig'ma panelining o'ng kataklari kesiladi; jadval biroz o'ngga suriladi.
 - Lidlar, HR, Balans, Kunlik hisob, Moliyaviy model, bot sahifalari va modallar yangi dizaynda ko'z bilan tekshirilmagan.
 - Android push: `google-services.json` + service account kerak (`docs/FIREBASE_SETUP.md`), APK qayta yig'iladi. Qurilmada sinalmagan.

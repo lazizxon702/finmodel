@@ -22,6 +22,13 @@ import {
   syncStoreDebtForDeal,
   syncTrustDebtForDeal,
 } from '../services/ledger.service';
+import {
+  applySaleToDeals,
+  assertDealNotInSale,
+  guardDealNotClaimed,
+  loadActiveCommissionRules,
+  lockSale,
+} from '../services/sale.service';
 import { pushDealToGoogleSheets } from '../services/sheetsSync.service';
 
 const router = Router();
@@ -479,19 +486,8 @@ async function findScopedDeal(user: AuthUser, id: string) {
   return prisma.deal.findFirst({ where: await scopedDealWhere(user, { id }), include: DEAL_INCLUDE });
 }
 
-async function getActiveRules() {
-  const rules = await prisma.commissionRule.findMany({
-    where: { isActive: true },
-    include: { store: true, provider: true },
-    orderBy: { priority: 'desc' },
-  });
-  return rules.map((r) => ({
-    storeName: r.store?.name || null,
-    providerName: r.provider?.name || null,
-    ratePercent: Number(r.ratePercent),
-    priority: r.priority,
-  }));
-}
+/** Faol komissiya qoidalari — sotuvni omborga qaytarish ham aynan shu yuklagichni ishlatadi (sale.service) */
+const getActiveRules = () => loadActiveCommissionRules();
 
 /** Summani o'qiydi: bo'sh → 0; son bo'lmasa yoki manfiy bo'lsa 400 */
 function toAmount(value: unknown, label: string): number {
@@ -1496,6 +1492,27 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
       paymentStatus: calcResult.paymentStatus,
       note: given('note') ? strOrNull(body.note) : existing.note,
     };
+    // Ko'p tovarli sotuvga kirgan bitim: sotuv maydonlari sotuvdan ulush bo'yicha yoziladi — bu yerda o'zgarmaydi
+    if (existing.saleId) {
+      Object.assign(data, {
+        status: existing.status,
+        saleDate: existing.saleDate,
+        buyerId: existing.buyerId,
+        salePrice: existing.salePrice,
+        receivedFromBuyer: existing.receivedFromBuyer,
+        debtRemainder: existing.debtRemainder,
+        paymentStatus: existing.paymentStatus,
+        profit: existing.profit,
+        marginPct: existing.marginPct,
+        paidTransfer: existing.paidTransfer,
+        paidCashUzs: existing.paidCashUzs,
+        paidCashUsd: existing.paidCashUsd,
+        paidBank: existing.paidBank,
+        debtDueDate: existing.debtDueDate,
+      } satisfies Prisma.DealUncheckedUpdateInput);
+    }
+    const saleCostChanged =
+      !!existing.saleId && Number(calcResult.totalPurchaseCost) !== Number(existing.totalPurchaseCost);
     if (products.items) {
       data.deviceItems = products.items.length ? toDeviceItemsJson(products.items) : Prisma.DbNull;
     }
@@ -1510,7 +1527,18 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
     const hadStoreEntry = await prisma.storeLedgerEntry.count({ where: { dealId: id } });
 
     const { trustDebt, storeDebt } = await prisma.$transaction(async (tx) => {
-      await tx.deal.update({ where: { id }, data });
+      // Sotuvdagi bitim: avval sotuv qulflanadi (to'lov/qaytarish bilan bir xil tartib — o'zaro qulflanish bo'lmaydi)
+      if (existing.saleId) await lockSale(tx, existing.saleId);
+      // Shartli yozuv: bitimning sotuvga tegishliligi o'qilgandan beri o'zgarmagan bo'lishi shart — aks holda
+      // parallel createSale / returnSale yozgan sotuv maydonlari eski qiymatlar bilan ustidan yozilib ketardi
+      try {
+        await tx.deal.update({ where: { id, saleId: existing.saleId }, data });
+      } catch (e) {
+        if (!isPrismaCode(e, 'P2025')) throw e;
+        const now = await tx.deal.findUnique({ where: { id }, select: { id: true } });
+        if (!now) throw e;
+        throw new HttpError(409, "Bitimning sotuv holati shu vaqtda o'zgardi — sahifani yangilab, qayta urinib ko'ring");
+      }
       if (products.items) {
         await tx.dealItem.deleteMany({ where: { dealId: id } });
         if (products.items.length) {
@@ -1521,6 +1549,8 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
       const trustDebt = await syncTrustDebtForDeal(tx, id);
       // Mijozga berilgan summa / do'kon / sana / tasdiq holati o'zgargan bo'lishi mumkin — do'kon daftari ham qayta moslanadi
       const storeDebt = await syncStoreDebtForDeal(tx, id);
+      // Tannarx o'zgargan bo'lsa — sotuvdagi barcha tovarlarning narx/pul ulushlari qayta taqsimlanadi
+      if (saleCostChanged && existing.saleId) await applySaleToDeals(tx, existing.saleId);
       return { trustDebt, storeDebt };
     }, TX_OPTIONS);
 
@@ -1677,7 +1707,19 @@ router.post(
 // DELETE /api/deals/all — barcha bitimlarni tozalash (faqat ADMIN + tasdiqlash kodi)
 router.delete('/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdminConfirm, async (req: AuthRequest, res: Response) => {
   try {
-    const result = await prisma.deal.deleteMany({});
+    // Sotuvlar (Sale) bor ekan bitimlar ommaviy o'chirilmaydi: sotuv, uning to'lovlari va DDS kirimlari "egasiz" qolardi.
+    // Tekshiruv o'chirish bilan bitta tranzaksiyada — parallel yaratilgan sotuv ham ushlanadi (hammasi bekor bo'ladi).
+    const result = await prisma.$transaction(async (tx) => {
+      const deleted = await tx.deal.deleteMany({});
+      const salesCount = await tx.sale.count();
+      if (salesCount > 0) {
+        throw new HttpError(
+          409,
+          `Bazada ${salesCount} ta sotuv bor — bitimlarni ommaviy o'chirib bo'lmaydi. Avval barcha sotuvlarni Sotuvlar bo'limida omborga qaytaring.`
+        );
+      }
+      return deleted;
+    }, TX_OPTIONS);
     emitRealtime('deals:updated', { action: 'deleted-all' });
     emitRealtime('trust:updated', {});
     emitRealtime('stores:updated', {});
@@ -1702,10 +1744,13 @@ router.delete('/:id', authenticateToken, async (req: AuthRequest, res: Response)
 
     const denial = dealWriteDenial('delete', user.role, existing.approvalStatus);
     if (denial) return res.status(403).json({ error: denial });
+    // Sotuvga kirgan bitim o'chirilmaydi — avval sotuv Sotuvlar bo'limida qaytariladi
+    await assertDealNotInSale(existing.saleId);
 
     const hadTrustEntry = await prisma.trustLedgerEntry.count({ where: { dealId: id } });
-    // Mahsulotlar va Trust qarzi yozuvi kaskad bilan o'chadi; yozilgan DDS chiqimi (to'langan pul) saqlanib qoladi
-    await prisma.deal.delete({ where: { id } });
+    // Mahsulotlar va Trust qarzi yozuvi kaskad bilan o'chadi; yozilgan DDS chiqimi (to'langan pul) saqlanib qoladi.
+    // Shartli o'chirish: tekshiruvdan keyin parallel sotuvga kirgan bitim o'chirilmaydi (409)
+    await guardDealNotClaimed(id, () => prisma.deal.delete({ where: { id, saleId: null } }));
 
     await writeAudit(user.id, id, 'DELETE', serializeDeal(existing));
 

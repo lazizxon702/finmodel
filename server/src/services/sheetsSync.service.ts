@@ -25,6 +25,7 @@ import {
   normalizeName,
 } from './calculation.service';
 import { isTrustIncomeCategory, rebuildAccountBalances, syncStoreDebtForDeal, syncTrustDebtForDeal } from './ledger.service';
+import { applySaleToDeals, lockSale } from './sale.service';
 
 export const DEFAULT_SHEETS_URL =
   'https://docs.google.com/spreadsheets/d/1Xas4V79zUAOQGx0ZePPd-VwhhARE3-nsq98rL9vEvUo/edit?usp=sharing';
@@ -1142,6 +1143,22 @@ export async function syncDealsFromGoogleSheets(customUrl?: string, localFilePat
       return { storeId, providerId, agencyId, agentId, buyerId };
     };
 
+    /** Sotuvga (Sale) kirgan bitimda varaqdan YANGILANMAYDIGAN maydonlar — ularni applySaleToDeals yuritadi */
+    const SALE_MANAGED_DEAL_FIELDS = [
+      'status',
+      'buyerId',
+      'salePrice',
+      'paidTransfer',
+      'paidCashUzs',
+      'paidCashUsd',
+      'paidBank',
+      'profit',
+      'marginPct',
+      'receivedFromBuyer',
+      'debtRemainder',
+      'paymentStatus',
+    ] as const;
+
     /** Varaqdan olinadigan bitim maydonlari (yaratishda ham, yangilashda ham bir xil) */
     const dealFields = (row: ParsedDealRow, refs: Awaited<ReturnType<typeof resolveAll>>) => {
       const d = row.data;
@@ -1234,13 +1251,30 @@ export async function syncDealsFromGoogleSheets(customUrl?: string, localFilePat
       }
       const refs = await resolveAll(row);
       await prisma.$transaction(async (tx) => {
+        const fields: Partial<ReturnType<typeof dealFields>> = dealFields(row, refs);
+        // Ko'p tovarli sotuvga kirgan bitim: sotuv maydonlari sotuvdan ulush bo'yicha yoziladi — varaqdagi qiymat ustidan yozmaydi
+        const readCurrent = () =>
+          tx.deal.findUnique({ where: { id: db.id }, select: { saleId: true, totalPurchaseCost: true } });
+        let current = await readCurrent();
+        if (current?.saleId) {
+          // Avval sotuv qulflanadi (to'lov/qaytarish bilan bir xil tartib), so'ng holat qayta o'qiladi
+          await lockSale(tx, current.saleId);
+          current = await readCurrent();
+        }
+        if (current?.saleId) {
+          for (const key of SALE_MANAGED_DEAL_FIELDS) delete fields[key];
+        }
         await tx.deal.update({
           where: { id: db.id },
           // Sana o'qilmagan bo'lsa bazadagi sana saqlanadi (hozirgi vaqt bilan ustidan yozilmaydi)
-          data: { ...(row.dateInfo ? { date: row.dateInfo.date } : {}), ...dealFields(row, refs) },
+          data: { ...(row.dateInfo ? { date: row.dateInfo.date } : {}), ...fields },
         });
         await syncTrustDebtForDeal(tx, db.id);
         await syncStoreDebtForDeal(tx, db.id);
+        // Tannarx o'zgargan bo'lsa — sotuvdagi ulushlar qayta taqsimlanadi
+        if (current?.saleId && Number(current.totalPurchaseCost) !== Number(row.data.totalPurchaseCost)) {
+          await applySaleToDeals(tx, current.saleId);
+        }
       });
       updated++;
     }

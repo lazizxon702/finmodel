@@ -53,6 +53,8 @@ export default defineModule({
     'debtors.historyEmpty': "Hech qanday to'lov tarixi mavjud emas",
     'debtors.defaultPayer': 'Mijoz',
     'debtors.swipeHint': "Jadvalni ko'rish uchun o'ngga suring",
+    'debtors.saleLine': 'Sotuv №{number} · {count} ta tovar',
+    'debtors.paySuccess': "To'lov qabul qilindi",
   },
   ru: {
     'debtors.subtitle': 'Остатки долгов клиентов, сроки оплаты, погашение долга и приём в кассу',
@@ -105,6 +107,8 @@ export default defineModule({
     'debtors.historyEmpty': 'История платежей отсутствует',
     'debtors.defaultPayer': 'Клиент',
     'debtors.swipeHint': 'Смахните вправо, чтобы увидеть таблицу',
+    'debtors.saleLine': 'Продажа №{number} · товаров: {count}',
+    'debtors.paySuccess': 'Оплата принята',
   },
   en: {
     'debtors.subtitle': 'Customer debt balances, due dates, debt reduction and cash receipts',
@@ -157,5 +161,7 @@ export default defineModule({
     'debtors.historyEmpty': 'No payment history',
     'debtors.defaultPayer': 'Customer',
     'debtors.swipeHint': 'Swipe right to see the full table',
+    'debtors.saleLine': 'Sale №{number} · {count} items',
+    'debtors.paySuccess': 'Payment accepted',
   },
 });

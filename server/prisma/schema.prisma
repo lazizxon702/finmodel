@@ -41,6 +41,15 @@ enum DdsSource {
   SYNC
   QODIR_PAYMENT // Qodir akaga to'lov (chiqim) — uning daftaridagi qarzimizni kamaytiradi
   STORE_PAYMENT // Do'kondan tushum (kirim) — do'konning bizga qarzini kamaytiradi
+  SALE_PAYMENT // Ko'p tovarli sotuv bo'yicha xaridor to'lovi (kirim) yoki qaytarilgan pul (chiqim)
+}
+
+// Sotuvdagi to'lov turi. DEBT = nasiya (to'lovsiz, to'liq qarzga)
+enum SalePaymentType {
+  CASH
+  BANK_CARD
+  SETTLEMENT_ACCOUNT
+  DEBT
 }
 
 enum StoreEntryType {
@@ -166,6 +175,7 @@ model Buyer {
   phone       String?
   isWholesale Boolean @default(true)
   deals       Deal[]
+  sales       Sale[]
 }
 
 model Partner {
@@ -254,7 +264,12 @@ model Deal {
   ddsTransactions     DdsTransaction[]
   trustEntry          TrustLedgerEntry?
   storeEntry          StoreLedgerEntry?
+  // Ko'p tovarli sotuv: shu bitim (ombor qatori) qaysi sotuvga kiradi. Bitimdagi sotuv maydonlari
+  // (salePrice, receivedFromBuyer, debtRemainder, profit ...) sotuvdan ulush bo'yicha hisoblab yoziladi.
+  saleId              String?
+  sale                Sale?             @relation(fields: [saleId], references: [id], onDelete: SetNull)
 
+  @@index([saleId])
   @@index([approvalStatus])
   @@index([createdById])
   @@index([date])
@@ -297,6 +312,7 @@ model DdsTransaction {
   deal         Deal?               @relation(fields: [dealId], references: [id], onDelete: SetNull)
   trustEntry   TrustLedgerEntry?
   storeEntry   StoreLedgerEntry?
+  salePayment  SalePayment?
 
   // Bitta bitim uchun chek xarajati faqat bir marta yoziladi
   @@unique([dealId, source])
@@ -360,6 +376,46 @@ model DeviceToken {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+// Bitta sotuv — bir nechta ombor qatori (bitim) bitta xaridorga, bitta umumiy summa va to'lov bilan.
+model Sale {
+  id             String          @id @default(uuid())
+  saleNumber     Int             @unique @default(autoincrement())
+  saleDate       DateTime        @default(now())
+  buyerId        String
+  buyer          Buyer           @relation(fields: [buyerId], references: [id])
+  totalPrice     Decimal
+  receivedAmount Decimal         @default(0)
+  debtRemainder  Decimal         @default(0)
+  paymentStatus  PaymentStatus   @default(PARTIAL)
+  paymentType    SalePaymentType @default(CASH)
+  debtDueDate    DateTime?
+  note           String?
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  deals          Deal[]
+  payments       SalePayment[]
+
+  @@index([saleDate])
+  @@index([buyerId])
+}
+
+// Sotuv bo'yicha to'lov (manfiy summa = xaridorga qaytarilgan pul). DDS qatori bilan birga yuradi.
+model SalePayment {
+  id               String          @id @default(uuid())
+  saleId           String
+  sale             Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  amount           Decimal
+  date             DateTime        @default(now())
+  accountType      AccountType     @default(CASH)
+  note             String?
+  ddsTransactionId String?         @unique
+  ddsTransaction   DdsTransaction? @relation(fields: [ddsTransactionId], references: [id], onDelete: SetNull)
+  createdById      String?
+  createdAt        DateTime        @default(now())
+
+  @@index([saleId])
 }
 
 model DebtPayment {

@@ -238,15 +238,34 @@ export async function createDds(input: CreateDdsInput) {
   return created;
 }
 
+/**
+ * DDS yozuvini BERILGAN tranzaksiya ichida o'chiradi va hisob qoldig'ini orqaga qaytaradi
+ * (sotuvni qaytarish kabi bir nechta amal bitta tranzaksiyada bajarilishi kerak bo'lgan joylar uchun).
+ */
+export async function deleteDdsInTx(tx: Tx, id: string) {
+  const existing = await tx.ddsTransaction.findUnique({ where: { id } });
+  if (!existing) throw new LedgerError('Tranzaksiya topilmadi', 404);
+  // Trust va do'kon daftarlaridagi bog'liq PAYMENT yozuvi onDelete: Cascade orqali o'chadi
+  await tx.ddsTransaction.delete({ where: { id } });
+  await applyBalance(tx, existing.account, -balanceDelta(existing.type, Number(existing.amount)));
+  return existing;
+}
+
 /** DDS yozuvini o'chiradi va qoldiqni (hamda Trust to'lovini) orqaga qaytaradi */
 export async function deleteDds(id: string) {
   const removed = await prisma.$transaction(async (tx) => {
-    const existing = await tx.ddsTransaction.findUnique({ where: { id } });
-    if (!existing) throw new LedgerError('Tranzaksiya topilmadi', 404);
-    // Trust va do'kon daftarlaridagi bog'liq PAYMENT yozuvi onDelete: Cascade orqali o'chadi
-    await tx.ddsTransaction.delete({ where: { id } });
-    await applyBalance(tx, existing.account, -balanceDelta(existing.type, Number(existing.amount)));
-    return existing;
+    // Sotuv to'loviga bog'langan yozuv alohida o'chirilmaydi — aks holda sotuvdagi "olingan pul" kassa bilan mos kelmay qoladi
+    const salePayment = await tx.salePayment.findUnique({
+      where: { ddsTransactionId: id },
+      select: { sale: { select: { saleNumber: true } } },
+    });
+    if (salePayment) {
+      throw new LedgerError(
+        `Bu yozuv №${salePayment.sale.saleNumber} sotuv to'loviga bog'langan — uni Sotuvlar bo'limida sotuvni qaytarish orqali bekor qiling`,
+        409
+      );
+    }
+    return deleteDdsInTx(tx, id);
   });
   emitRealtime('dds:updated', { id });
   if (removed.source === DdsSource.TRUST_PAYMENT) emitRealtime('trust:updated', {});

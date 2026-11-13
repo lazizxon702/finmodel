@@ -61,7 +61,13 @@ export const DebtorsPage: React.FC = () => {
   };
 
   // Qarzdor ismi: server `debtorName` qaytaradi (xaridor yoki bitim mijozi), bo'lsa `customerName`
-  const nameOf = (d: any): string => d.debtorName || d.customerName || '';
+  const nameOf = (d: any): string => d.debtorName || d.customerName || d.buyerName || '';
+
+  // Ko'p tovarli sotuv qarzi (kind = 'SALE'); `kind` yo'q qator — oddiy bitim qarzi
+  const isSale = (d: any): boolean => d?.kind === 'SALE' && !!(d.saleId || d.id);
+  const numberOf = (d: any): string => String((isSale(d) ? d.saleNumber ?? d.dealNumber : d.dealNumber) ?? '—');
+  const saleLine = (d: any): string =>
+    t('debtors.saleLine', { number: d.saleNumber ?? '—', count: Number(d.itemsCount) || 0 });
 
   const handleOpenPay = (debtor: any) => {
     setSelectedDebtor(debtor);
@@ -84,14 +90,21 @@ export const DebtorsPage: React.FC = () => {
     try {
       setPaying(true);
       setPayError('');
-      const res = await axios.post(`/api/debtors/${selectedDebtor.id}/payment`, {
-        amount: payAmount,
-        accountType,
-        paidBy,
-        note: payNote,
-      });
+      // Sotuv qarzi sotuvning o'z to'lov manziliga, bitim qarzi eski manzilga yuboriladi
+      const res = isSale(selectedDebtor)
+        ? await axios.post(`/api/sales/${selectedDebtor.saleId || selectedDebtor.id}/payments`, {
+            amount: payAmount,
+            accountType,
+            note: payNote || undefined,
+          })
+        : await axios.post(`/api/debtors/${selectedDebtor.id}/payment`, {
+            amount: payAmount,
+            accountType,
+            paidBy,
+            note: payNote,
+          });
 
-      setPaySuccessMsg(res.data.message);
+      setPaySuccessMsg(res.data?.message || t('debtors.paySuccess'));
       setTimeout(() => {
         setSelectedDebtor(null);
         fetchDebtors();
@@ -215,9 +228,9 @@ export const DebtorsPage: React.FC = () => {
                 <TableEmpty colSpan={11} title={t('debtors.empty')} />
               ) : (
                 filtered.map((d) => (
-                  <Tr key={d.id}>
+                  <Tr key={`${d.kind || 'DEAL'}-${d.saleId || d.id}`}>
                     <Td numeric className="font-mono font-semibold text-accent">
-                      №{d.dealNumber}
+                      №{numberOf(d)}
                     </Td>
                     <Td numeric className="text-fg-muted">
                       {formatDate(d.date)}
@@ -235,8 +248,17 @@ export const DebtorsPage: React.FC = () => {
                     </Td>
                     <Td className="font-medium text-fg-secondary">{d.storeName}</Td>
                     <Td>
-                      <div className="font-medium text-fg">{d.productName}</div>
-                      <div className="font-mono text-xs text-fg-muted">{d.imeiBarcode}</div>
+                      {isSale(d) ? (
+                        <>
+                          <div className="whitespace-nowrap font-medium text-fg">{saleLine(d)}</div>
+                          {d.productName && <div className="text-xs text-fg-muted">{d.productName}</div>}
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-medium text-fg">{d.productName}</div>
+                          <div className="font-mono text-xs text-fg-muted">{d.imeiBarcode}</div>
+                        </>
+                      )}
                     </Td>
                     <Td align="right" numeric className="text-fg-secondary">
                       {formatMoney(d.salePrice)}
@@ -318,7 +340,9 @@ export const DebtorsPage: React.FC = () => {
         }
         description={
           selectedDebtor
-            ? t('debtors.receiptLine', { number: selectedDebtor.dealNumber, name: nameOf(selectedDebtor) || '—' })
+            ? isSale(selectedDebtor)
+              ? `${saleLine(selectedDebtor)} — ${nameOf(selectedDebtor) || '—'}`
+              : t('debtors.receiptLine', { number: selectedDebtor.dealNumber, name: nameOf(selectedDebtor) || '—' })
             : undefined
         }
         footer={
@@ -400,14 +424,17 @@ export const DebtorsPage: React.FC = () => {
                 </Select>
               </Field>
 
-              <Field label={t('debtors.paidBy')}>
-                <Input
-                  type="text"
-                  value={paidBy}
-                  onChange={(e) => setPaidBy(e.target.value)}
-                  placeholder={t('debtors.paidByPlaceholder')}
-                />
-              </Field>
+              {/* Sotuv to'lovi manzili `paidBy` ni qabul qilmaydi — maydon faqat bitim qarzida */}
+              {!isSale(selectedDebtor) && (
+                <Field label={t('debtors.paidBy')}>
+                  <Input
+                    type="text"
+                    value={paidBy}
+                    onChange={(e) => setPaidBy(e.target.value)}
+                    placeholder={t('debtors.paidByPlaceholder')}
+                  />
+                </Field>
+              )}
 
               <Field label={t('debtors.noteLabel')}>
                 <Input
@@ -435,7 +462,9 @@ export const DebtorsPage: React.FC = () => {
         }
         description={
           historyDebtor
-            ? t('debtors.receiptLine', { number: historyDebtor.dealNumber, name: nameOf(historyDebtor) || '—' })
+            ? isSale(historyDebtor)
+              ? `${saleLine(historyDebtor)} — ${nameOf(historyDebtor) || '—'}`
+              : t('debtors.receiptLine', { number: historyDebtor.dealNumber, name: nameOf(historyDebtor) || '—' })
             : undefined
         }
         footer={

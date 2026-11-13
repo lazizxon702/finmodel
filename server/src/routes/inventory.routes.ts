@@ -6,6 +6,7 @@ import { DealStatus, PaymentStatus, AccountType, Prisma, TransactionType, Expens
 import { emitRealtime } from '../lib/realtime';
 import { APPROVED_ONLY, dealScopeWhere } from '../services/access.service';
 import { LedgerError, createDdsInTx } from '../services/ledger.service';
+import { SaleError, assertDealNotInSale, assertDealsNotInSale, guardDealNotClaimed } from '../services/sale.service';
 import {
   HttpError,
   cleanCustomerText,
@@ -30,6 +31,7 @@ async function findScoped<T extends Prisma.DealInclude>(user: AuthUser, id: stri
 const NOT_APPROVED_ERROR = 'Bitim hali tasdiqlanmagan — administrator tasdiqlagandan keyin sotish mumkin';
 
 function sendError(res: Response, error: any, fallback: string) {
+  if (error instanceof SaleError) return res.status(error.status).json({ error: error.message, ...error.extra });
   if (error instanceof HttpError || error instanceof LedgerError) {
     return res.status(error.status).json({ error: error.message });
   }
@@ -205,6 +207,8 @@ router.put('/:id/receive', authenticateToken, async (req: AuthRequest, res: Resp
 
     const deal = await findScoped(req.user!, id);
     if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
+    // Sotuvga kirgan tovar qayta "prixod" qilinmaydi (holati SOLD dan o'zgarib ketmasin)
+    await assertDealNotInSale(deal.saleId);
 
     const next = {
       imeiBarcode: String(imeiBarcode).trim(),
@@ -213,7 +217,8 @@ router.put('/:id/receive', authenticateToken, async (req: AuthRequest, res: Resp
       storageGb: storageGb?.trim() || deal.storageGb,
     };
 
-    const updated = await prisma.$transaction(async (tx) => {
+    // Yozuv shartli (saleId: null): tekshiruvdan keyin parallel sotuvga kirgan tovar o'zgartirilmaydi (409, hammasi bekor bo'ladi)
+    const updated = await guardDealNotClaimed(id, () => prisma.$transaction(async (tx) => {
       // Birinchi mahsulot qatori (DealItem) va deviceItems (Json) eski yagona maydonlar bilan sinxron qoladi
       const rows = await tx.dealItem.findMany({ where: { dealId: id }, orderBy: { position: 'asc' } });
       if (rows.length) {
@@ -237,7 +242,7 @@ router.put('/:id/receive', authenticateToken, async (req: AuthRequest, res: Resp
       }
       const fresh = await tx.dealItem.findMany({ where: { dealId: id }, orderBy: { position: 'asc' } });
       return tx.deal.update({
-        where: { id },
+        where: { id, saleId: null },
         data: {
           ...next,
           deviceItems: toDeviceItemsJson(
@@ -257,7 +262,7 @@ router.put('/:id/receive', authenticateToken, async (req: AuthRequest, res: Resp
         },
         include: { store: true, buyer: true },
       });
-    });
+    }));
 
     emitRealtime('deals:updated', { id, action: 'received' });
 
@@ -290,15 +295,18 @@ router.put('/:id/status', authenticateToken, async (req: AuthRequest, res: Respo
 
     const deal = await findScoped(req.user!, id);
     if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
+    await assertDealNotInSale(deal.saleId);
 
-    const updated = await prisma.deal.update({
-      where: { id },
-      data: {
-        status: status as DealStatus,
-        statusChangeReason: reason.trim(),
-      },
-      include: { store: true },
-    });
+    const updated = await guardDealNotClaimed(id, () =>
+      prisma.deal.update({
+        where: { id, saleId: null },
+        data: {
+          status: status as DealStatus,
+          statusChangeReason: reason.trim(),
+        },
+        include: { store: true },
+      })
+    );
 
     emitRealtime('deals:updated', { id, action: 'status' });
 
@@ -332,14 +340,22 @@ router.post('/transfer', authenticateToken, async (req: AuthRequest, res: Respon
 
     const transferNote = `Filiallararo ko'chirish: -> ${targetStore.name}. Sabab: ${reason || "O'tkazma"}`;
     const scope = await dealScopeWhere(req.user!);
+    // Sotuvga kirgan tovar ko'chirilmaydi
+    await assertDealsNotInSale({ AND: [scope, { id: { in: dealIds.map(String) } }] });
 
-    const result = await prisma.deal.updateMany({
-      where: { AND: [scope, { id: { in: dealIds.map(String) } }] },
-      data: {
-        status: DealStatus.IN_TRANSIT,
-        statusChangeReason: transferNote,
-        note: transferNote,
-      },
+    const transferWhere: Prisma.DealWhereInput = { AND: [scope, { id: { in: dealIds.map(String) } }] };
+    // Yozuv shartli (saleId: null) va tranzaksiyada: shu orada sotuvga kirgan tovar bo'lsa — 409, hech narsa ko'chirilmaydi
+    const result = await prisma.$transaction(async (tx) => {
+      const r = await tx.deal.updateMany({
+        where: { AND: [transferWhere, { saleId: null }] },
+        data: {
+          status: DealStatus.IN_TRANSIT,
+          statusChangeReason: transferNote,
+          note: transferNote,
+        },
+      });
+      await assertDealsNotInSale(transferWhere, tx);
+      return r;
     });
     if (result.count === 0) return res.status(404).json({ error: 'Tovarlar topilmadi' });
 
@@ -374,13 +390,20 @@ router.post('/transfer/accept', authenticateToken, async (req: AuthRequest, res:
     }
 
     const scope = await dealScopeWhere(req.user!);
-    const result = await prisma.deal.updateMany({
-      where: { AND: [scope, { id: { in: dealIds.map(String) } }] },
-      data: {
-        ...(targetStoreId ? { storeId: String(targetStoreId) } : {}),
-        status: DealStatus.IN_WAREHOUSE,
-        statusChangeReason: 'Filialda qabul qilib olindi va omborga kiritildi',
-      },
+    await assertDealsNotInSale({ AND: [scope, { id: { in: dealIds.map(String) } }] });
+    const acceptWhere: Prisma.DealWhereInput = { AND: [scope, { id: { in: dealIds.map(String) } }] };
+    // Yozuv shartli (saleId: null) va tranzaksiyada: shu orada sotuvga kirgan tovar bo'lsa — 409, hech narsa yozilmaydi
+    const result = await prisma.$transaction(async (tx) => {
+      const r = await tx.deal.updateMany({
+        where: { AND: [acceptWhere, { saleId: null }] },
+        data: {
+          ...(targetStoreId ? { storeId: String(targetStoreId) } : {}),
+          status: DealStatus.IN_WAREHOUSE,
+          statusChangeReason: 'Filialda qabul qilib olindi va omborga kiritildi',
+        },
+      });
+      await assertDealsNotInSale(acceptWhere, tx);
+      return r;
     });
     if (result.count === 0) return res.status(404).json({ error: 'Tovarlar topilmadi' });
 
@@ -422,6 +445,7 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
 
     const deal = await findScoped(req.user!, id, { store: true });
     if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
+    await assertDealNotInSale(deal.saleId);
     if (deal.approvalStatus !== 'APPROVED') return res.status(409).json({ error: NOT_APPROVED_ERROR });
 
     // 1. Kredit nazorati: shu xaridorda to'lanmagan qarz bormi (butun baza bo'yicha tekshiriladi)
@@ -471,11 +495,12 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
     if (paymentType === 'BANK_CARD' || paymentType === 'CARD') ddsAccount = AccountType.BANK_CARD;
     else if (paymentType === 'SETTLEMENT') ddsAccount = AccountType.SETTLEMENT_ACCOUNT;
 
-    const updated = await prisma.$transaction(async (tx) => {
+    // Yozuv shartli (saleId: null): tekshiruvdan keyin parallel ko'p tovarli sotuvga kirgan tovar qayta sotilmaydi (409)
+    const updated = await guardDealNotClaimed(id, () => prisma.$transaction(async (tx) => {
       // 1. Bitimni yangilash. Xaridor buyerId da saqlanadi — bitim mijozining ismi (customerName)
       //    xaridor ismi bilan ustidan yozilmaydi (aks holda mijoz ismi yo'qoladi).
       const d = await tx.deal.update({
-        where: { id },
+        where: { id, saleId: null },
         data: {
           status: DealStatus.SOLD,
           saleDate: saleDate ? new Date(String(saleDate).length === 10 ? `${saleDate}T12:00:00.000+05:00` : saleDate) : new Date(),
@@ -526,7 +551,7 @@ router.put('/:id/sell', authenticateToken, async (req: AuthRequest, res: Respons
       }
 
       return d;
-    });
+    }));
 
     emitRealtime('deals:updated', { id, action: 'sold' });
     if (pAmount > 0) emitRealtime('dds:updated', {});
@@ -557,23 +582,27 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
 
     const deal = await findScoped(req.user!, id, { store: true, buyer: true });
     if (!deal) return res.status(404).json({ error: 'Bitim (sotuv) topilmadi' });
+    // Ko'p tovarli sotuvga kirgan tovar faqat Sotuvlar bo'limida tahrirlanadi/qaytariladi
+    await assertDealNotInSale(deal.saleId);
 
     if (returnToWarehouse) {
       // Sotuvni bekor qilib, tovarni omborga qaytarish
-      const updated = await prisma.deal.update({
-        where: { id },
-        data: {
-          status: DealStatus.IN_WAREHOUSE,
-          saleDate: null,
-          salePrice: 0,
-          receivedFromBuyer: 0,
-          debtRemainder: 0,
-          debtDueDate: null,
-          paymentStatus: PaymentStatus.PARTIAL,
-          statusChangeReason: 'Sotuv bekor qilindi va omborga qaytarildi',
-        },
-        include: { buyer: true, store: true },
-      });
+      const updated = await guardDealNotClaimed(id, () =>
+        prisma.deal.update({
+          where: { id, saleId: null },
+          data: {
+            status: DealStatus.IN_WAREHOUSE,
+            saleDate: null,
+            salePrice: 0,
+            receivedFromBuyer: 0,
+            debtRemainder: 0,
+            debtDueDate: null,
+            paymentStatus: PaymentStatus.PARTIAL,
+            statusChangeReason: 'Sotuv bekor qilindi va omborga qaytarildi',
+          },
+          include: { buyer: true, store: true },
+        })
+      );
       emitRealtime('deals:updated', { id, action: 'sale-cancelled' });
       return res.json({
         success: true,
@@ -609,8 +638,8 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
       buyerId = b.id;
     }
 
-    const updated = await prisma.deal.update({
-      where: { id },
+    const updated = await guardDealNotClaimed(id, () => prisma.deal.update({
+      where: { id, saleId: null },
       data: {
         status: DealStatus.SOLD,
         saleDate: saleDate ? new Date(String(saleDate).length === 10 ? `${saleDate}T12:00:00.000+05:00` : saleDate) : (deal.saleDate || new Date()),
@@ -627,7 +656,7 @@ router.put('/:id/sale', authenticateToken, async (req: AuthRequest, res: Respons
         statusChangeReason: `Sotuv tahrirlandi: Narxi: ${sPrice.toLocaleString('uz-UZ')}, Qarz: ${debtRemainder.toLocaleString('uz-UZ')}`,
       },
       include: { buyer: true, store: true },
-    });
+    }));
 
     emitRealtime('deals:updated', { id, action: 'sale-updated' });
 
@@ -649,6 +678,7 @@ router.delete('/:id/sale', authenticateToken, async (req: AuthRequest, res: Resp
 
     const deal = await findScoped(req.user!, id);
     if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
+    await assertDealNotInSale(deal.saleId);
 
     if (deletePermanently === 'true') {
       // Butunlay o'chirish — DELETE /api/deals/:id bilan bir xil qoida
@@ -656,7 +686,7 @@ router.delete('/:id/sale', authenticateToken, async (req: AuthRequest, res: Resp
       if (denial) return res.status(403).json({ error: denial });
 
       const hadTrustEntry = await prisma.trustLedgerEntry.count({ where: { dealId: id } });
-      await prisma.deal.delete({ where: { id } });
+      await guardDealNotClaimed(id, () => prisma.deal.delete({ where: { id, saleId: null } }));
       emitRealtime('deals:updated', { id, action: 'deleted' });
       if (hadTrustEntry > 0) emitRealtime('trust:updated', {});
       return res.json({
@@ -666,19 +696,21 @@ router.delete('/:id/sale', authenticateToken, async (req: AuthRequest, res: Resp
     }
 
     // Omborga qaytarish
-    const updated = await prisma.deal.update({
-      where: { id },
-      data: {
-        status: DealStatus.IN_WAREHOUSE,
-        saleDate: null,
-        salePrice: 0,
-        receivedFromBuyer: 0,
-        debtRemainder: 0,
-        debtDueDate: null,
-        paymentStatus: PaymentStatus.PARTIAL,
-        statusChangeReason: 'Sotuv bekor qilindi va tovar omborga qaytarildi',
-      },
-    });
+    const updated = await guardDealNotClaimed(id, () =>
+      prisma.deal.update({
+        where: { id, saleId: null },
+        data: {
+          status: DealStatus.IN_WAREHOUSE,
+          saleDate: null,
+          salePrice: 0,
+          receivedFromBuyer: 0,
+          debtRemainder: 0,
+          debtDueDate: null,
+          paymentStatus: PaymentStatus.PARTIAL,
+          statusChangeReason: 'Sotuv bekor qilindi va tovar omborga qaytarildi',
+        },
+      })
+    );
 
     emitRealtime('deals:updated', { id, action: 'sale-cancelled' });
 

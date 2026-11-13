@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   CalculationService,
+  allocateCapped,
+  allocateProportional,
+  allocateRefundByAccount,
+  calcUnsoldDealProfit,
+  calcSaleShares,
+  salePaymentStatus,
   TRUST_RATE,
   balanceDelta,
   calcAgentCommission,
@@ -293,5 +299,118 @@ describe("Do'konlar bilan hisob-kitob (do'kon daftari)", () => {
     expect(summarizeTrustLedger(entries)).toEqual({ totalDebt: 4_700_000, totalPaid: 1_000_000, balance: 3_700_000 });
     // Ortiqcha to'lov — manfiy qoldiq (yashirilmaydi)
     expect(summarizeLedger([{ type: 'PAYMENT', amount: 500 }]).balance).toBe(-500);
+  });
+});
+
+describe("Ko'p tovarli sotuv: allocateProportional", () => {
+  const sum = (a: number[]) => a.reduce((s, x) => s + x, 0);
+
+  it("og'irlikka mutanosib, butun so'm, qoldiq oxirgi elementda — yig'indi aynan total", () => {
+    expect(allocateProportional(10_000_000, [1, 1, 1])).toEqual([3_333_333, 3_333_333, 3_333_334]);
+    expect(allocateProportional(100, [1, 1, 1])).toEqual([33, 33, 34]);
+    expect(allocateProportional(9_000_000, [1_000_000, 2_000_000, 3_000_000])).toEqual([1_500_000, 3_000_000, 4_500_000]);
+  });
+
+  it('bitta element — butun summa', () => {
+    expect(allocateProportional(7_777_777, [123])).toEqual([7_777_777]);
+    expect(allocateProportional(5, [0])).toEqual([5]);
+    expect(allocateProportional(5, [])).toEqual([]);
+  });
+
+  it("og'irliklar yig'indisi 0 — teng taqsimlanadi", () => {
+    expect(allocateProportional(100, [0, 0, 0, 0])).toEqual([25, 25, 25, 25]);
+    expect(allocateProportional(10, [0, 0, 0])).toEqual([3, 3, 4]);
+  });
+
+  it("6 ta tovar: yig'indi aynan total, hech biri manfiy emas, hammasi butun", () => {
+    const weights = [2_350_000, 1_999_999, 7_000_001, 450_000, 3_333_333, 5_100_000];
+    const total = 23_456_789;
+    const out = allocateProportional(total, weights);
+    expect(out).toHaveLength(6);
+    expect(sum(out)).toBe(total);
+    expect(out.every((x) => Number.isInteger(x) && x >= 0)).toBe(true);
+    const w = sum(weights);
+    out.slice(0, 5).forEach((x, i) => expect(x).toBe(Math.round((total * weights[i]) / w)));
+    // Katta og'irlik — katta ulush
+    expect(out[2]).toBeGreaterThan(out[5]);
+    expect(out[3]).toBeLessThan(out[1]);
+  });
+
+  it("yaxlitlash yig'ilib qolsa ham ulush manfiy bo'lmaydi; 0 og'irlikka hech narsa tushmaydi", () => {
+    expect(allocateProportional(1, [1, 1, 1])).toEqual([0, 0, 1]);
+    expect(sum(allocateProportional(2, [1, 1, 1, 1, 1]))).toBe(2);
+    expect(allocateProportional(2, [1, 1, 1, 1, 1]).every((x) => x >= 0)).toBe(true);
+    expect(allocateProportional(100, [1, 1, 1, 0])).toEqual([33, 33, 34, 0]);
+    expect(allocateProportional(100, [-5, 1])).toEqual([0, 100]);
+    expect(allocateProportional(0, [1, 2])).toEqual([0, 0]);
+  });
+
+  it('allocateCapped: ulush shiftdan oshmaydi', () => {
+    // Oddiy mutanosib taqsimot oxirgi elementga 4 yozgan bo'lardi (shifti 1)
+    const caps = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+    const out = allocateCapped(4, caps);
+    expect(sum(out)).toBe(4);
+    expect(out.every((x, i) => x <= caps[i] && x >= 0)).toBe(true);
+    expect(allocateCapped(5_000_000, [3_333_333, 3_333_333, 3_333_334])).toEqual([1_666_667, 1_666_667, 1_666_666]);
+    expect(allocateCapped(10, [4, 6])).toEqual([4, 6]);
+  });
+
+  it("salePaymentStatus va calcSaleShares: ulushlar yig'indisi sotuvga teng", () => {
+    expect(salePaymentStatus(100, 100)).toBe('PAID');
+    expect(salePaymentStatus(100, 40)).toBe('PARTIAL');
+    expect(salePaymentStatus(100, 0)).toBe('DEBT');
+
+    const costs = [1_000_000, 1_000_000, 1_000_000];
+    const shares = calcSaleShares({
+      totalPrice: 10_000_000,
+      receivedAmount: 7_000_000,
+      costs,
+      byAccount: { CASH: 5_000_000, BANK_CARD: 2_000_000, SETTLEMENT_ACCOUNT: 0 },
+    });
+    expect(sum(shares.map((s) => s.priceShare))).toBe(10_000_000);
+    expect(sum(shares.map((s) => s.receivedShare))).toBe(7_000_000);
+    expect(sum(shares.map((s) => s.debtRemainder))).toBe(3_000_000);
+    for (const [i, s] of shares.entries()) {
+      expect(s.profit).toBe(s.priceShare - costs[i]);
+      expect(s.marginPct).toBeCloseTo(s.profit / s.priceShare, 10);
+      expect(s.paidCashUzs + s.paidBank + s.paidTransfer).toBe(s.receivedShare);
+      expect(s.paidTransfer).toBe(0);
+      expect(s.paymentStatus).toBe('PARTIAL');
+    }
+  });
+  it("allocateRefundByAccount: eng yangi to'lovdan boshlab, har hisobdan ko'pi bilan sof tushgan summa", () => {
+    // Eng yangisi birinchi: keyingi naqd 100 000, sotuv paytidagi karta 5 000 000
+    const payments = [
+      { account: 'CASH', amount: 100_000 },
+      { account: 'BANK_CARD', amount: 5_000_000 },
+    ];
+    expect(allocateRefundByAccount(3_000_000, payments)).toEqual([
+      { account: 'CASH', amount: 100_000 },
+      { account: 'BANK_CARD', amount: 2_900_000 },
+    ]);
+    expect(allocateRefundByAccount(50_000, payments)).toEqual([{ account: 'CASH', amount: 50_000 }]);
+    expect(allocateRefundByAccount(0, payments)).toEqual([]);
+    // Avvalgi qaytarish (manfiy to'lov) hisobning sof tushumini kamaytiradi
+    const withRefund = [
+      { account: 'CASH', amount: -100_000 },
+      { account: 'CASH', amount: 100_000 },
+      { account: 'BANK_CARD', amount: 5_000_000 },
+    ];
+    expect(allocateRefundByAccount(1_000_000, withRefund)).toEqual([{ account: 'BANK_CARD', amount: 1_000_000 }]);
+    // To'lovlar yetmasa — bor summagina qaytadi (chaqiruvchi yig'indini tekshiradi)
+    expect(sum(allocateRefundByAccount(9_000_000, payments).map((p) => p.amount))).toBe(5_100_000);
+  });
+
+  it('calcUnsoldDealProfit: sotilmagan bitim foydasi calculateDeal bilan bir xil (Trust 16%, hamkor 5%)', () => {
+    const base = { customerLimit: 6_000_000, withdrawnLimit: 5_000_000, calculatedAmount: 3_500_000, providerName: 'Uzum' };
+    const trust = calcUnsoldDealProfit({ ...base, storeName: 'Trust' });
+    expect(trust.profit).toBe(800_000);
+    expect(trust.marginPct).toBe(0.16);
+    for (const storeName of ['Trust', 'Qodir aka', 'Oddiy do\'kon']) {
+      const full = CalculationService.calculateDeal({ ...base, storeName, status: 'IN_WAREHOUSE' as any });
+      expect(calcUnsoldDealProfit({ ...base, storeName })).toEqual({ profit: full.profit, marginPct: full.marginPct });
+    }
+    expect(calcUnsoldDealProfit({ ...base, storeName: 'Oddiy do\'kon' })).toEqual({ profit: 0, marginPct: 0 });
+    expect(calcUnsoldDealProfit({ ...base, storeName: 'Qodir aka' }).profit).toBeGreaterThan(0);
   });
 });

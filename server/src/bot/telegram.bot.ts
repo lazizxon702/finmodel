@@ -706,8 +706,14 @@ bot.on('message:text', async (ctx, next) => {
           const profit = (whState.salePrice || 0) - cost;
           const margin = whState.salePrice ? profit / whState.salePrice : 0;
 
-          await prisma.deal.update({
-            where: { id: deal.id },
+          // Shartli yozuv: tovar hali omborda/yo'lda va ko'p tovarli sotuvga kirmagan bo'lsagina sotiladi —
+          // aks holda (saytda allaqachon sotilgan) sotuv maydonlari ustidan yozilmaydi
+          const sold = await prisma.deal.updateMany({
+            where: {
+              id: deal.id,
+              status: { in: [DealStatus.IN_WAREHOUSE, DealStatus.IN_TRANSIT] },
+              saleId: null,
+            },
             data: {
               status: DealStatus.SOLD,
               salePrice: whState.salePrice || 0,
@@ -717,6 +723,19 @@ bot.on('message:text', async (ctx, next) => {
               note: `Xaridor: ${text}. Telegram orqali sotildi.`,
             },
           });
+          if (sold.count === 0) {
+            clearConversations(userId);
+            await ctx.reply(
+              `⚠️ <b>${whState.productName}</b> allaqachon sotilgan yoki omborda emas — chiqim yozilmadi.`,
+              {
+                parse_mode: 'HTML',
+                reply_markup: new InlineKeyboard()
+                  .text('📊 Ombor qoldig\'i', 'warehouse:stock')
+                  .text('⬅️ Asosiy menyu', 'menu:main'),
+              }
+            );
+            return;
+          }
         }
 
         clearConversations(userId);

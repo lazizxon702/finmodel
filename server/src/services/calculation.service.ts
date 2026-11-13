@@ -544,3 +544,176 @@ export class CalculationService {
     };
   }
 }
+
+/**
+ * Sotilmagan (omborda turgan) bitimning foydasi va marjasi — calculateDeal'ning o'zi bilan, sotuv maydonlarisiz.
+ * Sotuv omborga qaytarilganda ishlatiladi: foyda 0 emas (hamkor bonusi 5% + Trust 16%), PUT /api/deals/:id bergan qiymat bilan bir xil.
+ */
+export function calcUnsoldDealProfit(
+  input: Omit<DealCalculationInput, 'salePrice' | 'receivedFromBuyer' | 'status'>,
+  rules: CommissionRuleItem[] = []
+): { profit: number; marginPct: number } {
+  const r = CalculationService.calculateDeal(
+    { ...input, salePrice: 0, receivedFromBuyer: 0, status: DealStatus.IN_WAREHOUSE },
+    rules
+  );
+  return { profit: r.profit, marginPct: r.marginPct };
+}
+
+// ───────────────────────── Ko'p tovarli sotuv (Sale) ─────────────────────────
+
+/**
+ * Xaridorga qaytariladigan pulni hisoblar bo'yicha taqsimlaydi.
+ *   • `payments` — sotuvning barcha to'lovlari (manfiylari — avvalgi qaytarishlar), ENG YANGISI BIRINCHI;
+ *   • pul eng yangi (musbat) to'lov tushgan hisobdan boshlab olinadi;
+ *   • har bir hisobdan ko'pi bilan shu hisobga sof tushgan summa (Σ to'lovlar) — sof tushum manfiy bo'lmaydi.
+ * Qaytgan bo'laklar yig'indisi `total` dan kam bo'lsa — to'lovlar yetarli emas (chaqiruvchi xato beradi).
+ */
+export function allocateRefundByAccount<A extends string>(
+  total: number,
+  payments: { account: A; amount: number }[]
+): { account: A; amount: number }[] {
+  const net = new Map<A, number>();
+  for (const p of payments) net.set(p.account, (net.get(p.account) || 0) + (Number(p.amount) || 0));
+  const out: { account: A; amount: number }[] = [];
+  const used = new Set<A>();
+  let remaining = Math.max(0, Number(total) || 0);
+  for (const p of payments) {
+    if (remaining <= 0) break;
+    if (!(Number(p.amount) > 0) || used.has(p.account)) continue;
+    used.add(p.account);
+    const take = Math.min(remaining, Math.max(0, net.get(p.account) || 0));
+    if (take <= 0) continue;
+    out.push({ account: p.account, amount: take });
+    remaining -= take;
+  }
+  return out;
+}
+
+/** Sotuv tushumi (sotuv paytidagi to'lov) DDS kategoriyasi */
+export const SALE_INCOME_CATEGORY = 'Sotuv tushumi (Tovar sotildi)';
+/** Sotuv qarzining keyingi to'lovi DDS kategoriyasi */
+export const SALE_DEBT_PAYMENT_CATEGORY = 'Qarzdorlik qaytarilishi (Kassa kirim)';
+/** Qisman qaytarishda xaridorga qaytarilgan pul DDS kategoriyasi (COGS — OPEX'ga tushmaydi) */
+export const SALE_REFUND_CATEGORY = 'Sotuv qaytarilishi (Xaridorga qaytarildi)';
+
+/**
+ * Umumiy summani og'irliklarga mutanosib taqsimlaydi.
+ *   • har bir ulush butun so'mgacha yaxlitlanadi, qoldiq OXIRGI (og'irligi musbat) elementga tushadi — yig'indi doim aynan `total`;
+ *   • og'irliklar yig'indisi 0 bo'lsa — teng taqsimlanadi;
+ *   • manfiy / noto'g'ri og'irlik 0 deb olinadi; hech bir ulush manfiy bo'lmaydi.
+ */
+export function allocateProportional(total: number, weights: number[]): number[] {
+  const n = weights.length;
+  if (n === 0) return [];
+  const t = Math.max(0, Number(total) || 0);
+  let w = weights.map((x) => (Number.isFinite(Number(x)) && Number(x) > 0 ? Number(x) : 0));
+  let sum = w.reduce((s, x) => s + x, 0);
+  if (sum <= 0) {
+    w = w.map(() => 1);
+    sum = n;
+  }
+  // Qoldiq og'irligi musbat bo'lgan oxirgi elementga tushadi (0 og'irlikli elementga tiyin yozilmaydi)
+  let last = n - 1;
+  while (last > 0 && w[last] <= 0) last--;
+  const out: number[] = new Array(n).fill(0);
+  let remaining = t;
+  for (let i = 0; i < n; i++) {
+    if (i === last) continue;
+    const share = Math.min(remaining, Math.round((t * w[i]) / sum));
+    out[i] = share;
+    remaining -= share;
+  }
+  out[last] = remaining;
+  return out;
+}
+
+/**
+ * Summani "shiftlar"ga (caps) mutanosib taqsimlaydi, lekin hech bir ulush o'z shiftidan oshmaydi
+ * (masalan olingan pulni tovarlarning narx ulushlariga: tovarga narxidan ko'p pul yozilmaydi).
+ * total shiftlar yig'indisidan katta bo'lsa — ortig'i oxirgi elementda qoladi.
+ */
+export function allocateCapped(total: number, caps: number[]): number[] {
+  const c = caps.map((x) => (Number.isFinite(Number(x)) && Number(x) > 0 ? Number(x) : 0));
+  const out = allocateProportional(total, c);
+  let excess = 0;
+  for (let i = 0; i < out.length; i++) {
+    if (out[i] > c[i]) {
+      excess += out[i] - c[i];
+      out[i] = c[i];
+    }
+  }
+  for (let i = 0; i < out.length && excess > 0; i++) {
+    const room = c[i] - out[i];
+    if (room <= 0) continue;
+    const add = Math.min(room, excess);
+    out[i] += add;
+    excess -= add;
+  }
+  if (excess > 0 && out.length) out[out.length - 1] += excess;
+  return out;
+}
+
+/** To'lov holati: qarz qolmagan → PAID; qisman to'langan → PARTIAL; hech narsa to'lanmagan → DEBT */
+export function salePaymentStatus(price: number, received: number): 'PAID' | 'PARTIAL' | 'DEBT' {
+  const debt = (Number(price) || 0) - (Number(received) || 0);
+  if (debt <= 0) return 'PAID';
+  return (Number(received) || 0) > 0 ? 'PARTIAL' : 'DEBT';
+}
+
+/** Sotuv foydasi va marjasi: foyda = narx − tannarx; marja = foyda / narx */
+export function calcSaleProfit(price: number, cost: number): { profit: number; marginPct: number } {
+  const p = Number(price) || 0;
+  const profit = p - (Number(cost) || 0);
+  return { profit, marginPct: p > 0 ? profit / p : 0 };
+}
+
+export interface SaleShareInput {
+  totalPrice: number;
+  receivedAmount: number;
+  /** Har bir bitimning tannarxi (totalPurchaseCost) — narx shu bo'yicha taqsimlanadi */
+  costs: number[];
+  /** Hisoblar bo'yicha sof olingan pul (to'lovlar − qaytarilganlar) */
+  byAccount: { CASH: number; BANK_CARD: number; SETTLEMENT_ACCOUNT: number };
+}
+
+export interface SaleDealShare {
+  priceShare: number;
+  receivedShare: number;
+  debtRemainder: number;
+  profit: number;
+  marginPct: number;
+  paymentStatus: 'PAID' | 'PARTIAL' | 'DEBT';
+  paidCashUzs: number;
+  paidBank: number;
+  paidTransfer: number;
+}
+
+/**
+ * Sotuvning umumiy narxi va olingan pulini bitimlarga taqsimlaydi:
+ *   narx — tannarxga mutanosib; olingan pul — narx ulushiga mutanosib; har bir bitimda
+ *   olingan pul hisoblar (naqd / karta / hisob raqam) bo'yicha sotuvdagi nisbatda bo'linadi.
+ */
+export function calcSaleShares(input: SaleShareInput): SaleDealShare[] {
+  const prices = allocateProportional(input.totalPrice, input.costs);
+  const received = allocateCapped(Math.min(input.receivedAmount, input.totalPrice), prices);
+  const acc = [input.byAccount.CASH, input.byAccount.BANK_CARD, input.byAccount.SETTLEMENT_ACCOUNT].map((x) =>
+    Math.max(0, Number(x) || 0)
+  );
+  // Hisoblar bo'yicha ma'lumot yo'q bo'lsa (bo'lmasligi kerak) — hammasi naqdga yoziladi
+  const accWeights = acc.some((x) => x > 0) ? acc : [1, 0, 0];
+  return prices.map((priceShare, i) => {
+    const receivedShare = received[i];
+    const [paidCashUzs, paidBank, paidTransfer] = allocateProportional(receivedShare, accWeights);
+    return {
+      priceShare,
+      receivedShare,
+      debtRemainder: priceShare - receivedShare,
+      ...calcSaleProfit(priceShare, input.costs[i]),
+      paymentStatus: salePaymentStatus(priceShare, receivedShare),
+      paidCashUzs,
+      paidBank,
+      paidTransfer,
+    };
+  });
+}
