@@ -798,17 +798,22 @@ export interface OperatorShareRule {
   basePct: number;
   /** Operatorning shu OYdagi yechilgan limiti `monthlyLimitThreshold` dan oshgan qismiga foiz */
   bonusPct: number;
+  /** Oylik chegara; 0 — bonus yo'q (har doim basePct) */
   monthlyLimitThreshold: number;
 }
 
 /**
- * Egasi qarori (14.11.2026, aniqlashtirilgan): FAQAT Jahongir jamoasi. Operatorga har bir bitimning YECHILGAN LIMITIDAN 0.5%
+ * Egasi qarori (14.11.2026, aniqlashtirilgan): Jahongir jamoasi (16.11 dan Asadbek, Nazirbek, Davlatbek ham — pastda). Operatorga har bir bitimning YECHILGAN LIMITIDAN 0.5%
  * (Muyassar 155 900 000 → 779 500; agent foydasidan EMAS);
  * operatorning bir oydagi yechilgan limiti 500 000 000 dan oshsa — oshgan qismiga 0.7%.
  * Bu summa agent foydasidan AYRILMAYDI, faqat hisobotda ko'rsatiladi.
  */
 export const OPERATOR_SHARE_RULES: OperatorShareRule[] = [
   { agency: 'Jahongir', basePct: 0.5, bonusPct: 0.7, monthlyLimitThreshold: 500_000_000 },
+  // Egasi (16.11.2026): Asadbek 1%, Nazirbek 1%, Davlatbek 0.7% — yechilgan limitdan, BONUSSIZ; agent foydasidan ayrilmaydi, faqat ko'rsatiladi
+  { agency: 'Asadbek', basePct: 1, bonusPct: 1, monthlyLimitThreshold: 0 },
+  { agency: 'Nazirbek', basePct: 1, bonusPct: 1, monthlyLimitThreshold: 0 },
+  { agency: 'Davlatbek', basePct: 0.7, bonusPct: 0.7, monthlyLimitThreshold: 0 },
 ];
 
 export function operatorShareRuleFor(agencyName?: string | null): OperatorShareRule | null {
@@ -840,7 +845,8 @@ export function calcOperatorShares(
     const before = cumByMonth.get(month) || 0;
     const limit = Math.max(0, d.withdrawnLimit);
     cumByMonth.set(month, before + limit);
-    const below = Math.max(0, Math.min(limit, rule.monthlyLimitThreshold - before));
+    // Chegara 0 — bonus yo'q: butun limit basePct bilan
+    const below = rule.monthlyLimitThreshold > 0 ? Math.max(0, Math.min(limit, rule.monthlyLimitThreshold - before)) : limit;
     out.set(d.id, (below * rule.basePct + (limit - below) * rule.bonusPct) / 100);
   }
   return out;

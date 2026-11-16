@@ -70,6 +70,7 @@ export default defineModule({
     'team.stat_share': 'Operatorlar ulushi',
     'team.col_share': 'Operator ulushi',
     'team.share_hint': 'Yechilgan limitdan {base}%; oyiga {limit} dan oshgan qismiga {bonus}%',
+    'team.share_hint_flat': 'Yechilgan limitdan {base}%',
 
     'team.pw_title': 'Parolni saqlab oling',
     'team.pw_desc': '{name} uchun kirish ma\'lumotlari',
@@ -149,6 +150,7 @@ export default defineModule({
     'team.stat_share': 'Доля операторов',
     'team.col_share': 'Доля оператора',
     'team.share_hint': '{base}% от снятого лимита; свыше {limit} в месяц — {bonus}%',
+    'team.share_hint_flat': '{base}% от снятого лимита',
 
     'team.pw_title': 'Сохраните пароль',
     'team.pw_desc': 'Данные для входа: {name}',
@@ -228,6 +230,7 @@ export default defineModule({
     'team.stat_share': 'Operators share',
     'team.col_share': 'Operator share',
     'team.share_hint': '{base}% of withdrawn limit; above {limit} per month — {bonus}%',
+    'team.share_hint_flat': '{base}% of withdrawn limit',
 
     'team.pw_title': 'Save this password',
     'team.pw_desc': 'Sign-in details for {name}',

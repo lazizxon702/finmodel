@@ -40,6 +40,16 @@ Trust bizga har chek uchun TO'LIQ yechilgan limitni beradi; 16% — bizning foyd
 **Yangi sotuv oynasi (egasi, 16.11; JONLIDA):** ombor tovarlari model bo'yicha katta kartochkalarda, "Nechta sotasiz?" (− / + / Hammasi), "IMEI bo'yicha tanlash"; `saleTypes.ts` `groupStock`, `NewSaleModal.tsx`.
 **Ombor A18 (16.11, OCHIQ):** tiklash (restore-after-sheets-sync-1611) 12:29–12:52 orasida egasi skanerlagan 3 chekning omborga qabulini ham qaytarib yuborgan (#3740 ← 357245681543849, #3736 ← 357245681575262, #3732 ← 352857626041203) —
 saboq: tiklashda DealItem o'zgarishlariga ham qarash kerak edi. Keyin #3736/#3740 ga boshqa IMEI skanerlangan (…922291, …389193). Egasi: omborda 5 ta A18 bo'lishi kerak, #8160 (16.11) ga tegma; saytda 4 ta (#3736, #3740, #8124, #8122-IMEIsiz). 5-chi qaysi chek — egasidan so'ralgan.
+**To'liq hisobot (egasi, 16.11):** Google Sheets `10_EYgxOYl1AtARSAShECS34rspcuyrp4CZPoxNnH4BQ` — 9 varaq (Xulosa, Hamma bitimlar, Omborda, Kelmagan tovar, Sotilganlar, Xaridorlar qarzi, Bizga qarzdorlar, Agentlar ulushi, Pul harakati);
+`scripts/report-full-xlsx.ts <fayl.xlsx>` (faqat o'qiydi). "Biz kimga qarzmiz" hisoblanMAGAN: agentga to'lovlar saytda agentlik bo'yicha yozilmagan — egasidan so'ralgan.
+**Operator ulushi — yangi jamoalar (egasi, 16.11; JONLIDA, bazaga yozilmaydi):** Asadbek 1%, Nazirbek 1%, Davlatbek 0.7% — YECHILGAN LIMITDAN (egasi bazani aniq aytmagan, Jahongir bilan bir qatorda yozgan — shunday olindi),
+bonussiz (`monthlyLimitThreshold: 0`), agent foydasidan AYRILMAYDI (faqat ko'rsatiladi); Jahongir o'zgarmagan (0.5%, 500 mln dan oshsa 0.7%). `calculation.service.ts` `OPERATOR_SHARE_RULES`; izoh `team.share_hint_flat`;
+tekshiruv `scripts/report-operator-shares.ts`. Testlar 345/345. Bu 14.11 dagi "FAQAT Jahongir jamoasi" qarorini kengaytiradi.
+**UMUMIY HISOBOT — hammasi bitta faylda (egasi, 16.11):** Google Sheets `14KKcAD96HWbs4IvLDheG8VB0Ni2vooYzM-dLrR9kgqI` (20 varaq). Yangilash: uchta skript (`report-full-xlsx`, `report-finance-xlsx`, `report-stores-xlsx`) →
+`scripts/merge-xlsx.ts <chiqish> <a> <b> <c> --skip="Pul harakati" --first="Xulosa,..."` → Drive'ga YANGI fayl (mavjudini yangilab bo'lmaydi). Egasi hisobotlarni bitta faylda, alohida varaqlarda xohlaydi.
+**Moliyaviy hisobot (egasi, 16.11):** Google Sheets `1zTyj_Bv8PIwLCNyO8vhp1tE10d6wADGjvAI8GxX_1Fs` — P&L, Pul oqimi, Balans, Debitor/kreditor, DDS (kategoriya / kun / yozuvlar);
+`scripts/report-finance-xlsx.ts <fayl.xlsx> [start] [end]` — saytning `/api/finances/summary` hisobini jarayon ichida chaqiradi (sahifa bilan bir xil raqamlar). 01–16.11: bitimlar foydasi 286 798 720, OPEX 165 874 950, sof foyda 120 923 770;
+balans MOS EMAS (farq 538 097 780: Qodir aka/do'konlar qarzi aktivga kirmaydi, DDS to'liq emas); OPEX'da "Xasan" kategoriyasi 54 372 000 — nimaligi egasidan so'ralgan.
 **5 varaqli hisobot (egasi, 16.11):** eng yangisi `1bY6g6GpA3c7z25-wzjJhAfvK8cVCqV4QPpa0eMFfoGk` (Trust to'g'ri qoida bilan); eskisi `11pB272YMfZNpi9baDEblZxrAdTVVzKMEs_iZApMmP2M` — Qodir aka / Daftar / Trust / Iman / Novza alohida varaqlarda; `scripts/report-stores-xlsx.ts <fayl.xlsx>` (faqat o'qiydi) → xlsx → Drive'ga yangi fayl (mavjud faylni yangilab bo'lmaydi).
 Taxminlar (egasi tasdiqlamagan): "Iman" = do'konlar Iman + Iman rebus; "kelgan" = Omborda/Yo'lda/Sotildi/To'liq emas, "qolgan" = Kutilmoqda/Olish kerak; Trust uchun 3 variant ko'rsatilgan.
 

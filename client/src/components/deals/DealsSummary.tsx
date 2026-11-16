@@ -84,7 +84,7 @@ export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, scoped, hid
             </p>
             {totals?.operatorShareRule && (
               <p className="mt-1 text-sm text-fg-muted">
-                {t('team.share_hint', {
+                {t(totals.operatorShareRule.monthlyLimitThreshold > 0 ? 'team.share_hint' : 'team.share_hint_flat', {
                   base: totals.operatorShareRule.basePct,
                   bonus: totals.operatorShareRule.bonusPct,
                   limit: formatNumber(totals.operatorShareRule.monthlyLimitThreshold),

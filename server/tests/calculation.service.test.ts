@@ -442,8 +442,20 @@ describe('operator ulushi (Jahongir jamoasi)', () => {
 
   it('qoida faqat Jahongir jamoasi uchun', () => {
     expect(rule).toMatchObject({ basePct: 0.5, bonusPct: 0.7, monthlyLimitThreshold: 500_000_000 });
-    expect(operatorShareRuleFor('Nazirbek')).toBeNull();
+    expect(operatorShareRuleFor('Anvar')).toBeNull();
     expect(operatorShareRuleFor(null)).toBeNull();
+  });
+
+  it('Asadbek 1%, Nazirbek 1%, Davlatbek 0.7% — yechilgan limitdan, bonussiz (egasi, 16.11.2026)', () => {
+    const cases: [string, number][] = [['Asadbek', 1], ['Nazirbek', 1], ['Davlatbek', 0.7]];
+    for (const [agency, pct] of cases) {
+      const r = operatorShareRuleFor(agency)!;
+      expect(r, agency).toMatchObject({ basePct: pct, monthlyLimitThreshold: 0 });
+      // 600 mln (Jahongirda chegaradan oshgan bo'lardi) — bu yerda hammasi bir xil foiz
+      const m = calcOperatorShares([d('a', '2026-11-05T10:00:00+05:00', 10_000_000, 800_000), d('b', '2026-11-06T10:00:00+05:00', 590_000_000, 0)], r);
+      expect(Math.round(m.get('a')!), agency).toBe(10_000_000 * pct / 100);
+      expect(Math.round(m.get('b')!), agency).toBe(Math.round(590_000_000 * pct / 100));
+    }
   });
 
   it('chegaragacha — yechilgan limitning 0.5%', () => {

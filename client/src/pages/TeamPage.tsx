@@ -516,7 +516,7 @@ export const TeamPage: React.FC = () => {
                 <StatCard
                   title={t('team.stat_share')}
                   value={formatNumber(totals.operatorShare || 0)}
-                  hint={t('team.share_hint', {
+                  hint={t(totals.operatorShareRule.monthlyLimitThreshold > 0 ? 'team.share_hint' : 'team.share_hint_flat', {
                     base: totals.operatorShareRule.basePct,
                     bonus: totals.operatorShareRule.bonusPct,
                     limit: formatNumber(totals.operatorShareRule.monthlyLimitThreshold),
