@@ -44,6 +44,10 @@ Trust bizga har chek uchun TO'LIQ yechilgan limitni beradi; 16% — bizning foyd
 saboq: tiklashda DealItem o'zgarishlariga ham qarash kerak edi. Keyin #3736/#3740 ga boshqa IMEI skanerlangan (…922291, …389193). Egasi: omborda 5 ta A18 bo'lishi kerak, #8160 (16.11) ga tegma; saytda 4 ta (#3736, #3740, #8124, #8122-IMEIsiz). 5-chi qaysi chek — egasidan so'ralgan.
 **To'liq hisobot (egasi, 16.11):** Google Sheets `10_EYgxOYl1AtARSAShECS34rspcuyrp4CZPoxNnH4BQ` — 9 varaq (Xulosa, Hamma bitimlar, Omborda, Kelmagan tovar, Sotilganlar, Xaridorlar qarzi, Bizga qarzdorlar, Agentlar ulushi, Pul harakati);
 `scripts/report-full-xlsx.ts <fayl.xlsx>` (faqat o'qiydi). "Biz kimga qarzmiz" hisoblanMAGAN: agentga to'lovlar saytda agentlik bo'yicha yozilmagan — egasidan so'ralgan.
+**#8107 bo'lindi (egasi, 16.11 kech; JONLIGA YOZILDI — zaxira `backups/db-raw-db-2026-11-16T12-31-33-999Z.json`, `scripts/split-deal-8107-coffee.ts --apply`, BIR MARTALIK):**
+#8107 = faqat iPhone 18 Pro Max 256 Burgundy (limit 22 800 000, tannarx 17 784 000; Umirzoq, sotuv №5, 21 176 000, foyda 3 392 000); YANGI #8168 = Kofe mashinka (limit 8 000 000, tannarx 6 240 000),
+sotuv №59 → xaridor "Media park qoratosh", 570$ × 11 950 = 6 811 500 naqd (TX-1227), foyda 571 500. Tannarx usuli (egasi): chek tannarxi − shu modelning boshqa chekdagi tannarxi (#3639). Jami summalar o'zgarmagan;
+recalc va do'kon daftari dry-run 0. Chek xarajati DDS yozuvi (#8107, 22 792 000) bo'linmagan.
 **Operator ulushi — yangi jamoalar (egasi, 16.11; JONLIDA, bazaga yozilmaydi):** Asadbek 1%, Nazirbek 1%, Davlatbek 0.7% — YECHILGAN LIMITDAN (egasi bazani aniq aytmagan, Jahongir bilan bir qatorda yozgan — shunday olindi),
 bonussiz (`monthlyLimitThreshold: 0`), agent foydasidan AYRILMAYDI (faqat ko'rsatiladi); Jahongir o'zgarmagan (0.5%, 500 mln dan oshsa 0.7%). `calculation.service.ts` `OPERATOR_SHARE_RULES`; izoh `team.share_hint_flat`;
 tekshiruv `scripts/report-operator-shares.ts`. Testlar 345/345. Bu 14.11 dagi "FAQAT Jahongir jamoasi" qarorini kengaytiradi.
