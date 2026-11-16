@@ -5,7 +5,7 @@ export default defineModule({
   uz: {
     'trust.add_payment': "Trust to'lovini kiritish",
     'trust.rule_note':
-      "Har bir tasdiqlangan bitimda yechilgan limitning {rate}% i Trust qarziga yoziladi. Trust pul berganda DDS'ga kirim yoziladi va qarz shu summaga kamayadi.",
+      "Har bir tasdiqlangan bitimda yechilgan limit TO'LIQ Trust qarziga yoziladi (Trust bizga to'liq limitni beradi, 16% — bizning foyda). Trust pul berganda DDS'ga kirim yoziladi va qarz shu summaga kamayadi.",
     'trust.total_debt': 'Jami qarz',
     'trust.total_paid': 'Trust bergan pul',
     'trust.period_balance': 'Qoldiq',
@@ -20,7 +20,7 @@ export default defineModule({
     'trust.filter_payment': "To'lov",
     'trust.col_datetime': 'Sana va vaqt',
     'trust.col_source': 'Bitim yoki tranzaksiya',
-    'trust.type_debt': 'Qarz — bitimdan {rate}%',
+    'trust.type_debt': "Qarz — bitim limiti",
     'trust.type_payment': "To'lov — Trust bergan pul",
     'trust.deal_no': 'Bitim №{number}',
     'trust.limit_short': 'limit {value}',
@@ -41,7 +41,7 @@ export default defineModule({
   ru: {
     'trust.add_payment': 'Внести оплату Trust',
     'trust.rule_note':
-      'По каждой подтвержденной сделке {rate}% списанного лимита записывается в долг Trust. Когда Trust платит, в ДДС записывается приход и долг уменьшается на эту сумму.',
+      "По каждой подтвержденной сделке списанный лимит ПОЛНОСТЬЮ записывается в долг Trust (Trust отдаёт нам весь лимит, 16% — наша прибыль). Когда Trust платит, в ДДС записывается приход и долг уменьшается на эту сумму.",
     'trust.total_debt': 'Всего долг',
     'trust.total_paid': 'Оплачено Trust',
     'trust.period_balance': 'Остаток',
@@ -56,7 +56,7 @@ export default defineModule({
     'trust.filter_payment': 'Оплата',
     'trust.col_datetime': 'Дата и время',
     'trust.col_source': 'Сделка или транзакция',
-    'trust.type_debt': 'Долг — {rate}% со сделки',
+    'trust.type_debt': "Долг — лимит сделки",
     'trust.type_payment': 'Оплата — деньги от Trust',
     'trust.deal_no': 'Сделка №{number}',
     'trust.limit_short': 'лимит {value}',
@@ -77,7 +77,7 @@ export default defineModule({
   en: {
     'trust.add_payment': 'Record Trust payment',
     'trust.rule_note':
-      'For every approved deal, {rate}% of the withdrawn limit is added to the Trust debt. When Trust pays, an income is written to cash flow and the debt goes down by that amount.',
+      "For every approved deal, the FULL withdrawn limit is added to the Trust debt (Trust pays us the whole limit; 16% is our profit). When Trust pays, an income is written to cash flow and the debt goes down by that amount.",
     'trust.total_debt': 'Total debt',
     'trust.total_paid': 'Paid by Trust',
     'trust.period_balance': 'Balance',
@@ -92,7 +92,7 @@ export default defineModule({
     'trust.filter_payment': 'Payment',
     'trust.col_datetime': 'Date and time',
     'trust.col_source': 'Deal or transaction',
-    'trust.type_debt': 'Debt — {rate}% of a deal',
+    'trust.type_debt': "Debt — deal limit",
     'trust.type_payment': 'Payment — money from Trust',
     'trust.deal_no': 'Deal №{number}',
     'trust.limit_short': 'limit {value}',

@@ -10,7 +10,7 @@
  */
 import 'dotenv/config';
 import { prisma } from '../src/lib/prisma';
-import { calcStoreDebt, calcTrustDebt, isTrustDeal, normalizeDealItems } from '../src/services/calculation.service';
+import { calcStoreDebt, calcTrustReceivable, isTrustDeal, normalizeDealItems } from '../src/services/calculation.service';
 import { rebuildAccountBalances, syncStoreDebtForDeal, syncTrustDebtForDeal } from '../src/services/ledger.service';
 
 const APPLY = process.argv.includes('--apply');
@@ -46,7 +46,7 @@ async function main() {
   let totalDebt = 0;
   console.log(`\n2) Trust bitimlari: ${trustDeals.length} ta`);
   for (const d of trustDeals) {
-    const debt = d.approvalStatus === 'APPROVED' ? calcTrustDebt(Number(d.withdrawnLimit)) : 0;
+    const debt = d.approvalStatus === 'APPROVED' ? calcTrustReceivable(Number(d.withdrawnLimit)) : 0;
     totalDebt += debt;
     console.log(
       `   #${d.dealNumber}  ${d.date.toISOString().slice(0, 10)}  ${(d.store?.name || '').padEnd(10)} / ${(d.provider?.name || '').padEnd(8)}  yechilgan ${fmt(Number(d.withdrawnLimit)).padStart(12)}  → qarz ${fmt(debt).padStart(11)}`

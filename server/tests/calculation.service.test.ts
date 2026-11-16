@@ -13,6 +13,7 @@ import {
   calcAgentCommission,
   calcCheckExpense,
   calcTrustDebt,
+  calcTrustReceivable,
   canonicalAgencyName,
   canonicalProviderName,
   canonicalStoreName,
@@ -47,6 +48,9 @@ describe('Trust 16% qarzi', () => {
 
   it('0 yoki manfiy limitda qarz yo\'q', () => {
     expect(calcTrustDebt(0)).toBe(0);
+    // Trust bizga beradigan pul — to'liq limit (egasi, 16.11.2026); 16% — bizning foyda
+    expect(calcTrustReceivable(7_000_000)).toBe(7_000_000);
+    expect(calcTrustReceivable(0)).toBe(0);
     expect(calcTrustDebt(-5)).toBe(0);
   });
 

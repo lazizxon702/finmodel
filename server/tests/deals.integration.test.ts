@@ -351,7 +351,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(await prisma.ddsTransaction.count({ where: { dealId: r.data.id } })).toBe(1);
   });
 
-  it("Trust bitimi: tasdiqlangach Trust daftariga DEBT (16%) tushadi, limit o'zgarsa yangilanadi, o'chirilsa yo'qoladi", async () => {
+  it("Trust bitimi: tasdiqlangach Trust daftariga DEBT (to'liq limit) tushadi; trustDebtAmount (daromad) 16%, limit o'zgarsa yangilanadi, o'chirilsa yo'qoladi", async () => {
     const r = await api('opA', 'POST', '/api/deals', dealBody({ storeId: trustStore.id, providerId: trustProvider.id, withdrawnLimit: 10_000_000, calculatedAmount: 8_000_000 }));
     expect(r.status).toBe(201);
     const id = r.data.id;
@@ -360,15 +360,15 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
 
     const ok = await api('admin', 'POST', `/api/deals/${id}/approve`, {});
     expect(ok.status).toBe(200);
-    expect(ok.data.trustDebt).toBe(1_600_000);
+    expect(ok.data.trustDebt).toBe(10_000_000);
     let entry = await prisma.trustLedgerEntry.findUnique({ where: { dealId: id } });
     expect(entry).toMatchObject({ type: 'DEBT' });
-    expect(Number(entry!.amount)).toBe(1_600_000);
+    expect(Number(entry!.amount)).toBe(10_000_000);
 
     const upd = await api('admin', 'PUT', `/api/deals/${id}`, { withdrawnLimit: 5_000_000 });
     expect(upd.status).toBe(200);
     entry = await prisma.trustLedgerEntry.findUnique({ where: { dealId: id } });
-    expect(Number(entry!.amount)).toBe(800_000);
+    expect(Number(entry!.amount)).toBe(5_000_000);
 
     // do'kon/provayder Trust bo'lmay qolsa — qarz yozuvi o'chadi
     const moved = await api('admin', 'PUT', `/api/deals/${id}`, { storeId: store.id, providerId: provider.id });

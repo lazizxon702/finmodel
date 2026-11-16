@@ -21,6 +21,7 @@ import {
   CalculationService,
   calcStoreDebtParts,
   calcTrustDebt,
+  calcTrustReceivable,
   isQodirPaymentCategory,
   isQodirStore,
   isStoreIncomeCategory,
@@ -301,7 +302,8 @@ export async function getAccountBalances() {
 
 /**
  * Bitimning Trust qarzini daftar bilan moslashtiradi:
- *   tasdiqlangan Trust bitimi → DEBT yozuvi (yechilgan limit × 16%), aks holda yozuv o'chiriladi.
+ *   tasdiqlangan Trust bitimi → DEBT yozuvi (TO'LIQ yechilgan limit — Trust bizga shuni beradi), aks holda yozuv o'chiriladi.
+ *   Deal.trustDebtAmount esa limit × 16% bo'lib qoladi (Trust daromadi, P&L).
  * Bitim yaratilganda, tahrirlanganda, tasdiqlanganda va rad etilganda chaqiriladi.
  */
 export async function syncTrustDebtForDeal(tx: Tx, dealId: string) {
@@ -312,7 +314,7 @@ export async function syncTrustDebtForDeal(tx: Tx, dealId: string) {
   if (!deal) return 0;
 
   const trust = isTrustDeal(deal.store?.name, deal.provider?.name);
-  const debt = trust && deal.approvalStatus === 'APPROVED' ? calcTrustDebt(Number(deal.withdrawnLimit)) : 0;
+  const debt = trust && deal.approvalStatus === 'APPROVED' ? calcTrustReceivable(Number(deal.withdrawnLimit)) : 0;
 
   if (debt > 0) {
     await tx.trustLedgerEntry.upsert({
@@ -322,9 +324,9 @@ export async function syncTrustDebtForDeal(tx: Tx, dealId: string) {
         amount: debt,
         dateTime: deal.date,
         dealId,
-        note: `Bitim #${deal.dealNumber}: yechilgan limitning 16% i`,
+        note: `Bitim #${deal.dealNumber}: yechilgan limit (to'liq)`,
       },
-      update: { amount: debt, dateTime: deal.date },
+      update: { amount: debt, dateTime: deal.date, note: `Bitim #${deal.dealNumber}: yechilgan limit (to'liq)` },
     });
   } else {
     await tx.trustLedgerEntry.deleteMany({ where: { dealId } });

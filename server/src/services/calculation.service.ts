@@ -251,6 +251,16 @@ export function isImanumProvider(providerName?: string | null): boolean {
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 /** Trust qarzi = yechilgan limit × 16%.  Misol: 10 000 000 → 1 600 000 */
+/**
+ * Trust bizga bitta chek uchun beradigan pul = TO'LIQ yechilgan limit (egasi, 16.11.2026: "16% — bizning foyda";
+ * misol: limit 7 000 000 → Trust 7 000 000 beradi, sarf 5 880 000, foyda 1 120 000). Trust daftaridagi qarz shu summa.
+ * calcTrustDebt (limit × 16%) esa Trust DAROMADI (Deal.trustDebtAmount, P&L) — nomi tarixiy.
+ */
+export function calcTrustReceivable(withdrawnLimit: number): number {
+  const w = Number(withdrawnLimit) || 0;
+  return w > 0 ? round2(w) : 0;
+}
+
 export function calcTrustDebt(withdrawnLimit: number): number {
   const w = Number(withdrawnLimit) || 0;
   return w > 0 ? round2(w * TRUST_RATE) : 0;
@@ -844,6 +854,7 @@ export class CalculationService {
   static isQodirStore = isQodirStore;
   static isImanumProvider = isImanumProvider;
   static calcTrustDebt = calcTrustDebt;
+  static calcTrustReceivable = calcTrustReceivable;
   static calcAgentCommission = calcAgentCommission;
   static calcCheckExpense = calcCheckExpense;
   static countsInTotals = countsInTotals;

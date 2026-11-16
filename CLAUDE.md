@@ -33,6 +33,16 @@ Ochiq: xodim "Sof foyda" / "Xarid xarajati" ustunlarini ko'radi (operator kabi) 
 **Anvar (16.11):** 14.11 dagi apply-team-sheet 8 chekni (operatori "Anvar" yozilgan, lekin sotuvchisi boshqa) Jahongir/Farida/Davlatbekdan Anvar agentligiga ko'chirgan edi — XATO (sellerName tekshirilmagan).
 Egasi 4 tasini qo'lda, qolgan 4 tasini `scripts/move-anvar-deals-back-1611.ts --apply` qaytardi (zaxira `db-raw-db-2026-11-16T09-42-13-869Z.json`): #3745→Jahongir/Muborak, #3748→Jahongir/Marjona, #8101→Jahongir/Shahlo, #8098→Farida/Farida. Anvarda 20 chek qoldi.
 
+**TRUST QOIDASI HAL BO'LDI (egasi, 16.11: "16% — bizning foyda"; JONLIDA — zaxira `backups/db-raw-db-2026-11-16T11-10-29-582Z.json`, `scripts/resync-trust-ledger.ts --apply` 35 yozuv, qayta dry-run 0, server+klient deploy):**
+Trust bizga har chek uchun TO'LIQ yechilgan limitni beradi; 16% — bizning foyda (misol #8134: limit 7 000 000, sarf 5 880 000, foyda 1 120 000). Trust daftaridagi qarz = `calcTrustReceivable` (to'liq limit);
+`calcTrustDebt` / `Deal.trustDebtAmount` (limit × 16%) — bu Trust DAROMADI (P&L), o'zgarmagan. Hozir: Trust berishi kerak 376 700 000, bergan 250 000 000, qoldiq 126 700 000. Yuqoridagi/pastdagi "Trust −190 848 000" va "formulani taxmin qilma" yozuvlari ESKIRGAN.
+"Ishonch" = Trust deb olindi (egasi alohida tasdiqlamagan); Anvar bilan nima hal qilinishi — javobsiz.
+**Yangi sotuv oynasi (egasi, 16.11; JONLIDA):** ombor tovarlari model bo'yicha katta kartochkalarda, "Nechta sotasiz?" (− / + / Hammasi), "IMEI bo'yicha tanlash"; `saleTypes.ts` `groupStock`, `NewSaleModal.tsx`.
+**Ombor A18 (16.11, OCHIQ):** tiklash (restore-after-sheets-sync-1611) 12:29–12:52 orasida egasi skanerlagan 3 chekning omborga qabulini ham qaytarib yuborgan (#3740 ← 357245681543849, #3736 ← 357245681575262, #3732 ← 352857626041203) —
+saboq: tiklashda DealItem o'zgarishlariga ham qarash kerak edi. Keyin #3736/#3740 ga boshqa IMEI skanerlangan (…922291, …389193). Egasi: omborda 5 ta A18 bo'lishi kerak, #8160 (16.11) ga tegma; saytda 4 ta (#3736, #3740, #8124, #8122-IMEIsiz). 5-chi qaysi chek — egasidan so'ralgan.
+**5 varaqli hisobot (egasi, 16.11):** eng yangisi `1bY6g6GpA3c7z25-wzjJhAfvK8cVCqV4QPpa0eMFfoGk` (Trust to'g'ri qoida bilan); eskisi `11pB272YMfZNpi9baDEblZxrAdTVVzKMEs_iZApMmP2M` — Qodir aka / Daftar / Trust / Iman / Novza alohida varaqlarda; `scripts/report-stores-xlsx.ts <fayl.xlsx>` (faqat o'qiydi) → xlsx → Drive'ga yangi fayl (mavjud faylni yangilab bo'lmaydi).
+Taxminlar (egasi tasdiqlamagan): "Iman" = do'konlar Iman + Iman rebus; "kelgan" = Omborda/Yo'lda/Sotildi/To'liq emas, "qolgan" = Kutilmoqda/Olish kerak; Trust uchun 3 variant ko'rsatilgan.
+
 Shubhali cheklar hisoboti (16.11): `scripts/report-suspicious-deals.ts` → `backups/suspicious-deals-1611.txt`. Egasi: #3547/#3551 va #3614/#3625 (bir xil summa, bir operator) — HAQIQIY, takror emas, o'chirilmaydi.
 Javobsiz: 6 ta IMEI bir nechta chekda; Birzum ulushi (7 chek, agentga 20%, foyda 0); #8110, #8121 operatori; zarar bilan sotilgan #8107, #3729, #3654, #8115; "Sotildi" narxi 0: #3638, #3644.
 
