@@ -3,7 +3,8 @@
 Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-16.
 
 ## ENG YANGI HOLAT — 2026-11-16 (yangi suhbat shu yerdan boshlasin)
-Hammasi JONLIDA (server + klient deploy qilingan, oxirgi deploy 15.11 kech). **Git'ga COMMIT QILINMAGAN** (14–15.11 dagi hamma ish faqat ishchi papkada), GitHub'ga push yo'q.
+Hammasi JONLIDA (server oxirgi deploy 16.11, klient 15.11 kech). **16.11: hamma ish commit qilindi (`cda658a`) va egasi buyrug'i bilan GitHub'ga push qilindi** (`main`, teglarsiz).
+Repo hali PUBLIC — egasi ogohlantirildi, "ochiq bo'lsa ham push" dedi; Private qilish tavsiyasi kuchda. Pastdagi eski "commit qilinmagan" yozuvlari eskirgan.
 Batafsil tarix — pastdagi "YANGI SUHBAT UCHUN" bo'limidagi bandlarda; bu yerda faqat hozirgi raqamlar va ochiq ishlar.
 
 **16.11 (egasi "Ha, 01.11 dan" va "Ha, yoz va chiqar" dedi; JONLIDA, commit yo'q):** Qodir aka do'konida ALIF orqali (online/offline/nasiya) bizning foyda 5%, Finsum va boshqalar 6%;
