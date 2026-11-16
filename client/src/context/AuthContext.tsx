@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import axios from 'axios';
 import { User } from '../types';
 import { initPush, removePushToken } from '../services/push';
+import { refreshWebPush, removeWebPushSubscription } from '../services/webPush';
 import { useTranslation } from './LanguageContext';
 
 interface AuthContextType {
@@ -85,6 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       channelName: tRef.current('notifications.channel_name'),
       channelDescription: tRef.current('notifications.channel_desc'),
     });
+    // Web Push (brauzer/iPhone): ruxsat allaqachon berilgan bo'lsa obuna yangi foydalanuvchiga biriktiriladi
+    void refreshWebPush();
   }, [userId]);
 
   const login = (newToken: string, newUser: User) => {
@@ -98,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     // Shu qurilmaning push tokenini serverdan o'chiramiz (JWT localStorage'dan — bu funksiya eski yopilishdan chaqirilishi mumkin)
     removePushToken(localStorage.getItem('token'));
+    removeWebPushSubscription(localStorage.getItem('token'));
     localStorage.removeItem('token');
     delete axios.defaults.headers.common['Authorization'];
     setToken(null);

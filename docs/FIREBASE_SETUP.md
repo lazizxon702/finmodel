@@ -100,3 +100,15 @@ Bitta Telegram hisobi faqat bitta FinModel foydalanuvchisiga bog'lanadi: boshqa 
    `status: "skipped"` bo'lsa `reason` sababni aytadi: `TELEGRAM_NOT_LINKED`, `TELEGRAM_NOT_CONFIGURED`, `PUSH_NOT_CONFIGURED`, `NO_DEVICE_TOKENS`.
 
 3. Haqiqiy sinov: operator bilan bitim kiriting → ADMIN bilan tasdiqlang yoki rad eting → operatorning telefoniga push va Telegram'iga xabar kelishi kerak (bitim raqami, mijoz, summa, qaror, rad etish sababi, Toshkent vaqti bilan sana).
+
+## 7. Web Push (iPhone va brauzer)
+
+Firebase fayllarisiz ishlaydi: standart **VAPID** kalitlari bilan brauzer va iPhone (iOS 16.4+, sayt **Bosh ekranga qo'shilgan** bo'lsa) ga bildirishnoma boradi. Telegram va Android push bilan parallel, uchinchi kanal sifatida yuboriladi.
+
+1. **Kalit yaratish (bir marta, `server/` papkasidan):** `npx ts-node --transpile-only scripts/generate-vapid-keys.ts` — `server/vapid-keys.local.json` (gitignore'da) yaratiladi. Skript kalit qiymatlarini chiqarmaydi.
+2. **Lokal:** boshqa narsa kerak emas — server kalitni shu fayldan o'qiydi.
+3. **Vercel (server loyihasi) → Settings → Environment Variables:** `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (ikkalasi `vapid-keys.local.json` ichidan) va ixtiyoriy `VAPID_SUBJECT` (`mailto:sizning@pochtangiz` yoki sayt manzili). Keyin server qayta deploy qilinadi.
+4. **Foydalanuvchi tomoni:** Bildirishnomalar oynasida "Telefonga bildirishnoma" → "Bildirishnomani yoqish". iPhone'da avval Safari → Ulashish → "Bosh ekranga qo'shish", so'ng ilovani shu belgidan ochib tugmani bosing.
+5. **Tekshirish:** `GET /api/notifications/status` javobida `webPushConfigured: true`, `webPushSubscriptions: 1`; ADMIN `POST /api/notifications/test` javobida `webPush.status: "sent"`.
+
+Web Push faqat **HTTPS** da ishlaydi (Vercel manzili mos). Obuna 404/410 qaytarsa bazadan avtomatik o'chiriladi. Kalit sozlanmagan bo'lsa Web Push jim o'tkazib yuboriladi (serverda bir marta ogohlantirish).

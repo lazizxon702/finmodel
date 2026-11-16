@@ -17,12 +17,12 @@ import path from 'path';
 import { prisma } from '../src/lib/prisma';
 import {
   STORE_LEDGER_START_YMD,
-  calcStoreDebt,
   formatTashkentDateTime,
   isOnOrAfterStoreLedgerStart,
   storeSettlementKind,
 } from '../src/services/calculation.service';
-import { syncStoreDebtForDeal } from '../src/services/ledger.service';
+import { storeDebtPartsForDeal, syncStoreDebtForDeal } from '../src/services/ledger.service';
+import { loadActiveCommissionRules } from '../src/services/sale.service';
 
 const APPLY = process.argv.includes('--apply');
 const fmt = (n: number) => Math.round(Number(n) || 0).toLocaleString('ru-RU');
@@ -85,9 +85,12 @@ async function main() {
         date: true,
         customerName: true,
         calculatedAmount: true,
+        withdrawnLimit: true,
+        customerLimit: true,
         approvalStatus: true,
         storeId: true,
         store: { select: { name: true } },
+        provider: { select: { name: true } },
       },
     }),
     prisma.storeLedgerEntry.findMany({
@@ -96,6 +99,7 @@ async function main() {
     }),
     prisma.store.findMany({ select: { id: true, name: true } }),
   ]);
+  const rules = await loadActiveCommissionRules();
   const existingByDeal = new Map(existing.map((e) => [e.dealId as string, e]));
   const storeName = new Map(stores.map((s) => [s.id, s.name]));
 
@@ -104,12 +108,8 @@ async function main() {
   const changes: Row[] = [];
 
   for (const d of deals) {
-    const after = calcStoreDebt({
-      calculatedAmount: Number(d.calculatedAmount),
-      storeName: d.store?.name,
-      approvalStatus: d.approvalStatus,
-      date: d.date,
-    });
+    // Qodir aka: chek + agent ulushi + 6% foyda; boshqa do'konlar: faqat chek (syncStoreDebtForDeal bilan bir xil yo'l)
+    const after = (await storeDebtPartsForDeal(prisma, d, rules)).total;
     const ex = existingByDeal.get(d.id);
     const before = ex ? Number(ex.amount) : 0;
 
@@ -166,7 +166,7 @@ async function main() {
   out(`  Bitimlar jami: ${deals.length} ta; do'konlar (yozuvi bor/bo'ladigan): ${storeIds.length} ta.`);
   out(`  Yangi yozuv: ${totals.create} ta; yangilanadi: ${totals.update} ta; o'chiriladi: ${totals.remove} ta; o'zgarmaydi: ${totals.same} ta.`);
   out(`  Qarz yozuvlari jami (DEBT, to'lovlarsiz): ${fmt(totals.debtAfter)} so'm`);
-  out(`     shundan do'konlar bizga: ${fmt(totals.storesOwe)} so'm;  biz Qodir akaga: ${fmt(totals.weOwe)} so'm.`);
+  out(`     hammasi do'konlar BIZGA qarzi (Qodir aka ham: chek + agent ulushi + 6% foyda): ${fmt(totals.storesOwe)} so'm.`);
   out(
     `  Yozuv yaratilmaydi: tasdiqlanmagan ${skipped.notApproved} ta; ${STORE_LEDGER_START_YMD} dan oldingi ${skipped.beforeStart} ta;` +
       ` Trust do'koni ${skipped.trust} ta; summa 0 — ${skipped.zero} ta.`

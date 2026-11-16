@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
 import { formatTime } from '../utils/format';
 import { getPushState, initPush, type PushState } from '../services/push';
+import { disableWebPush, enableWebPush, getWebPushState, type WebPushState } from '../services/webPush';
 import { Badge, Button, LoadingBlock, Modal } from './ui';
 import type { Tone } from './ui';
 
@@ -18,6 +19,8 @@ interface StatusDto {
   pushConfigured: boolean;
   telegramConfigured: boolean;
   deviceTokens: number;
+  webPushConfigured?: boolean;
+  webPushSubscriptions?: number;
   botUsername: string | null;
 }
 
@@ -40,6 +43,7 @@ interface TestResult {
   success: boolean;
   telegram: ChannelResult;
   push: ChannelResult;
+  webPush?: ChannelResult;
 }
 
 const STATUS_TONE: Record<ChannelResult['status'], Tone> = { sent: 'success', skipped: 'warning', failed: 'danger' };
@@ -74,6 +78,9 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ open
 
   const [status, setStatus] = useState<StatusDto | null>(null);
   const [push, setPush] = useState<PushState | null>(null);
+  const [web, setWeb] = useState<WebPushState | null>(null);
+  const [webBusy, setWebBusy] = useState(false);
+  const [webError, setWebError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
 
@@ -92,9 +99,14 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ open
     setLoading(true);
     setLoadError('');
     try {
-      const [res, pushState] = await Promise.all([axios.get<StatusDto>('/api/notifications/status'), getPushState()]);
+      const [res, pushState, webState] = await Promise.all([
+        axios.get<StatusDto>('/api/notifications/status'),
+        getPushState(),
+        getWebPushState(),
+      ]);
       setStatus(res.data);
       setPush(pushState);
+      setWeb(webState);
       if (res.data.telegramLinked) setLink(null);
       return res.data;
     } catch (e: any) {
@@ -113,6 +125,7 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ open
     setTelegramNote('');
     setTestResult(null);
     setTestError('');
+    setWebError('');
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -170,6 +183,18 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ open
       await load();
     } finally {
       setPushBusy(false);
+    }
+  };
+
+  const toggleWebPush = async () => {
+    setWebBusy(true);
+    setWebError('');
+    try {
+      const result = web?.subscribed ? await disableWebPush() : await enableWebPush();
+      if (!result.ok) setWebError(t(`notifications.web_error_${result.error}`));
+      await load();
+    } finally {
+      setWebBusy(false);
     }
   };
 
@@ -238,8 +263,76 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ open
 
       {status && (
         <div className="divide-y divide-line">
+          {/* Telefonga bildirishnoma (Web Push: brauzer va iPhone) */}
+          {web && web.support !== 'native' && (
+            <section className="space-y-3 pb-5">
+              <SectionHead
+                title={t('notifications.web')}
+                badge={
+                  web.support === 'ok' ? (
+                    <Badge tone={web.subscribed ? 'success' : 'neutral'} dot>
+                      {t(web.subscribed ? 'notifications.web_on' : 'notifications.web_off')}
+                    </Badge>
+                  ) : undefined
+                }
+              />
+
+              {web.support === 'ios_needs_install' && (
+                <div className="space-y-2 rounded-card border border-line bg-surface-2 p-3 sm:p-4">
+                  <p className="text-sm text-fg-secondary">{t('notifications.web_ios_intro')}</p>
+                  <ol className="list-decimal space-y-1 pl-5 text-sm text-fg">
+                    <li>{t('notifications.web_ios_step1')}</li>
+                    <li>{t('notifications.web_ios_step2')}</li>
+                    <li>{t('notifications.web_ios_step3')}</li>
+                  </ol>
+                </div>
+              )}
+
+              {web.support === 'unsupported' && (
+                <p className="text-xs leading-relaxed text-fg-muted">{t('notifications.web_unsupported')}</p>
+              )}
+
+              {web.support === 'ok' && (
+                <>
+                  <p className="text-sm text-fg-muted">{t(web.subscribed ? 'notifications.web_on_hint' : 'notifications.web_hint')}</p>
+                  {status.webPushConfigured === false && (
+                    <p className="rounded-control bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
+                      {t('notifications.web_server_off')}
+                    </p>
+                  )}
+                  {web.permission === 'denied' && !web.subscribed && (
+                    <p className="rounded-control bg-warning-soft px-3 py-2 text-xs leading-relaxed text-warning">
+                      {t('notifications.web_denied_hint')}
+                    </p>
+                  )}
+                  {(web.subscribed || (status.webPushConfigured !== false && web.permission !== 'denied')) && (
+                    <Button
+                      variant={web.subscribed ? 'secondary' : 'primary'}
+                      leftIcon={<Smartphone className="h-4 w-4" />}
+                      onClick={toggleWebPush}
+                      loading={webBusy}
+                    >
+                      {t(web.subscribed ? 'notifications.web_disable' : 'notifications.web_enable')}
+                    </Button>
+                  )}
+                  {typeof status.webPushSubscriptions === 'number' && (
+                    <p className="text-xs tabular-nums text-fg-muted">
+                      {t('notifications.web_devices', { count: status.webPushSubscriptions })}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {webError && (
+                <p role="alert" className="text-xs text-danger">
+                  {webError}
+                </p>
+              )}
+            </section>
+          )}
+
           {/* Telegram */}
-          <section className="space-y-3 pb-5">
+          <section className="space-y-3 py-5">
             <SectionHead
               title={t('notifications.telegram')}
               badge={
@@ -415,6 +508,7 @@ export const NotificationSettings: React.FC<NotificationSettingsProps> = ({ open
                 <div className="space-y-2 rounded-card border border-line bg-surface-2 p-3">
                   {renderChannel(t('notifications.test_telegram'), testResult.telegram, false)}
                   {renderChannel(t('notifications.test_push'), testResult.push, true)}
+                  {testResult.webPush && renderChannel(t('notifications.test_web'), testResult.webPush, true)}
                 </div>
               )}
             </section>

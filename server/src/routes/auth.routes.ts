@@ -176,6 +176,19 @@ async function resolveRoleLinks(
   return { agencyId, parentAgentId };
 }
 
+/**
+ * AGENT foydalanuvchi agentlikka bog'langanda: agentlikdagi spravochnik operatorlari uchun loginlar avtomatik yaratiladi.
+ * Dinamik import — team.service auth.routes'dan yordamchilarni oladi (aylana import bo'lmasin). Xato so'rovni buzmaydi.
+ */
+async function autoCreateOperators(agentUserId: string) {
+  try {
+    const { ensureOperatorsForAgent } = await import('../services/team.service');
+    await ensureOperatorsForAgent(agentUserId);
+  } catch (error: any) {
+    console.error('Operator loginlarini avtomatik yaratishda xatolik:', error?.message || error);
+  }
+}
+
 // ─────────────────────────── Kirish va profil ───────────────────────────
 
 // Login
@@ -308,6 +321,8 @@ router.post('/users', authenticateToken, requireRoles([Role.ADMIN]), async (req:
       select: USER_SELECT,
     });
 
+    if (created.role === Role.AGENT && created.agencyId) await autoCreateOperators(created.id);
+
     return res.status(201).json({ ...toUserDto(created), ...(generatedPassword ? { generatedPassword } : {}) });
   } catch (error: any) {
     return sendRouteError(res, error);
@@ -383,6 +398,8 @@ router.put('/users/:id', authenticateToken, requireRoles([Role.ADMIN]), async (r
     const updated = await prisma.user.update({ where: { id }, data, select: USER_SELECT });
     // Bloklash / rol o'zgarishi keyingi so'rovdayoq kuchga kirsin
     invalidateAuthCache(id);
+
+    if (updated.role === Role.AGENT && updated.agencyId && updated.agencyId !== existing.agencyId) await autoCreateOperators(id);
 
     return res.json({ ...toUserDto(updated), ...(generatedPassword ? { generatedPassword } : {}) });
   } catch (error: any) {

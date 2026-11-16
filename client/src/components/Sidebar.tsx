@@ -26,6 +26,7 @@ import {
   UsersRound,
   Store,
   BookOpen,
+  ClipboardList,
   FileSpreadsheet,
   Bell,
   type LucideIcon,
@@ -63,14 +64,14 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     '/', '/leads', '/deals', '/warehouse', '/sales', '/debtors', '/agents',
     '/agents-swot', '/hr', '/dds', '/trust', '/balance', '/daily', '/finmodel',
     '/bot-deals', '/bot-payments', '/finances', '/references', '/users', '/team',
-    '/stores', '/qodir-ledger'
+    '/stores', '/qodir-ledger', '/daftar'
   ],
   CFO: [
-    '/dds', '/trust', '/stores', '/qodir-ledger', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references'
+    '/dds', '/trust', '/stores', '/qodir-ledger', '/daftar', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references'
   ],
   COO: [
     '/deals', '/warehouse', '/sales', '/leads', '/debtors', '/agents', '/agents-swot', '/daily', '/trust',
-    '/stores', '/qodir-ledger'
+    '/stores', '/qodir-ledger', '/daftar'
   ],
   CALL_CENTER_HEAD: [
     '/leads', '/hr', '/deals', '/agents', '/agents-swot'
@@ -96,10 +97,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     '/hr', '/daily'
   ],
   VIEWER: [
-    '/', '/finances', '/finmodel', '/agents-swot', '/trust', '/stores', '/qodir-ledger'
+    '/', '/deals', '/finances', '/finmodel', '/agents-swot', '/trust', '/stores', '/qodir-ledger', '/daftar'
   ],
-  MANAGER: ['/deals', '/warehouse', '/sales', '/debtors', '/agents', '/daily', '/trust', '/stores', '/qodir-ledger'],
-  CASHIER: ['/dds', '/daily', '/balance', '/bot-payments', '/trust', '/stores', '/qodir-ledger']
+  MANAGER: ['/deals', '/warehouse', '/sales', '/debtors', '/agents', '/daily', '/trust', '/stores', '/qodir-ledger', '/daftar'],
+  CASHIER: ['/dds', '/daily', '/balance', '/bot-payments', '/trust', '/stores', '/qodir-ledger', '/daftar']
 };
 
 /** Berilgan yo'l rol uchun ochiqmi. `/agents` ruxsati `/agents-swot` ni OCHMAYDI (aniq yoki ichki yo'l). */
@@ -134,6 +135,7 @@ const MENU: MenuItem[] = [
   { to: '/trust', key: 'trust', icon: Handshake, group: 'finance' },
   { to: '/stores', key: 'stores', icon: Store, group: 'finance' },
   { to: '/qodir-ledger', key: 'qodir_ledger', icon: BookOpen, group: 'finance' },
+  { to: '/daftar', key: 'daftar', icon: ClipboardList, group: 'finance' },
   { to: '/balance', key: 'balance', icon: Wallet, group: 'finance' },
   { to: '/daily', key: 'daily', icon: CalendarCheck, group: 'finance' },
   { to: '/bot-payments', key: 'bot_payments', icon: Receipt, group: 'finance' },

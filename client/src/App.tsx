@@ -36,6 +36,7 @@ import { LoginPage } from './pages/LoginPage';
 import { TrustPage } from './pages/TrustPage';
 import { TeamPage } from './pages/TeamPage';
 import { StoresPage } from './pages/StoresPage';
+import { DaftarPage } from './pages/DaftarPage';
 import { StoreDetailPage } from './pages/StoreDetailPage';
 import { LoadingBlock } from './components/ui';
 
@@ -69,6 +70,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     '/trust': 'title.trust',
     '/stores': 'title.stores',
     '/qodir-ledger': 'title.qodir_ledger',
+    '/daftar': 'title.daftar',
     '/team': 'title.team',
     '/balance': 'title.balance',
     '/daily': 'title.daily',
@@ -192,6 +194,7 @@ export const App: React.FC = () => {
                 <Route path="/stores" element={<ProtectedRoute><StoresPage /></ProtectedRoute>} />
                 <Route path="/stores/:storeId" element={<ProtectedRoute><StoreDetailPage /></ProtectedRoute>} />
                 <Route path="/qodir-ledger" element={<ProtectedRoute><StoreDetailPage qodir /></ProtectedRoute>} />
+                <Route path="/daftar" element={<ProtectedRoute><DaftarPage /></ProtectedRoute>} />
                 <Route path="/team" element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
                 <Route path="/balance" element={<ProtectedRoute><BalancePage /></ProtectedRoute>} />
                 <Route path="/daily" element={<ProtectedRoute><DailyAccountingPage /></ProtectedRoute>} />

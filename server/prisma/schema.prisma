@@ -115,6 +115,25 @@ model User {
   telegramLinkCode String?          @unique
   dealsApproved    Deal[]           @relation("DealApprover")
   deviceTokens     DeviceToken[]
+  // OPERATOR: spravochnikdagi qaysi agent (Agency ichidagi Agent yozuvi) — shu yozuvga bog'langan bitimlarni ko'radi
+  agentId          String?          @unique
+  agentRecord      Agent?           @relation(fields: [agentId], references: [id])
+  webPushSubs      WebPushSubscription[]
+}
+
+// Brauzer / iPhone (bosh ekranga qo'shilgan sayt) Web Push obunalari
+model WebPushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model Store {
@@ -145,7 +164,13 @@ model CommissionRule {
   store       Store?    @relation(fields: [storeId], references: [id])
   providerId  String?
   provider    Provider? @relation(fields: [providerId], references: [id])
+  // ratePercent — kompaniya ulushi (ulush, 0.22 = 22%): diskontning shundan ortig'i agent foydasiga o'tadi
   ratePercent Decimal
+  // Bizning foydamiz (ulush). Bo'sh bo'lsa = ratePercent. Qodir aka: ulush 0.22, foyda 0.06 (16% uniki)
+  profitPercent Decimal?
+  // Qoida amal qiladigan davr (Asia/Tashkent kuni boshidan). Bo'sh — cheklanmagan
+  validFrom   DateTime?
+  validTo     DateTime?
   priority    Int       @default(1)
   isActive    Boolean   @default(true)
 }
@@ -167,6 +192,7 @@ model Agent {
   phone    String?
   isActive Boolean @default(true)
   deals    Deal[]
+  user     User?
 }
 
 model Buyer {
@@ -260,6 +286,10 @@ model Deal {
   rejectReason        String?
   // Trust / Trust 1 bitimlari: Trust bizga qarzdor bo'lgan summa (yechilgan limit x 16%)
   trustDebtAmount     Decimal           @default(0)
+  // Daftar (Imanium + Denov/Jizzax): 2-bosqich — ilovada pul tushgani tekshirilgan vaqt; 3-bosqich — olingan qurilma narxi (qo'lda) va vaqti
+  daftarMoneyAt       DateTime?
+  devicePurchaseAmount Decimal?
+  devicePurchasedAt   DateTime?
   items               DealItem[]
   ddsTransactions     DdsTransaction[]
   trustEntry          TrustLedgerEntry?

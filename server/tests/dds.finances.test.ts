@@ -88,7 +88,7 @@ describe('Moliya: bitim foydasining tarkibi (decomposeDealProfit)', () => {
     expect(p).toMatchObject({ tradeMargin: 0, partnerBonus: 0, trustIncome: 1_600_000, expected: 1_600_000, difference: 0 });
   });
 
-  it('Qodir aka / Green Bazar: xarid summasining 5% i', () => {
+  it("Qodir aka / Green Bazar: saqlangan foyda hamkor ulushi sifatida ko'rsatiladi", () => {
     for (const storeName of ['Qodir aka', 'Qodir oka', 'Green Bazar']) {
       const p = decomposeDealProfit({ ...base, storeName, totalPurchaseCost: 8_000_000, profit: 400_000 });
       expect(p.partnerBonus, storeName).toBe(400_000);
@@ -107,9 +107,28 @@ describe('Moliya: bitim foydasining tarkibi (decomposeDealProfit)', () => {
     expect(p.difference).toBe(0);
   });
 
-  it("saqlangan foyda qoidadan farq qilsa — farq ko'rinadi", () => {
+  it("tarkib SAQLANGAN foyda bo'yicha: expected doim stored'ga teng, farq 0 (Trust, foyda 0 bo'lsa ham)", () => {
     const p = decomposeDealProfit({ ...base, storeName: 'Trust', withdrawnLimit: 10_000_000, trustDebtAmount: 1_600_000, profit: 0 });
-    expect(p.expected).toBe(1_600_000);
-    expect(p.difference).toBe(-1_600_000);
+    expect(p.stored).toBe(0);
+    expect(p.expected).toBe(0);
+    expect(p.difference).toBe(0);
+    const q = decomposeDealProfit({ ...base, storeName: 'Trust', withdrawnLimit: 10_000_000, trustDebtAmount: 1_600_000, profit: 1_234_567 });
+    expect(q.expected).toBe(q.stored);
+    expect(q.difference).toBe(0);
+  });
+
+  it("tasniflash: sotilgan → savdo marjasi; Trust → Trust daromadi; Qodir aka / Green Bazar → hamkor; qolgani → savdo marjasi", () => {
+    // Sotilgan bitim Trust bo'lsa ham savdo marjasi
+    expect(decomposeDealProfit({ ...base, status: 'SOLD', storeName: 'Trust', salePrice: 9_000_000, trustDebtAmount: 1_600_000, profit: 700_000 }))
+      .toMatchObject({ tradeMargin: 700_000, trustIncome: 0, partnerBonus: 0 });
+    // Qodir aka — 6% foyda hamkor qatoriga
+    expect(decomposeDealProfit({ ...base, storeName: 'Qodir aka', withdrawnLimit: 10_000_000, profit: 600_000 }))
+      .toMatchObject({ partnerBonus: 600_000, tradeMargin: 0, trustIncome: 0, expected: 600_000, difference: 0 });
+    // Oddiy do'kon — savdo marjasi
+    expect(decomposeDealProfit({ ...base, storeName: 'Novza', withdrawnLimit: 10_000_000, profit: 2_500_000 }))
+      .toMatchObject({ tradeMargin: 2_500_000, partnerBonus: 0, trustIncome: 0 });
+    // Trust provayderi (do'kon oddiy) ham trustDebtAmount > 0 bo'lgani uchun Trust daromadi
+    expect(decomposeDealProfit({ ...base, storeName: 'Novza', trustDebtAmount: 1_600_000, profit: 1_600_000 }))
+      .toMatchObject({ trustIncome: 1_600_000, tradeMargin: 0 });
   });
 });

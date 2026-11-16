@@ -36,6 +36,7 @@ import { isPathAllowed } from '../components/Sidebar';
 import { MoneyValue, SettlementBadge } from '../components/stores/SettlementBadge';
 import { StoreDealsTable, StoreExpensesTable, StoreLedgerTable } from '../components/stores/StoreDetailTables';
 import { balanceTone, settlementCategory, type StoreDetailResponse } from '../components/stores/storeUtils';
+import { isQodirStore } from '../components/deals/dealUtils';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
 import { useRealtime } from '../context/SocketContext';
@@ -108,7 +109,10 @@ export const StoreDetailPage: React.FC<StoreDetailPageProps> = ({ qodir = false 
   useRealtime('deals:updated', () => load(true));
   useRealtime('dds:updated', () => load(true));
 
-  const settlement = data?.settlement ?? (qodir ? 'WE_OWE' : 'STORE_OWES');
+  const settlement = data?.settlement ?? 'STORE_OWES';
+  // «Qodir aka» ham do'kon bizga qarzdor yo'nalishida, lekin matnlari alohida (qarz = chek + agent ulushi + foyda)
+  const isQodir = qodir || isQodirStore(data?.store?.name);
+  const dirKey = isQodir ? 'QODIR' : settlement;
   const isTrust = settlement === 'TRUST';
   // Trust do'konida daftar tabi yo'q — standart bo'lim "Bitimlar"
   const activeSection: Section = isTrust && section === 'ledger' ? 'deals' : section;
@@ -125,7 +129,7 @@ export const StoreDetailPage: React.FC<StoreDetailPageProps> = ({ qodir = false 
   const periodSum = data?.ledger?.period;
   const overall = data?.ledger?.overall;
   const period = periodLabel(range, t);
-  const category = settlementCategory(settlement);
+  const category = settlementCategory(settlement, isQodir ? "Qodir aka" : data?.store?.name);
   const role = user?.role;
   const canOpenDds = isPathAllowed(role, '/dds');
   const canOpenTrust = isPathAllowed(role, '/trust');
@@ -148,7 +152,12 @@ export const StoreDetailPage: React.FC<StoreDetailPageProps> = ({ qodir = false 
           title={
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <span className="min-w-0 break-words">{title}</span>
-              {data && <SettlementBadge settlement={settlement} />}
+              {data &&
+                (isQodir && settlement !== 'TRUST' ? (
+                  <Badge tone="warning">{t('stores.dir_QODIR')}</Badge>
+                ) : (
+                  <SettlementBadge settlement={settlement} />
+                ))}
               {data?.store?.isActive === false && <Badge tone="neutral">{t('common.inactive')}</Badge>}
             </span>
           }
@@ -197,7 +206,7 @@ export const StoreDetailPage: React.FC<StoreDetailPageProps> = ({ qodir = false 
             <StatCard
               title={t('stores.sum_payout')}
               value={<MoneyValue amount={summary?.payoutTotal} />}
-              hint={isTrust ? undefined : t('stores.sum_payout_hint')}
+              hint={isTrust ? undefined : t(isQodir ? 'stores.sum_payout_hint_QODIR' : 'stores.sum_payout_hint')}
               icon={<HandCoins />}
               tone="violet"
             />
@@ -233,34 +242,34 @@ export const StoreDetailPage: React.FC<StoreDetailPageProps> = ({ qodir = false 
             </Card>
           ) : (
             <Card>
-              <CardHeader title={t('stores.settlement_title')} description={t(`stores.settlement_desc_${settlement}`)} />
+              <CardHeader title={t('stores.settlement_title')} description={t(`stores.settlement_desc_${dirKey}`)} />
               <div className="grid grid-cols-1 gap-x-4 gap-y-5 min-[400px]:grid-cols-2 lg:grid-cols-4">
                 <StatCard
                   variant="plain"
                   title={t('stores.led_debt')}
-                  value={<MoneyValue amount={periodSum?.debt} />}
-                  hint={t('stores.led_debt_hint')}
+                  value={<MoneyValue amount={overall?.debt} />}
+                  hint={t('stores.led_debt_hint', { value: formatMoney(periodSum?.debt) })}
                 />
                 <StatCard
                   variant="plain"
                   title={t('stores.led_paid')}
-                  value={<MoneyValue amount={periodSum?.paid} />}
-                  hint={t('stores.led_paid_hint')}
+                  value={<MoneyValue amount={overall?.paid} />}
+                  hint={t('stores.led_paid_hint', { value: formatMoney(periodSum?.paid) })}
                   tone="success"
                 />
                 <StatCard
                   variant="plain"
-                  title={t('stores.led_balance')}
-                  value={<MoneyValue amount={periodSum?.balance} />}
-                  hint={t('stores.led_balance_hint')}
-                  tone={balanceTone(settlement, periodSum?.balance)}
+                  title={t(`stores.balance_${dirKey}`)}
+                  value={<MoneyValue amount={overall?.debtLeft} />}
+                  hint={t('stores.led_left_hint')}
+                  tone={balanceTone(settlement, overall?.debtLeft, overall?.deposit)}
                 />
                 <StatCard
                   variant="plain"
-                  title={t(`stores.balance_${settlement}`)}
-                  value={<MoneyValue amount={overall?.balance} />}
-                  hint={t('stores.overall_paid_hint', { debt: formatMoney(overall?.debt), paid: formatMoney(overall?.paid) })}
-                  tone={balanceTone(settlement, overall?.balance)}
+                  title={t('stores.led_deposit')}
+                  value={<MoneyValue amount={overall?.deposit} />}
+                  hint={t(isQodir ? 'stores.led_deposit_hint_QODIR' : 'stores.led_deposit_hint')}
+                  tone={Number(overall?.deposit) > 0 ? 'info' : 'neutral'}
                 />
               </div>
 
@@ -268,7 +277,7 @@ export const StoreDetailPage: React.FC<StoreDetailPageProps> = ({ qodir = false 
               <div className="mt-4 flex flex-col gap-3 rounded-control bg-info-soft px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                 <p className="flex items-start gap-2 text-xs leading-relaxed text-info">
                   <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{t(`stores.close_hint_${settlement}`, { category: category || '' })}</span>
+                  <span>{t(`stores.close_hint_${dirKey}`, { category: category || '' })}</span>
                 </p>
                 {canOpenDds && (
                   <Button
@@ -314,14 +323,14 @@ export const StoreDetailPage: React.FC<StoreDetailPageProps> = ({ qodir = false 
                     ]}
                   />
                 </div>
-                <StoreLedgerTable entries={visibleEntries} settlement={settlement} totalCount={entries.length} />
-                <p className="border-t border-line px-4 py-2.5 text-xs text-fg-muted sm:px-5">{t(`stores.sign_note_${settlement}`)}</p>
+                <StoreLedgerTable entries={visibleEntries} totalCount={entries.length} />
+                <p className="border-t border-line px-4 py-2.5 text-xs text-fg-muted sm:px-5">{t(`stores.sign_note_${dirKey}`)}</p>
               </>
             )}
 
             {activeSection === 'deals' && (
               <>
-                <StoreDealsTable deals={deals} settlement={settlement} />
+                <StoreDealsTable deals={deals} isQodir={isQodir} />
                 <p className="border-t border-line px-4 py-2.5 text-xs text-fg-muted sm:px-5">{t('stores.deals_note')}</p>
               </>
             )}

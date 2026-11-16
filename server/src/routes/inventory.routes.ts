@@ -6,7 +6,13 @@ import { DealStatus, PaymentStatus, AccountType, Prisma, TransactionType, Expens
 import { emitRealtime } from '../lib/realtime';
 import { APPROVED_ONLY, dealScopeWhere } from '../services/access.service';
 import { LedgerError, createDdsInTx } from '../services/ledger.service';
-import { SaleError, assertDealNotInSale, assertDealsNotInSale, guardDealNotClaimed } from '../services/sale.service';
+import {
+  SaleError,
+  assertDealNotInSale,
+  assertDealsNotInSale,
+  computeDealProfitForStatus,
+  guardDealNotClaimed,
+} from '../services/sale.service';
 import {
   HttpError,
   cleanCustomerText,
@@ -297,12 +303,16 @@ router.put('/:id/status', authenticateToken, async (req: AuthRequest, res: Respo
     if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
     await assertDealNotInSale(deal.saleId);
 
+    // Foyda holatga bog'liq (daftar bitimida "Pul tushdi" bo'lguncha 0) — holat bilan birga qayta hisoblanadi
+    const profitFields = (await computeDealProfitForStatus(id, status as DealStatus)) || {};
+
     const updated = await guardDealNotClaimed(id, () =>
       prisma.deal.update({
         where: { id, saleId: null },
         data: {
           status: status as DealStatus,
           statusChangeReason: reason.trim(),
+          ...profitFields,
         },
         include: { store: true },
       })

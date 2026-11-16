@@ -11,7 +11,7 @@ import { LedgerError, findQodirStore, getStoreLedger, getStoresReport } from '..
  *   GET /api/store-reports/:storeId?startDate&endDate                — bitta do'kon (batafsil)
  *
  * Qoldiq (balance) = qarz − to'langan. Ma'nosi `settlement` ga bog'liq:
- *   STORE_OWES — do'kon bizdan qarzdor;  WE_OWE — biz Qodir akadan qarzdormiz;  TRUST — do'kon daftari yuritilmaydi (Trust daftari bor).
+ *   STORE_OWES — do'kon bizdan qarzdor (Qodir aka ham; manfiy qoldiq = depozit);  TRUST — do'kon daftari yuritilmaydi (Trust daftari bor).
  * Daftar `ledgerStart` kunidan boshlanadi — undan oldingi bitimlarga qarz yozilmagan.
  */
 const router = Router();
@@ -69,6 +69,12 @@ async function storeDetail(storeId: string, period: ReturnType<typeof parsePerio
       withdrawnLimit: Number(d.withdrawnLimit),
       calculatedAmount: Number(d.calculatedAmount),
       profit: Number(d.profit),
+      agentAmount: Number(d.agentAmount),
+      customerLimit: Number(d.customerLimit),
+      approvalStatus: d.approvalStatus,
+      provider: d.provider,
+      // Do'kon qarzi tarkibi (Qodir aka: chek + agent ulushi + 6% foyda)
+      debtParts: d.debtParts,
       // Chek xarajati DDS'ga yozilgan bo'lsa (Qodir aka cheklarida bo'lmaydi)
       checkExpense: d.checkExpense
         ? {

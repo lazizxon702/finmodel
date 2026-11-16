@@ -4,7 +4,7 @@
 export const TRUST_INCOME_CATEGORY = 'Trust 1 daromadi';
 export const CHECK_EXPENSE_CATEGORY = 'Mijozga berilgan summa (Tovar xaridi)';
 
-/** Do'kon hisob-kitobi kategoriyalari: do'kon bizga to'lasa — kirim; Qodir akaga biz to'lasak — chiqim */
+/** Do'kon hisob-kitobi kategoriyalari: do'kon bizga to'lasa — kirim; Qodir aka bizga to'lasa ham kirim */
 export const STORE_INCOME_CATEGORY = "Do'kondan tushum";
 export const QODIR_PAYMENT_CATEGORY = "Qodir aka to'lovi";
 
@@ -28,7 +28,7 @@ export function isStoreIncomeCategory(name?: string | null): boolean {
   return normalizeCategory(name) === normalizeCategory(STORE_INCOME_CATEGORY);
 }
 
-/** "Qodir aka to'lovi" — Qodir akaga qarzimizni kamaytiradigan chiqim */
+/** "Qodir aka to'lovi" — Qodir akaning bizga qarzini kamaytiradigan kirim (ortig'i depozit) */
 export function isQodirPaymentCategory(name?: string | null): boolean {
   return normalizeCategory(name) === normalizeCategory(QODIR_PAYMENT_CATEGORY);
 }

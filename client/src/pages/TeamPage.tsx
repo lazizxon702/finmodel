@@ -1,16 +1,33 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, Ban, Check, Copy, KeyRound, Pencil, Plus, RefreshCw, UserCheck, UsersRound } from 'lucide-react';
+import {
+  AlertTriangle,
+  Ban,
+  Check,
+  Copy,
+  FileText,
+  KeyRound,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  UserCheck,
+  UsersRound,
+  Wallet,
+  Coins,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { PasswordCell } from '../components/PasswordCell';
 import { useTranslation } from '../context/LanguageContext';
 import { useRealtime } from '../context/SocketContext';
-import { formatDate, formatNumber } from '../utils/format';
+import { formatDate, formatNumber, todayYmd } from '../utils/format';
 import {
   Badge,
   Button,
   Card,
   CardHeader,
+  DateRangeFilter,
+  type DateRangeValue,
   EmptyState,
   Field,
   Input,
@@ -131,8 +148,33 @@ interface Operator {
   fullName: string;
   isActive: boolean;
   createdAt: string;
+  // Tanlangan davr bo'yicha (server hisoblaydi; summalar faqat tasdiqlangan cheklardan)
   dealsCount: number;
+  approvedCount: number;
+  pendingCount: number;
+  rejectedCount: number;
+  totalWithdrawnLimit: number;
+  totalAgentAmount: number;
+  operatorShare?: number;
 }
+
+interface TeamTotals {
+  operatorsCount: number;
+  activeCount: number;
+  dealsCount: number;
+  approvedCount: number;
+  pendingCount: number;
+  rejectedCount: number;
+  totalWithdrawnLimit: number;
+  totalAgentAmount: number;
+  operatorShare?: number;
+  /** Operator ulushi qoidasi — faqat Jahongir jamoasida keladi */
+  operatorShareRule?: { basePct: number; bonusPct: number; monthlyLimitThreshold: number } | null;
+}
+
+/** Standart davr: 01.11.2026 dan bugungacha */
+const TEAM_START_YMD = '2026-11-01';
+const defaultTeamRange = (): DateRangeValue => ({ mode: 'custom', startDate: TEAM_START_YMD, endDate: todayYmd() });
 
 interface AgentOption {
   id: string;
@@ -158,6 +200,10 @@ export const TeamPage: React.FC = () => {
   const [agentId, setAgentId] = useState('');
 
   const [operators, setOperators] = useState<Operator[]>([]);
+  const [totals, setTotals] = useState<TeamTotals | null>(null);
+  const [range, setRange] = useState<DateRangeValue>(defaultTeamRange);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -177,6 +223,12 @@ export const TeamPage: React.FC = () => {
   const [resetting, setResetting] = useState(false);
 
   const [reveal, setReveal] = useState<PasswordReveal | null>(null);
+
+  // Qidiruv: yozishdan to'xtagach (350 ms) so'rov ketadi
+  useEffect(() => {
+    const id = window.setTimeout(() => setSearch(searchInput.trim()), 350);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
 
   const canLoad = !isAdmin || !!agentId;
   const requestConfig = isAdmin ? { params: { agentId } } : undefined;
@@ -212,28 +264,45 @@ export const TeamPage: React.FC = () => {
       if (!canLoad) return;
       if (!silent) setLoading(true);
       try {
-        const res = await axios.get('/api/team/operators', isAdmin ? { params: { agentId } } : undefined);
+        const params = {
+          ...(isAdmin ? { agentId } : {}),
+          from: range.startDate || undefined,
+          to: range.endDate || undefined,
+          q: search || undefined,
+        };
+        const [res, sumRes] = await Promise.all([
+          axios.get('/api/team/operators', { params }),
+          axios.get('/api/team/summary', { params }).catch(() => null),
+        ]);
         setOperators(Array.isArray(res.data) ? res.data : []);
+        setTotals(sumRes?.data ?? null);
         setLoadError('');
       } catch (e: any) {
         // Fon yangilanishidagi xato mavjud ro'yxatni buzmaydi
         if (!silent) {
           setOperators([]);
+          setTotals(null);
           setLoadError(e?.response?.data?.error || t('team.err_load'));
         }
       } finally {
         if (!silent) setLoading(false);
       }
     },
-    [canLoad, isAdmin, agentId, t]
+    [canLoad, isAdmin, agentId, range.startDate, range.endDate, search, t]
   );
 
+  // Agent almashganda ro'yxat tozalanadi
   useEffect(() => {
     setOperators([]);
+    setTotals(null);
     setActionError('');
+  }, [agentId, isAdmin]);
+
+  // Agent yoki filtr (davr, qidiruv) o'zgarsa qayta yuklanadi
+  useEffect(() => {
     void loadOperators();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId, isAdmin]);
+  }, [agentId, isAdmin, range.startDate, range.endDate, search]);
 
   // Bitimlar soni o'zgarsa ro'yxat jimgina yangilanadi
   useRealtime('deals:updated', () => void loadOperators(true), canLoad);
@@ -301,7 +370,7 @@ export const TeamPage: React.FC = () => {
     setActionError('');
     try {
       const res = await axios.put(`/api/team/operators/${op.id}`, { isActive: !op.isActive }, requestConfig);
-      setOperators((prev) => prev.map((o) => (o.id === op.id ? { ...o, ...res.data } : o)));
+      setOperators((prev) => prev.map((o) => (o.id === op.id ? { ...o, isActive: res.data?.isActive ?? o.isActive } : o)));
     } catch (err: any) {
       setActionError(err?.response?.data?.error || t('team.err_status'));
     } finally {
@@ -401,7 +470,28 @@ export const TeamPage: React.FC = () => {
         </div>
       )}
 
-      {canLoad && !loading && !loadError && operators.length > 0 && (
+      {/* Davr va qidiruv filtri */}
+      {canLoad && (
+        <Card className="space-y-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <DateRangeFilter value={range} onChange={setRange} />
+            <div className="relative w-full lg:max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" aria-hidden="true" />
+              <Input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder={t('team.search_ph')}
+                aria-label={t('team.search_ph')}
+                className="pl-9"
+                maxLength={80}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-fg-muted">{t('team.period_note')}</p>
+        </Card>
+      )}
+
+      {canLoad && !loading && !loadError && (operators.length > 0 || !!search) && (
         <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-3 sm:gap-4">
           <StatCard title={t('team.stat_total')} value={formatNumber(operators.length)} icon={<UsersRound />} tone="violet" />
           <StatCard title={t('team.stat_active')} value={formatNumber(activeCount)} icon={<UserCheck />} tone="success" />
@@ -411,6 +501,32 @@ export const TeamPage: React.FC = () => {
             icon={<Ban />}
             tone={operators.length - activeCount > 0 ? 'warning' : 'neutral'}
           />
+          {totals && (
+            <>
+              <StatCard
+                title={t('team.stat_cheques')}
+                value={formatNumber(totals.dealsCount)}
+                hint={t('team.stat_cheques_hint', { approved: totals.approvedCount, pending: totals.pendingCount })}
+                icon={<FileText />}
+                tone="info"
+              />
+              <StatCard title={t('team.stat_limit')} value={formatNumber(totals.totalWithdrawnLimit)} hint="UZS" icon={<Wallet />} tone="brand" />
+              <StatCard title={t('team.stat_profit')} value={formatNumber(totals.totalAgentAmount)} hint="UZS" icon={<Coins />} tone="success" />
+              {totals.operatorShareRule && (
+                <StatCard
+                  title={t('team.stat_share')}
+                  value={formatNumber(totals.operatorShare || 0)}
+                  hint={t('team.share_hint', {
+                    base: totals.operatorShareRule.basePct,
+                    bonus: totals.operatorShareRule.bonusPct,
+                    limit: formatNumber(totals.operatorShareRule.monthlyLimitThreshold),
+                  })}
+                  icon={<Coins />}
+                  tone="info"
+                />
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -436,6 +552,8 @@ export const TeamPage: React.FC = () => {
               </Button>
             }
           />
+        ) : operators.length === 0 && search ? (
+          <EmptyState icon={<Search />} title={t('team.search_empty')} description={t('team.search_empty_hint')} />
         ) : operators.length === 0 ? (
           <EmptyState
             icon={<UsersRound />}
@@ -456,7 +574,11 @@ export const TeamPage: React.FC = () => {
                   <Th>{t('team.col_username')}</Th>
                   <Th>{t('usersPage.col_password')}</Th>
                   <Th>{t('common.status')}</Th>
-                  <Th align="right">{t('team.col_deals')}</Th>
+                  <Th align="right">{t('team.col_cheques')}</Th>
+                  <Th align="right">{t('team.col_approved')}</Th>
+                  <Th align="right">{t('team.col_limit')}</Th>
+                  <Th align="right">{t('team.col_profit')}</Th>
+                  {totals?.operatorShareRule && <Th align="right">{t('team.col_share')}</Th>}
                   <Th>{t('team.col_created')}</Th>
                   <Th align="right">{t('common.actions')}</Th>
                 </Tr>
@@ -476,7 +598,24 @@ export const TeamPage: React.FC = () => {
                     </Td>
                     <Td align="right" numeric>
                       {formatNumber(op.dealsCount)}
+                      {op.pendingCount > 0 && (
+                        <span className="block text-xs font-normal text-warning">{t('team.pending_short', { count: op.pendingCount })}</span>
+                      )}
                     </Td>
+                    <Td align="right" numeric>
+                      {formatNumber(op.approvedCount)}
+                    </Td>
+                    <Td align="right" numeric className="whitespace-nowrap">
+                      {formatNumber(op.totalWithdrawnLimit)}
+                    </Td>
+                    <Td align="right" numeric className="whitespace-nowrap font-medium text-success">
+                      {formatNumber(op.totalAgentAmount)}
+                    </Td>
+                    {totals?.operatorShareRule && (
+                      <Td align="right" numeric className="whitespace-nowrap font-medium text-info">
+                        {formatNumber(op.operatorShare || 0)}
+                      </Td>
+                    )}
                     <Td numeric className="text-fg-secondary">
                       {formatDate(op.createdAt)}
                     </Td>

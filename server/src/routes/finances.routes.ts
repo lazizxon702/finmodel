@@ -38,17 +38,26 @@ export interface DealProfitLike {
  * `difference` 0 bo'lmasa, bitimning saqlangan foydasi shu qoida bo'yicha qayta hisoblanmagan.
  */
 export function decomposeDealProfit(d: DealProfitLike) {
+  // 14.11.2026 qoidasi (calculateDeal): sotilgan bitim — sotuv narxi − tannarx; sotilmagan — kompaniya ulushi
+  // (limit × foiz; Qodir aka 6%, Trust 16% ...), daftar bitimida pul tushguncha 0. Saqlangan Deal.profit aynan shu
+  // qoida bilan yoziladi, shuning uchun tarkib saqlangan qiymatdan olinadi:
+  //   savdo marjasi  = sotilgan bitim foydasi;  Trust daromadi = Trust bitimining ulushi;
+  //   hamkor bonusi  = Qodir aka / Green Bazar ulushi;  qolgani (bank ulushi) ham savdo marjasiga qo'shiladi.
   const salePrice = Number(d.salePrice) || 0;
-  const withdrawn = Number(d.withdrawnLimit) || 0;
-  const storeLower = (d.storeName || '').toLowerCase();
-  const isPartnerStore = isQodirStore(d.storeName) || storeLower.includes('qodir') || storeLower.includes('green bazar');
-
-  // Sotuv narxi kiritilmagan "SOLD" bitimda marja tan olinmaydi (aks holda butun limit zarar bo'lib chiqadi)
-  const tradeMargin = d.status === DealStatus.SOLD && salePrice > 0 ? salePrice - withdrawn : 0;
-  const partnerBonus = isPartnerStore ? (Number(d.totalPurchaseCost) || 0) * PARTNER_BONUS_RATE : 0;
-  const trustIncome = Number(d.trustDebtAmount) || 0;
-  const expected = tradeMargin + partnerBonus + trustIncome;
   const stored = Number(d.profit) || 0;
+  const storeLower = (d.storeName || '').toLowerCase();
+  const isPartnerStore = isQodirStore(d.storeName) || storeLower.includes('green bazar');
+  const sold = d.status === DealStatus.SOLD && salePrice > 0;
+  const isTrust = (Number(d.trustDebtAmount) || 0) > 0;
+
+  let tradeMargin = 0;
+  let partnerBonus = 0;
+  let trustIncome = 0;
+  if (sold) tradeMargin = stored;
+  else if (isTrust) trustIncome = stored;
+  else if (isPartnerStore) partnerBonus = stored;
+  else tradeMargin = stored;
+  const expected = tradeMargin + partnerBonus + trustIncome;
   return { tradeMargin, partnerBonus, trustIncome, expected, stored, difference: stored - expected };
 }
 

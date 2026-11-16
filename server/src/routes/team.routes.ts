@@ -2,6 +2,17 @@ import { Router, Response, NextFunction } from 'express';
 import { Prisma, Role } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken, invalidateAuthCache } from '../middleware/auth.middleware';
+import { dealScopeWhere } from '../services/access.service';
+import {
+  PeriodStats,
+  addDealToStats,
+  cleanYmd,
+  emptyStats,
+  ensureOperatorsForAgent,
+  statsForOperators,
+  todayTashkentYmd,
+} from '../services/team.service';
+import { operatorShareRuleFor, tashkentDayRange } from '../services/calculation.service';
 import {
   HttpError,
   cleanFullName,
@@ -14,7 +25,9 @@ import {
 
 /**
  * Agent jamoasi (operatorlar):
- *   GET  /api/team/operators          — jamoadagi operatorlar ro'yxati
+ *   GET  /api/team/operators          — jamoadagi operatorlar ro'yxati (+ davr statistikasi: ?from=&to=&q=)
+ *   GET  /api/team/summary            — jamoa jami (shu filtrlar bilan, bitim bir marta sanaladi)
+ *   GET  /api/team/my-summary         — kirgan foydalanuvchi (OPERATOR/AGENT) o'z bitimlari bo'yicha jami
  *   POST /api/team/operators          — yangi operator (parentAgentId = agent)
  *   PUT  /api/team/operators/:id      — ism / bloklash / parolni tiklash (faqat O'Z jamoasidagi operator)
  *
@@ -80,17 +93,135 @@ function toOperatorDto(o: OperatorRow) {
   };
 }
 
-// GET /api/team/operators — jamoadagi operatorlar
+/** Filtrlar: ?from=YYYY-MM-DD&to=YYYY-MM-DD (Toshkent kunlari), ?q= (ism yoki login bo'yicha qidiruv) */
+function parseTeamFilters(req: TeamRequest) {
+  const from = cleanYmd(req.query.from);
+  const to = cleanYmd(req.query.to);
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
+  return { from, to, q };
+}
+
+async function listTeamOperators(teamAgentId: string, q: string) {
+  const where: Prisma.UserWhereInput = { parentAgentId: teamAgentId, role: Role.OPERATOR };
+  if (q) {
+    where.OR = [{ fullName: { contains: q, mode: 'insensitive' } }, { username: { contains: q, mode: 'insensitive' } }];
+  }
+  return prisma.user.findMany({
+    where,
+    select: { ...OPERATOR_SELECT, agentId: true },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+/** Agent foydalanuvchisining jamoasi uchun operator ulushi qoidasi (faqat Jahongir jamoasi) yoki null */
+async function shareRuleForAgentUser(agentUserId?: string | null) {
+  if (!agentUserId) return null;
+  const agent = await prisma.user.findUnique({ where: { id: agentUserId }, select: { agency: { select: { name: true } } } });
+  return operatorShareRuleFor(agent?.agency?.name);
+}
+
+/** Spravochnikdagi operatorlar uchun loginlar yetishmasa avtomatik yaratadi (hech narsa yetishmasa — bitta COUNT). Xato ro'yxatni to'xtatmaydi. */
+async function ensureOperatorsSafe(agentUserId: string) {
+  try {
+    await ensureOperatorsForAgent(agentUserId);
+  } catch (error: any) {
+    console.error('Operator loginlarini avtomatik yaratishda xatolik:', error?.message || error);
+  }
+}
+
+// GET /api/team/operators — jamoadagi operatorlar + davr statistikasi
+//   Javob: [{ id, username, fullName, isActive, createdAt, visiblePassword, agentId,
+//             dealsCount, approvedCount, pendingCount, rejectedCount, totalWithdrawnLimit, totalAgentAmount }]
+//   Statistika "operatorniki" bitimlar bo'yicha: operator kiritgan YOKI uning Agent yozuviga bog'langan (bir marta sanaladi).
+//   Summalar faqat TASDIQLANGAN bitimlardan.
 router.get('/operators', authenticateToken, resolveTeamAgent, async (req: TeamRequest, res: Response) => {
   try {
-    const operators = await prisma.user.findMany({
-      where: { parentAgentId: req.teamAgentId, role: Role.OPERATOR },
-      select: OPERATOR_SELECT,
-      orderBy: { createdAt: 'asc' },
-    });
-    return res.json(operators.map(toOperatorDto));
+    const { from, to, q } = parseTeamFilters(req);
+    await ensureOperatorsSafe(req.teamAgentId!);
+    const operators = await listTeamOperators(req.teamAgentId!, q);
+    const { perOperator } = await statsForOperators(
+      operators.map((o) => ({ id: o.id, agentId: o.agentId ?? null })),
+      from,
+      to,
+      await shareRuleForAgentUser(req.teamAgentId)
+    );
+    return res.json(
+      operators.map((o) => {
+        const { dealsCount: _allTime, ...dto } = toOperatorDto(o);
+        return { ...dto, agentId: o.agentId ?? null, ...(perOperator.get(o.id) ?? emptyStats()) };
+      })
+    );
   } catch (error: any) {
     return sendRouteError(res, error, 'Jamoani yuklashda xatolik');
+  }
+});
+
+// GET /api/team/summary — jamoa jami (shu davr va qidiruv bo'yicha)
+//   Javob: { from, to, operatorsCount, activeCount, dealsCount, approvedCount, pendingCount, rejectedCount, totalWithdrawnLimit, totalAgentAmount }
+router.get('/summary', authenticateToken, resolveTeamAgent, async (req: TeamRequest, res: Response) => {
+  try {
+    const { from, to, q } = parseTeamFilters(req);
+    const operators = await listTeamOperators(req.teamAgentId!, q);
+    const shareRule = await shareRuleForAgentUser(req.teamAgentId);
+    const { total } = await statsForOperators(
+      operators.map((o) => ({ id: o.id, agentId: o.agentId ?? null })),
+      from,
+      to,
+      shareRule
+    );
+    return res.json({
+      // Operator ulushi qoidasi (faqat Jahongir jamoasida) — klient ustunni shunga qarab ko'rsatadi
+      operatorShareRule: shareRule,
+      from: from ?? null,
+      to: to ?? null,
+      operatorsCount: operators.length,
+      activeCount: operators.filter((o) => o.isActive).length,
+      ...total,
+    });
+  } catch (error: any) {
+    return sendRouteError(res, error, 'Jamoa yig\'masini yuklashda xatolik');
+  }
+});
+
+// GET /api/team/my-summary — OPERATOR / AGENT o'z bitimlari bo'yicha jami (dealScopeWhere doirasi)
+//   ?from=&to= berilmasa: 2026-11-01 dan bugungacha (Toshkent).
+//   Javob: { from, to, dealsCount, approvedCount, pendingCount, rejectedCount, totalWithdrawnLimit, totalAgentAmount }
+router.get('/my-summary', authenticateToken, async (req: TeamRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    if (user.role !== Role.OPERATOR && user.role !== Role.AGENT) {
+      return res.status(403).json({ error: 'Bu yig\'ma faqat operator yoki agent uchun' });
+    }
+    const from = cleanYmd(req.query.from) ?? '2026-11-01';
+    const to = cleanYmd(req.query.to) ?? todayTashkentYmd();
+    const { start, end } = tashkentDayRange(from, to);
+
+    const scope = await dealScopeWhere(user);
+    const rows = await prisma.deal.findMany({
+      where: { AND: [scope, { date: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } }] },
+      select: { approvalStatus: true, withdrawnLimit: true, agentAmount: true },
+    });
+    const stats: PeriodStats = emptyStats();
+    for (const r of rows) {
+      addDealToStats(stats, {
+        approvalStatus: r.approvalStatus,
+        withdrawnLimit: Number(r.withdrawnLimit),
+        agentAmount: Number(r.agentAmount),
+      });
+    }
+    // Operator ulushi (faqat qoida bor jamoa operatori uchun): o'z bitimlari bo'yicha, oylik chegara bilan
+    let operatorShareRule = null;
+    if (user.role === Role.OPERATOR) {
+      const me = await prisma.user.findUnique({ where: { id: user.id }, select: { agentId: true, parentAgentId: true } });
+      operatorShareRule = await shareRuleForAgentUser(me?.parentAgentId);
+      if (operatorShareRule) {
+        const mine = await statsForOperators([{ id: user.id, agentId: me?.agentId ?? null }], from, to, operatorShareRule);
+        stats.operatorShare = mine.total.operatorShare;
+      }
+    }
+    return res.json({ from, to, operatorShareRule, ...stats });
+  } catch (error: any) {
+    return sendRouteError(res, error, 'Yig\'mani yuklashda xatolik');
   }
 });
 

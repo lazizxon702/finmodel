@@ -42,6 +42,8 @@ interface SummaryRow {
   dealsToday: number;
   dealsMonth: number;
   dealsTotal: number;
+  /** Agent foydasi hisoblanmaydigan agentlik (Anvar) */
+  noCommission?: boolean;
 }
 
 interface Summary {
@@ -398,6 +400,7 @@ export const AgentsPage: React.FC = () => {
                           ) : (
                             row.agencyName
                           )}
+                          {row.noCommission && <span className="block text-xs font-normal text-fg-muted">{t('agentsPage.no_commission')}</span>}
                         </Td>
                         <Td align="right" numeric>
                           {cell(row.today, row.dealsToday)}

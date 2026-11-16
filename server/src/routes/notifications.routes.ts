@@ -6,6 +6,9 @@ import {
   createTelegramLinkCode,
   getNotificationStatus,
   getTelegramBotUsername,
+  getWebPushPublicKey,
+  isWebPushConfigured,
+  readWebPushSubscription,
   sendTestNotification,
 } from '../services/notification.service';
 
@@ -15,6 +18,9 @@ import {
  *   DELETE /api/notifications/device-token        {token}            — tokenni o'chirish (chiqishda)
  *   POST   /api/notifications/telegram/link-code                     — Telegram'ni bog'lash uchun bir martalik kod
  *   POST   /api/notifications/telegram/unlink                        — Telegram bog'lanishini uzish
+ *   GET    /api/notifications/web-push/public-key                    — VAPID ochiq kalit
+ *   POST   /api/notifications/web-push/subscription  {endpoint, keys}— brauzer/iPhone obunasi
+ *   DELETE /api/notifications/web-push/subscription  {endpoint}      — obunani o'chirish
  *   GET    /api/notifications/status                                 — joriy holat
  *   POST   /api/notifications/test                (faqat ADMIN)      — o'ziga sinov bildirishnomasi
  */
@@ -100,12 +106,54 @@ router.post('/telegram/unlink', authenticateToken, async (req: AuthRequest, res:
   }
 });
 
-// GET /status → {telegramLinked, pushConfigured, telegramConfigured, deviceTokens}
+// GET /web-push/public-key → {publicKey} (VAPID ochiq kalit; sozlanmagan bo'lsa 503)
+router.get('/web-push/public-key', authenticateToken, (_req: AuthRequest, res: Response) => {
+  const publicKey = getWebPushPublicKey();
+  if (!publicKey) return res.status(503).json({ error: "Web Push serverda sozlanmagan", code: 'WEB_PUSH_NOT_CONFIGURED' });
+  return res.json({ publicKey });
+});
+
+// POST /web-push/subscription {endpoint, keys:{p256dh, auth}} — endpoint oxirgi kirgan foydalanuvchiga o'tadi
+router.post('/web-push/subscription', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const sub = readWebPushSubscription(req.body);
+    if (!sub) return res.status(400).json({ error: "Obuna ma'lumotlari noto'g'ri" });
+    const userAgent = String(req.headers['user-agent'] || '').slice(0, 300) || null;
+
+    await prisma.webPushSubscription.upsert({
+      where: { endpoint: sub.endpoint },
+      create: { userId: req.user!.id, endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth, userAgent },
+      update: { userId: req.user!.id, p256dh: sub.p256dh, auth: sub.auth, userAgent },
+    });
+    const webPushSubscriptions = await prisma.webPushSubscription.count({ where: { userId: req.user!.id } });
+    return res.json({ success: true, webPushSubscriptions });
+  } catch (error: any) {
+    console.error('Web Push obunasini saqlashda xatolik:', error?.message || error);
+    return res.status(500).json({ error: 'Web Push obunasini saqlashda xatolik' });
+  }
+});
+
+// DELETE /web-push/subscription {endpoint} — faqat o'ziga tegishli
+router.delete('/web-push/subscription', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
+    if (!endpoint) return res.status(400).json({ error: 'endpoint berilmagan' });
+    const removed = await prisma.webPushSubscription.deleteMany({ where: { endpoint, userId: req.user!.id } });
+    const webPushSubscriptions = await prisma.webPushSubscription.count({ where: { userId: req.user!.id } });
+    return res.json({ success: true, removed: removed.count, webPushSubscriptions });
+  } catch (error: any) {
+    console.error("Web Push obunasini o'chirishda xatolik:", error?.message || error);
+    return res.status(500).json({ error: "Web Push obunasini o'chirishda xatolik" });
+  }
+});
+
+// GET /status → {telegramLinked, pushConfigured, telegramConfigured, deviceTokens, webPushConfigured, webPushSubscriptions}
 router.get('/status', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const [user, deviceTokens] = await Promise.all([
+    const [user, deviceTokens, webPushSubscriptions] = await Promise.all([
       prisma.user.findUnique({ where: { id: req.user!.id }, select: { telegramId: true } }),
       prisma.deviceToken.count({ where: { userId: req.user!.id } }),
+      prisma.webPushSubscription.count({ where: { userId: req.user!.id } }),
     ]);
     const { telegramConfigured, pushConfigured } = getNotificationStatus();
     return res.json({
@@ -113,6 +161,8 @@ router.get('/status', authenticateToken, async (req: AuthRequest, res: Response)
       pushConfigured,
       telegramConfigured,
       deviceTokens,
+      webPushConfigured: isWebPushConfigured(),
+      webPushSubscriptions,
       botUsername: getTelegramBotUsername(),
     });
   } catch (error: any) {
@@ -125,7 +175,7 @@ router.get('/status', authenticateToken, async (req: AuthRequest, res: Response)
 router.post('/test', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
   try {
     const result = await sendTestNotification(req.user!.id);
-    const delivered = result.telegram.status === 'sent' || result.push.status === 'sent';
+    const delivered = result.telegram.status === 'sent' || result.push.status === 'sent' || result.webPush.status === 'sent';
     return res.json({ success: delivered, ...result });
   } catch (error: any) {
     console.error('Sinov bildirishnomasida xatolik:', error?.message || error);

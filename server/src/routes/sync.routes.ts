@@ -15,6 +15,13 @@ import { emitRealtime } from '../lib/realtime';
 const router = Router();
 
 /**
+ * 16.11.2026: Google jadvalga ustun qo'shilgani uchun bitimlar sinxronlashi 199 bitimni surilgan ustunlardan ustiga yozdi.
+ * Ustunlar sarlavha bo'yicha o'qiladigan qilinmaguncha Sheets -> sayt BITIM sinxronlashi O'CHIRILGAN (DDS sinxronlashi ishlaydi; dry-run mumkin).
+ */
+const DEALS_SYNC_DISABLED = true;
+const DEALS_SYNC_DISABLED_RESULT = { success: false, skipped: true, message: "Bitimlarni Google Sheets'dan sinxronlash vaqtincha o'chirilgan (16.11.2026)" };
+
+/**
  * Webhook kaliti FAQAT muhit o'zgaruvchisidan olinadi — kodda standart qiymat yo'q.
  * SYNC_WEBHOOK_SECRET o'rnatilmagan bo'lsa webhook o'chirilgan hisoblanadi (503).
  */
@@ -53,9 +60,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
     }
 
     console.log('[Webhook] Google Sheets o\'zgarish xabarnomasi qabul qilindi. Sinxronlanmoqda...');
-    const result = await syncDealsFromGoogleSheets();
+    const result = DEALS_SYNC_DISABLED ? DEALS_SYNC_DISABLED_RESULT : await syncDealsFromGoogleSheets();
     const ddsResult = await syncDdsFromGoogleSheets().catch((e) => ({ error: e.message }));
-    emitSyncEvents({ deals: true, dds: !('error' in ddsResult) });
+    emitSyncEvents({ deals: !DEALS_SYNC_DISABLED, dds: !('error' in ddsResult) });
     return res.json({
       success: true,
       message: 'Google Sheets-dan muvaffaqiyatli sinxronlandi',
@@ -77,9 +84,9 @@ router.get('/cron', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Ruxsat yo\'q' });
     }
     console.log('[Cron] Davriy sinxronizatsiya boshlandi...');
-    const result = await syncDealsFromGoogleSheets();
+    const result = DEALS_SYNC_DISABLED ? DEALS_SYNC_DISABLED_RESULT : await syncDealsFromGoogleSheets();
     const ddsResult = await syncDdsFromGoogleSheets().catch((e) => ({ error: e.message }));
-    emitSyncEvents({ deals: true, dds: !('error' in ddsResult) });
+    emitSyncEvents({ deals: !DEALS_SYNC_DISABLED, dds: !('error' in ddsResult) });
     return res.json({ success: true, result, ddsResult });
   } catch (error: any) {
     console.error('Cron sync error:', error);
@@ -110,7 +117,8 @@ router.post(
       if (dryRun === true || dryRun === 'true') options.dryRun = true;
       const partial = Boolean(options.onlyDate || options.onlyMissing || options.dryRun);
 
-      const dealsResult = await syncDealsFromGoogleSheets(url, undefined, options);
+      const dealsResult: any =
+        DEALS_SYNC_DISABLED && !options.dryRun ? DEALS_SYNC_DISABLED_RESULT : await syncDealsFromGoogleSheets(url, undefined, options);
 
       // DDS faqat to'liq (parametrsiz) sinxronlashda yuklanadi — tanlab import / dry-run DDS'ga tegmaydi
       let ddsResult = null;

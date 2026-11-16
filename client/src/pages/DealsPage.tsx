@@ -60,6 +60,8 @@ export const DealsPage: React.FC = () => {
   const role = user?.role;
   const scoped = isScopedRole(role);
   const canSync = role === 'ADMIN' || role === 'MANAGER';
+  // Kuzatuvchi (VIEWER) bitimlarni faqat ko'radi — yangi bitim tugmasi ko'rsatilmaydi
+  const canCreate = role !== 'VIEWER';
 
   // --- Ma'lumotlar ---
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -357,9 +359,11 @@ export const DealsPage: React.FC = () => {
                 <Settings className="h-4 w-4" />
               </Button>
             )}
+            {canCreate && (
             <Button leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate} disabled={!refsLoaded}>
               {t('deals.add_deal')}
             </Button>
+            )}
           </>
         }
       />
@@ -389,7 +393,7 @@ export const DealsPage: React.FC = () => {
       )}
 
       {/* Yig'ma ko'rsatkichlar: bitta panel */}
-      <DealsSummary totals={totals} avgDiscount={kpiAvgDiscount} />
+      <DealsSummary totals={totals} avgDiscount={kpiAvgDiscount} scoped={scoped} />
 
       {/* Filtrlar */}
       <Card className="space-y-3">

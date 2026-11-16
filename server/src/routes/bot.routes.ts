@@ -3,11 +3,12 @@ import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
 import { requireAdminConfirm } from '../lib/security';
 import { Role } from '@prisma/client';
-import { CalculationService } from '../services/calculation.service';
+import { CalculationService, personNameKey } from '../services/calculation.service';
 import { DealStatus } from '@prisma/client';
 import { webhookCallback } from 'grammy';
 import { bot, botEnabled } from '../bot/telegram.bot';
 import { SaleError, assertDealNotInSale } from '../services/sale.service';
+import { notifyDealDecision } from '../services/notification.service';
 
 const router = Router();
 
@@ -89,9 +90,10 @@ router.post('/deals/:id/approve', authenticateToken, async (req: AuthRequest, re
       agencyId = agc.id;
 
       if (botDeal.agentName) {
-        let agt = await prisma.agent.findFirst({
-          where: { agencyId: agc.id, name: botDeal.agentName.trim() },
-        });
+        // Shu agentlik ichida ism kirill/lotin farqisiz qidiriladi ("Гулнур" = "Gulnur") — takror operator yaratilmaydi
+        const wanted = personNameKey(botDeal.agentName);
+        const siblings = await prisma.agent.findMany({ where: { agencyId: agc.id }, orderBy: { name: 'asc' } });
+        let agt = siblings.find((a) => a.name === botDeal.agentName!.trim()) || siblings.find((a) => wanted && personNameKey(a.name) === wanted) || null;
         if (!agt) {
           agt = await prisma.agent.create({
             data: { agencyId: agc.id, name: botDeal.agentName.trim() },
@@ -109,6 +111,9 @@ router.post('/deals/:id/approve', authenticateToken, async (req: AuthRequest, re
       storeName: r.store?.name || null,
       providerName: r.provider?.name || null,
       ratePercent: Number(r.ratePercent),
+      profitPercent: r.profitPercent === null ? null : Number(r.profitPercent),
+      validFrom: r.validFrom,
+      validTo: r.validTo,
       priority: r.priority,
     }));
 
@@ -177,6 +182,25 @@ router.post('/deals/:id/approve', authenticateToken, async (req: AuthRequest, re
       where: { id: botDeal.id },
       data: { isApproved: true },
     });
+
+    // Bitimni botga kiritgan xodimga (Telegram ID bo'yicha topilsa) qaror haqida xabar. Xato tashlamaydi.
+    if (botDeal.telegramUserId != null) {
+      try {
+        const creator = await prisma.user.findFirst({ where: { telegramId: botDeal.telegramUserId }, select: { id: true } });
+        if (creator && creator.id !== req.user!.id) {
+          await notifyDealDecision({
+            dealId: mainDeal.id,
+            dealNumber: mainDeal.dealNumber,
+            decision: 'APPROVED',
+            recipientUserId: creator.id,
+            customerName: botDeal.customerName,
+            amount: calculatedAmount || undefined,
+          });
+        }
+      } catch {
+        // bildirishnoma ketmasa ham tasdiqlash o'z kuchida
+      }
+    }
 
     return res.json({ success: true, mainDeal });
   } catch (error: any) {

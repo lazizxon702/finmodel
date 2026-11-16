@@ -40,6 +40,9 @@ const { db, store } = vi.hoisted(() => {
       }),
     },
     auditLog: { create: vi.fn(async () => ({})) },
+    // Operator loginlarini avtomatik yaratish va davr statistikasi uchun: yetishmayotgan operator yo'q, bitimlar yo'q
+    agent: { count: vi.fn(async () => 0) },
+    deal: { findMany: vi.fn(async () => []) },
   };
   return { db, store };
 });
@@ -109,7 +112,7 @@ describe('GET /api/team/operators', () => {
     const { status, body } = await call('agentA', 'GET', '/api/team/operators');
     expect(status).toBe(200);
     expect(body).toHaveLength(1);
-    expect(body[0]).toMatchObject({ id: 'opA1', username: 'opA1', isActive: true, dealsCount: 7 });
+    expect(body[0]).toMatchObject({ id: 'opA1', username: 'opA1', isActive: true, dealsCount: 0, totalWithdrawnLimit: 0 });
     expect(body[0]).not.toHaveProperty('passwordHash');
   });
 

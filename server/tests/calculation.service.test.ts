@@ -1,3 +1,4 @@
+import { calcOperatorShares, operatorShareRuleFor } from '../src/services/calculation.service';
 import { describe, it, expect } from 'vitest';
 import {
   CalculationService,
@@ -228,9 +229,9 @@ describe('Sana va vaqt (Asia/Tashkent)', () => {
 describe("Do'konlar bilan hisob-kitob (do'kon daftari)", () => {
   const approved = { approvalStatus: 'APPROVED', date: '2026-11-11T07:00:00.000Z' };
 
-  it("yo'nalish: Qodir aka — biz qarzdormiz, Trust — o'z daftari, qolganlar — do'kon qarzdor", () => {
-    expect(storeSettlementKind('Qodir aka')).toBe('WE_OWE');
-    expect(storeSettlementKind('Кодир ока')).toBe('WE_OWE');
+  it("yo'nalish: Trust — o'z daftari, qolgan hamma do'kon (Qodir aka ham) — do'kon bizga qarzdor; WE_OWE qaytmaydi", () => {
+    expect(storeSettlementKind('Qodir aka')).toBe('STORE_OWES');
+    expect(storeSettlementKind('Кодир ока')).toBe('STORE_OWES');
     expect(storeSettlementKind('Trust')).toBe('TRUST');
     expect(storeSettlementKind('trust 1')).toBe('TRUST');
     expect(storeSettlementKind('Novza')).toBe('STORE_OWES');
@@ -287,18 +288,18 @@ describe("Do'konlar bilan hisob-kitob (do'kon daftari)", () => {
     expect(isTrustIncomeCategory(STORE_INCOME_CATEGORY)).toBe(false);
   });
 
-  it("umumiy daftar yig'masi: qoldiq = qarz − to'langan; Trust yig'masi shu asosda", () => {
-    expect(summarizeLedger([])).toEqual({ debt: 0, paid: 0, balance: 0 });
+  it("umumiy daftar yig'masi: qoldiq = qarz − to'langan, debtLeft/deposit; Trust yig'masi shu asosda", () => {
+    expect(summarizeLedger([])).toEqual({ debt: 0, paid: 0, balance: 0, debtLeft: 0, deposit: 0 });
     const entries = [
       { type: 'DEBT', amount: 3_500_000 },
       { type: 'DEBT', amount: '1200000' },
       { type: 'PAYMENT', amount: 1_000_000 },
       { type: 'BOSHQA', amount: 999 },
     ];
-    expect(summarizeLedger(entries)).toEqual({ debt: 4_700_000, paid: 1_000_000, balance: 3_700_000 });
+    expect(summarizeLedger(entries)).toEqual({ debt: 4_700_000, paid: 1_000_000, balance: 3_700_000, debtLeft: 3_700_000, deposit: 0 });
     expect(summarizeTrustLedger(entries)).toEqual({ totalDebt: 4_700_000, totalPaid: 1_000_000, balance: 3_700_000 });
     // Ortiqcha to'lov — manfiy qoldiq (yashirilmaydi)
-    expect(summarizeLedger([{ type: 'PAYMENT', amount: 500 }]).balance).toBe(-500);
+    expect(summarizeLedger([{ type: 'PAYMENT', amount: 500 }])).toMatchObject({ balance: -500, debtLeft: 0, deposit: 500 });
   });
 });
 
@@ -412,5 +413,53 @@ describe("Ko'p tovarli sotuv: allocateProportional", () => {
     }
     expect(calcUnsoldDealProfit({ ...base, storeName: 'Oddiy do\'kon' })).toEqual({ profit: 0, marginPct: 0 });
     expect(calcUnsoldDealProfit({ ...base, storeName: 'Qodir aka' }).profit).toBeGreaterThan(0);
+  });
+});
+
+describe('personNameKey — odam ismini solishtirish kaliti', () => {
+  it('kirill va lotin yozuvi bitta kalit beradi', async () => {
+    const { personNameKey } = await import('../src/services/calculation.service');
+    expect(personNameKey('Гулнур')).toBe(personNameKey('Gulnur'));
+    expect(personNameKey('Шахло')).toBe(personNameKey(' shahlo '));
+    expect(personNameKey('Муштарий')).toBe(personNameKey('Mushtariy'));
+  });
+  it('x va h farqi hisobga olinmaydi, boshqa ismlar aralashmaydi', async () => {
+    const { personNameKey } = await import('../src/services/calculation.service');
+    expect(personNameKey('Xosila')).toBe(personNameKey('Хосила'));
+    expect(personNameKey('Ruxsora')).toBe(personNameKey('Рухсора'));
+    expect(personNameKey('Gulnur')).not.toBe(personNameKey('Gulnora'));
+    expect(personNameKey('')).toBe('');
+  });
+});
+
+describe('operator ulushi (Jahongir jamoasi)', () => {
+  const rule = operatorShareRuleFor('Jahongir')!;
+  const d = (id: string, date: string, limit: number, agent: number) => ({ id, date: new Date(date), withdrawnLimit: limit, agentAmount: agent });
+
+  it('qoida faqat Jahongir jamoasi uchun', () => {
+    expect(rule).toMatchObject({ basePct: 0.5, bonusPct: 0.7, monthlyLimitThreshold: 500_000_000 });
+    expect(operatorShareRuleFor('Nazirbek')).toBeNull();
+    expect(operatorShareRuleFor(null)).toBeNull();
+  });
+
+  it('chegaragacha — yechilgan limitning 0.5%', () => {
+    const m = calcOperatorShares([d('a', '2026-11-05T10:00:00+05:00', 155_900_000, 10_277_010)], rule);
+    expect(Math.round(m.get('a')!)).toBe(779_500);
+  });
+
+  it("oylik limit 500 mln dan oshgan qismiga 0.7%; kesib o'tgan bitim ikkiga bo'linadi; yangi oyda qaytadan", () => {
+    const m = calcOperatorShares(
+      [
+        d('c', '2026-11-20T10:00:00+05:00', 100_000_000, 1_000_000), // to'liq oshgan → 0.7%
+        d('a', '2026-11-01T10:00:00+05:00', 400_000_000, 1_000_000), // 0.5%
+        d('b', '2026-11-10T10:00:00+05:00', 200_000_000, 1_000_000), // yarmi 0.5%, yarmi 0.7% → 0.6%
+        d('e', '2026-12-01T10:00:00+05:00', 50_000_000, 1_000_000), // yangi oy → 0.5%
+      ],
+      rule
+    );
+    expect(m.get('a')).toBeCloseTo(2_000_000); // 400 mln × 0.5%
+    expect(m.get('b')).toBeCloseTo(1_200_000); // 100 mln × 0.5% + 100 mln × 0.7%
+    expect(m.get('c')).toBeCloseTo(700_000); // 100 mln × 0.7%
+    expect(m.get('e')).toBeCloseTo(250_000); // 50 mln × 0.5%
   });
 });

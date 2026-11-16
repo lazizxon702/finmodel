@@ -18,6 +18,7 @@ import {
   calcSaleShares,
   calcUnsoldDealProfit,
   salePaymentStatus,
+  CalculationService,
 } from './calculation.service';
 
 /**
@@ -97,8 +98,49 @@ export async function loadActiveCommissionRules(db: Db = prisma) {
     storeName: r.store?.name || null,
     providerName: r.provider?.name || null,
     ratePercent: Number(r.ratePercent),
+    profitPercent: r.profitPercent === null ? null : Number(r.profitPercent),
+    validFrom: r.validFrom,
+    validTo: r.validTo,
     priority: r.priority,
   }));
+}
+
+/**
+ * Bitimning foydasi va marjasini berilgan holat uchun qayta hisoblaydi (calculateDeal + faol qoidalar).
+ * Holat o'zgarganda kerak: daftar bitimida foyda "Pul tushdi" bo'lgandagina paydo bo'ladi. Bitim topilmasa — null.
+ */
+export async function computeDealProfitForStatus(dealId: string, status: DealStatus, db: Db = prisma) {
+  const d = await db.deal.findUnique({
+    where: { id: dealId },
+    select: {
+      date: true,
+      customerLimit: true,
+      withdrawnLimit: true,
+      calculatedAmount: true,
+      isDaftar: true,
+      salePrice: true,
+      receivedFromBuyer: true,
+      store: { select: { name: true } },
+      provider: { select: { name: true } },
+    },
+  });
+  if (!d) return null;
+  const r = CalculationService.calculateDeal(
+    {
+      customerLimit: Number(d.customerLimit),
+      withdrawnLimit: Number(d.withdrawnLimit),
+      calculatedAmount: Number(d.calculatedAmount),
+      storeName: d.store?.name || '',
+      providerName: d.provider?.name || '',
+      isDaftarManual: d.isDaftar,
+      salePrice: Number(d.salePrice),
+      receivedFromBuyer: Number(d.receivedFromBuyer),
+      status,
+      date: d.date,
+    },
+    await loadActiveCommissionRules(db)
+  );
+  return { profit: r.profit, marginPct: r.marginPct };
 }
 
 /**
@@ -434,7 +476,12 @@ export interface AddSalePaymentInput {
 
 /** Sotuv qarziga to'lov: SalePayment + DDS kirimi (yadro orqali) + ulushlar qayta hisoblanadi */
 export async function addSalePayment(saleId: string, input: AddSalePaymentInput) {
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction((tx) => addSalePaymentInTx(tx, saleId, input), SALE_TX_OPTIONS);
+}
+
+/** addSalePayment ning tranzaksiya ichidagi qismi (bir nechta sotuvga taqsimlanadigan to'lov ham shuni ishlatadi) */
+async function addSalePaymentInTx(tx: Tx, saleId: string, input: AddSalePaymentInput) {
+  {
     await lockSale(tx, saleId);
     const sale = await tx.sale.findUnique({ where: { id: saleId }, include: { buyer: { select: { name: true } } } });
     if (!sale) throw new SaleError('Sotuv topilmadi', 404);
@@ -472,6 +519,65 @@ export async function addSalePayment(saleId: string, input: AddSalePaymentInput)
       },
     });
     await applySaleToDeals(tx, saleId);
+  }
+}
+
+/** Qarzi bor xaridorlar (DDS kirim formasidagi "xaridor" tugmalari uchun): ism, jami qarz, ochiq sotuvlar soni */
+export async function listBuyerDebts(db: Db = prisma) {
+  const rows = await db.sale.groupBy({ by: ['buyerId'], where: { debtRemainder: { gt: 0 } }, _sum: { debtRemainder: true }, _count: { _all: true } });
+  if (!rows.length) return [];
+  const buyers = await db.buyer.findMany({ where: { id: { in: rows.map((r) => r.buyerId) } }, select: { id: true, name: true } });
+  const nameOf = new Map(buyers.map((b) => [b.id, b.name]));
+  return rows
+    .map((r) => ({ buyerId: r.buyerId, name: nameOf.get(r.buyerId) || '', debt: Number(r._sum.debtRemainder) || 0, salesCount: r._count._all }))
+    .filter((r) => r.name && r.debt > 0)
+    .sort((x, y) => y.debt - x.debt);
+}
+
+export interface BuyerPaymentResult {
+  buyerName: string;
+  debtBefore: number;
+  debtAfter: number;
+  /** Qaysi sotuvdan qancha ayirildi (eng eski chekdan boshlab) */
+  allocations: { saleNumber: number; dealNumbers: number[]; amount: number }[];
+}
+
+/**
+ * Xaridor bergan pulni uning qarzidan ayiradi (egasi qarori, 15.11.2026: "Umirzoq" tugmasi).
+ * Pul ENG ESKI chekdan boshlab taqsimlanadi; har bo'lak oddiy sotuv to'lovi kabi yoziladi (SalePayment + DDS kirimi, kassa oshadi).
+ * Summa jami qarzdan katta bo'lsa — hech narsa yozilmaydi.
+ */
+export async function payBuyerDebt(buyerId: string, input: AddSalePaymentInput): Promise<BuyerPaymentResult> {
+  return prisma.$transaction(async (tx) => {
+    const buyer = await tx.buyer.findUnique({ where: { id: buyerId }, select: { name: true } });
+    if (!buyer) throw new SaleError('Xaridor topilmadi', 404);
+    const sales = (
+      await tx.sale.findMany({
+        where: { buyerId, debtRemainder: { gt: 0 } },
+        select: { id: true, saleNumber: true, saleDate: true, debtRemainder: true, deals: { select: { dealNumber: true, date: true } } },
+      })
+    ).sort((x, y) => {
+      const dx = Math.min(...x.deals.map((d) => d.date.getTime()), x.saleDate.getTime());
+      const dy = Math.min(...y.deals.map((d) => d.date.getTime()), y.saleDate.getTime());
+      return dx - dy || x.saleNumber - y.saleNumber;
+    });
+    const debtBefore = sales.reduce((s, x) => s + (Number(x.debtRemainder) || 0), 0);
+    if (!(input.amount > 0)) throw new SaleError("To'lov summasi 0 dan katta bo'lishi shart!");
+    if (debtBefore <= 0) throw new SaleError(`${buyer.name} ning qarzi yo'q`);
+    if (input.amount > debtBefore) {
+      throw new SaleError(`To'lov summasi (${fmt(input.amount)}) ${buyer.name} ning jami qarzidan (${fmt(debtBefore)}) katta bo'lishi mumkin emas!`);
+    }
+    let rest = input.amount;
+    const allocations: BuyerPaymentResult['allocations'] = [];
+    for (const s of sales) {
+      if (rest <= 0) break;
+      const take = Math.min(Number(s.debtRemainder) || 0, rest);
+      if (take <= 0) continue;
+      await addSalePaymentInTx(tx, s.id, { ...input, amount: take });
+      allocations.push({ saleNumber: s.saleNumber, dealNumbers: s.deals.map((d) => d.dealNumber), amount: take });
+      rest -= take;
+    }
+    return { buyerName: buyer.name, debtBefore, debtAfter: debtBefore - input.amount, allocations };
   }, SALE_TX_OPTIONS);
 }
 

@@ -7,15 +7,19 @@ import { isQodirStore } from '../deals/dealUtils';
 /**
  * Hisob-kitob yo'nalishi:
  *   STORE_OWES — do'kon bizga qarzdor (to'lov: DDS kirimi «Do'kondan tushum»)
- *   WE_OWE     — biz qarzdormiz, faqat «Qodir aka» (to'lov: DDS chiqimi «Qodir aka to'lovi»)
+ *              «Qodir aka» ham shu yo'nalishda (14.11.2026 dan): to'lov — DDS kirimi «Qodir aka to'lovi»
  *   TRUST      — Trust do'konlari, hisob-kitobi Trust daftarida
  */
-export type Settlement = 'STORE_OWES' | 'WE_OWE' | 'TRUST';
+export type Settlement = 'STORE_OWES' | 'TRUST';
 
 export interface LedgerSums {
   debt: number;
   paid: number;
   balance: number;
+  /** Do'kon hali qarzdor: max(0, balance) */
+  debtLeft: number;
+  /** Oldindan to'langan ortiqcha summa: max(0, −balance) */
+  deposit: number;
 }
 
 export interface StoreReportRow {
@@ -43,7 +47,7 @@ export interface StoreReportsResponse {
     dealExpenses: number;
     netProfit: number;
     storesOweUs: number;
-    weOwe: number;
+    storeDeposits: number;
   };
   stores: StoreReportRow[];
 }
@@ -57,6 +61,9 @@ export interface StoreDealRow {
   withdrawnLimit: number;
   calculatedAmount: number;
   profit: number;
+  agentAmount?: number;
+  /** Qarz tarkibi: chek + agent ulushi + 6% foyda (oddiy do'konda agent va foyda 0) */
+  debtParts?: { check: number; agent: number; profit: number; total: number } | null;
   checkExpense: { id: string; txNumber: string; amount: number; dateLabel?: string | null } | null;
 }
 
@@ -103,23 +110,21 @@ export interface StoreDetailResponse {
   entries: StoreLedgerEntry[];
 }
 
-/** Yo'nalish rangi (dizayn tizimi): do'kon bizga qarzdor — warning, biz qarzdormiz — danger, Trust — violet */
+/** Yo'nalish rangi (dizayn tizimi): do'kon bizga qarzdor — warning, Trust — violet */
 export function settlementTone(settlement: Settlement): Tone {
-  if (settlement === 'WE_OWE') return 'danger';
-  if (settlement === 'TRUST') return 'violet';
-  return 'warning';
+  return settlement === 'TRUST' ? 'violet' : 'warning';
 }
 
-/** Qoldiq rangi: qarz qolgan bo'lsa yo'nalish rangi, yopilgan (0 yoki ortiqcha to'langan) bo'lsa — success */
-export function balanceTone(settlement: Settlement, balance: number | null | undefined): Tone {
-  return Number(balance) > 0 ? settlementTone(settlement) : 'success';
+/** Qoldiq rangi: qarz qolgan bo'lsa warning, yopilgan bo'lsa success, depozit bo'lsa info */
+export function balanceTone(settlement: Settlement, debtLeft: number | null | undefined, deposit?: number | null): Tone {
+  if (Number(debtLeft) > 0) return settlementTone(settlement);
+  return Number(deposit) > 0 ? 'info' : 'success';
 }
 
-/** Qarzni yopadigan DDS kategoriyasi (bazadagi nom — tarjima qilinmaydi). Trust uchun yo'q. */
-export function settlementCategory(settlement: Settlement): string | null {
-  if (settlement === 'STORE_OWES') return STORE_INCOME_CATEGORY;
-  if (settlement === 'WE_OWE') return QODIR_PAYMENT_CATEGORY;
-  return null;
+/** Qarzni yopadigan DDS kategoriyasi (bazadagi nom — tarjima qilinmaydi). Qodir aka uchun alohida. Trust uchun yo'q. */
+export function settlementCategory(settlement: Settlement, storeName?: string | null): string | null {
+  if (settlement !== 'STORE_OWES') return null;
+  return isQodirStore(storeName) ? QODIR_PAYMENT_CATEGORY : STORE_INCOME_CATEGORY;
 }
 
 /** Serverdagi isTrustName bilan bir xil: faqat ANIQ nom ("Trustbank" Trust emas) */
@@ -133,8 +138,8 @@ export function isTrustStoreName(name?: string | null): boolean {
   return TRUST_NAMES.has(n);
 }
 
-/** «Do'kondan tushum» kirimida tanlanadigan do'konmi: Qodir aka va Trust do'konlari kirmaydi */
+/** «Do'kondan tushum» kirimida tanlanadigan do'konmi: Qodir aka kiradi, Trust do'konlari kirmaydi */
 export function isStoreIncomeCandidate(store: { name?: string | null; isActive?: boolean }): boolean {
   if (store.isActive === false) return false;
-  return !isQodirStore(store.name) && !isTrustStoreName(store.name);
+  return !isTrustStoreName(store.name);
 }

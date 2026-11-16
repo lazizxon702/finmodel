@@ -10,6 +10,8 @@ import { calcSaleProfit, tashkentDayRange } from '../services/calculation.servic
 import {
   SaleError,
   addSalePayment,
+  listBuyerDebts,
+  payBuyerDebt,
   createSale,
   creditBlockedError,
   getBuyerOpenDebt,
@@ -470,6 +472,33 @@ router.post('/:id/payments', authenticateToken, requireRoles(PAYMENT_ROLES), asy
 
     const [sale, balances] = await Promise.all([loadSaleRow(id), getAccountBalances()]);
     return res.json({ sale, balances });
+  } catch (error: any) {
+    return sendError(res, error, "To'lovni qabul qilishda xatolik");
+  }
+});
+
+// GET /api/sales/buyer-debts — qarzi bor xaridorlar (DDS kirim formasidagi tugmalar uchun)
+router.get('/buyer-debts', authenticateToken, requireRoles(PAYMENT_ROLES), async (_req: AuthRequest, res: Response) => {
+  try {
+    return res.json(await listBuyerDebts());
+  } catch (error: any) {
+    return sendError(res, error, 'Qarzdor xaridorlarni yuklashda xatolik');
+  }
+});
+
+// POST /api/sales/buyers/:buyerId/payment {amount, accountType?, date?, note?}
+//   Xaridor bergan pul uning qarzidan ayriladi — eng eski chekdan boshlab; kassaga kirim bo'lib tushadi.
+router.post('/buyers/:buyerId/payment', authenticateToken, requireRoles(PAYMENT_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const body = req.body || {};
+    const amount = parseAmount(body.amount, "To'lov summasi");
+    if (amount <= 0) throw new HttpError(400, "To'lov summasi 0 dan katta bo'lishi shart!");
+    const account = parseAccountStrict(body.accountType ?? 'CASH');
+    const date = isBlank(body.date) ? null : parseEventDate(body.date, "To'lov sanasi");
+    const result = await payBuyerDebt(req.params.buyerId, { amount, account, date, note: parseNote(body.note), userId: req.user?.id });
+    emitRealtime('deals:updated', { action: 'debt-payment' });
+    emitRealtime('dds:updated', {});
+    return res.json({ ...result, balances: await getAccountBalances() });
   } catch (error: any) {
     return sendError(res, error, "To'lovni qabul qilishda xatolik");
   }

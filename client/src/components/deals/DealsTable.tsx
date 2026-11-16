@@ -125,7 +125,7 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
         icon={<Inbox />}
         title={t('dealsPage.empty_title')}
         description={filtered ? t('dealsPage.empty_filtered') : t('dealsPage.empty_hint')}
-        action={filtered ? undefined : <Button onClick={onCreate}>{t('deals.add_deal')}</Button>}
+        action={filtered || role === 'VIEWER' ? undefined : <Button onClick={onCreate}>{t('deals.add_deal')}</Button>}
       />
     );
   }
@@ -182,7 +182,8 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
               <Th align="right" className="whitespace-normal leading-tight">{t('common.withdrawn_limit')}</Th>
               <Th align="right" className="whitespace-normal leading-tight">{t('common.customer_payment')}</Th>
               <Th align="right" className="whitespace-normal leading-tight">
-                {t('common.agent_commission')}
+                {/* Ulush qoidasi bor jamoa operatori (Jahongir): agent komissiyasi o'rniga o'z ulushi */}
+                {t(totals?.operatorShareRule ? 'dealsPage.sum_operator_share' : 'common.agent_commission')}
                 <span className="block font-normal text-fg-muted">{t('common.purchase_cost')}</span>
               </Th>
               <Th>{t('common.status')}</Th>
@@ -205,7 +206,7 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                 {formatNumber(totals?.totalCalculatedAmount)}
               </Td>
               <Td align="right" numeric>
-                <p>{formatNumber(totals?.totalAgentAmount)}</p>
+                <p>{formatNumber(totals?.operatorShareRule ? totals?.operatorShare : totals?.totalAgentAmount)}</p>
                 <p className="text-xs font-normal text-fg-muted">{formatNumber(totals?.totalPurchaseCost)}</p>
               </Td>
               <Td />
@@ -269,7 +270,7 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                     </p>
                   </Td>
                   <Td align="right" numeric>
-                    <p>{formatNumber(d.agentAmount)}</p>
+                    <p>{formatNumber(totals?.operatorShareRule ? (d as any).operatorShare ?? 0 : d.agentAmount)}</p>
                     <p className="text-xs text-fg-muted" title={t('common.purchase_cost')}>
                       {formatNumber(d.totalPurchaseCost)}
                     </p>

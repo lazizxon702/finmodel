@@ -724,6 +724,500 @@
   animation: fm-fade-in 0.15s ease-out;
 }
 
+/* Login sahifasi — "logo intro" ketma-ketligi (namuna: egasi bergan video):
+   plitka nuqtadan o'sadi → "M" chiziladi → to'q sariq nuqta tushadi → to'lqin tarqaladi → "Macmobi" yozuvi
+   belgi ortidan chiqadi → yaltiroq o'tadi → qolgan yozuvlar navbat bilan chiqadi. Fon ham belgidan "ochiladi".
+   Navbat kechikishi --i (har biri 90ms). Harakatni kamaytirish sozlamasida hammasi darhol ko'rinadi. */
+@keyframes fm-login-rise {
+  from {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes fm-login-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(14%, 18%, 0) scale(1.18);
+  }
+}
+@keyframes fm-login-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.1);
+  }
+  50% {
+    transform: translate3d(-18%, -14%, 0) scale(0.92);
+  }
+}
+@keyframes fm-login-bloom {
+  from {
+    transform: scale(0.35);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes fm-login-ripple {
+  0% {
+    transform: translate(-50%, -50%) scale(0.2);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+@keyframes fm-login-word {
+  from {
+    clip-path: inset(-10% 100% -10% 0);
+    transform: translateX(-14px);
+  }
+  to {
+    clip-path: inset(-10% 0 -10% 0);
+    transform: translateX(0);
+  }
+}
+@keyframes fm-logo-box {
+  0% {
+    transform: scale(0.06);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes fm-logo-draw {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+@keyframes fm-logo-drop {
+  0% {
+    transform: translateY(-22px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(1.5px);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes fm-logo-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.28);
+  }
+}
+@keyframes fm-logo-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(5.5);
+    opacity: 0;
+  }
+}
+/* Yaltiroq: 7 soniyalik aylananing boshida bir marta o'tadi, qolgan vaqt belgidan tashqarida turadi */
+@keyframes fm-logo-shine {
+  0% {
+    transform: translateX(0) skewX(-20deg);
+  }
+  12%,
+  100% {
+    transform: translateX(100px) skewX(-20deg);
+  }
+}
+
+.fm-login-rise {
+  animation: fm-login-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 90ms + 80ms);
+}
+.fm-login-word {
+  animation: fm-login-word 0.65s cubic-bezier(0.2, 0.8, 0.2, 1) 1.55s both;
+}
+
+/* Fon: yorug'lik belgi turgan burchakdan "ochiladi", keyin sekin suzib yuradi */
+.fm-login-bg {
+  transform-origin: 12% 10%;
+  animation: fm-login-bloom 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.fm-login-glow {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  pointer-events: none;
+  will-change: transform;
+}
+.fm-login-glow-a {
+  left: -18%;
+  top: -12%;
+  height: 26rem;
+  width: 26rem;
+  background: rgb(47 107 245 / 0.45);
+  animation: fm-login-drift-a 16s ease-in-out infinite;
+}
+.fm-login-glow-b {
+  right: -22%;
+  bottom: -18%;
+  height: 24rem;
+  width: 24rem;
+  background: rgb(255 138 31 / 0.16);
+  animation: fm-login-drift-b 20s ease-in-out infinite;
+}
+/* Nuqta tushganda belgidan butun panelga tarqaladigan to'lqin halqalari */
+.fm-login-ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  height: 70rem;
+  width: 70rem;
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  background: radial-gradient(closest-side, transparent 70%, rgb(96 152 255 / 0.12) 100%);
+  opacity: 0;
+  pointer-events: none;
+  animation: fm-login-ripple 2.4s cubic-bezier(0.2, 0.7, 0.2, 1) 1.45s forwards;
+}
+.fm-login-ripple + .fm-login-ripple {
+  animation-delay: 1.85s;
+}
+
+/* Belgi (BrandMark animated) */
+.fm-logo :is(.fm-logo-box, .fm-logo-dot, .fm-logo-ring) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.fm-logo-box {
+  animation: fm-logo-box 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.fm-logo-m {
+  stroke-dasharray: 1;
+  animation: fm-logo-draw 0.7s cubic-bezier(0.5, 0, 0.2, 1) 0.5s both;
+}
+.fm-logo-dot {
+  animation:
+    fm-logo-drop 0.4s cubic-bezier(0.3, 0, 0.4, 1) 1.15s both,
+    fm-logo-pulse 2.8s ease-in-out 2.6s infinite;
+}
+.fm-logo-ring {
+  opacity: 0;
+  animation: fm-logo-ring 0.9s ease-out 1.5s forwards;
+}
+.fm-logo-shine {
+  animation: fm-logo-shine 7s ease-in-out 2.5s infinite backwards;
+}
+
+/* ── Forma tomoni: nuqtali to'r fon, suzuvchi yorug'lik, kartochka, tugma yaltirog'i ── */
+@keyframes fm-login-card-in {
+  from {
+    transform: translateY(26px) scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes fm-login-bar {
+  to {
+    background-position: 200% 0;
+  }
+}
+@keyframes fm-login-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(-4deg);
+  }
+}
+/* Fon: markazda ko'rinib, chetga qarab yo'qoladigan nuqtali to'r */
+.fm-login-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgb(var(--brand) / 0.22) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(60% 55% at 50% 50%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(60% 55% at 50% 50%, #000 0%, transparent 100%);
+  animation: fm-fade-in 1.2s ease-out both;
+}
+.fm-login-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(80px);
+  pointer-events: none;
+  will-change: transform;
+}
+.fm-login-orb-a {
+  right: 4%;
+  top: 8%;
+  height: 20rem;
+  width: 20rem;
+  background: rgb(var(--brand) / 0.2);
+  animation: fm-login-drift-b 18s ease-in-out infinite;
+}
+.fm-login-orb-b {
+  left: 6%;
+  bottom: 4%;
+  height: 17rem;
+  width: 17rem;
+  background: rgb(255 138 31 / 0.14);
+  animation: fm-login-drift-a 22s ease-in-out infinite;
+}
+/* Forma tepasidagi "jonli belgi" (maskot): brend plitkasi suzib turadi, to'q sariq nuqtasi kursorga qaraydi,
+   parol yozilayotganda orqasiga o'girilib qulfni ko'rsatadi, xatoda bosh chayqaydi. Holat: data-state (idle|lock|error|loading). */
+@keyframes fm-login-tile {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--r, 0deg));
+  }
+  50% {
+    transform: translateY(-18px) rotate(calc(var(--r, 0deg) + 10deg));
+  }
+}
+@keyframes fm-login-mark {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes fm-login-live {
+  0% {
+    box-shadow: 0 0 0 0 rgb(255 138 31 / 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgb(255 138 31 / 0);
+  }
+}
+@keyframes fm-mascot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+@keyframes fm-mascot-shadow {
+  0%,
+  100% {
+    transform: translateX(-50%) scaleX(1);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateX(-50%) scaleX(0.72);
+    opacity: 0.16;
+  }
+}
+@keyframes fm-login-wave {
+  to {
+    transform: translateX(-50%);
+  }
+}
+.fm-mascot {
+  position: relative;
+  height: 5.5rem;
+  width: 5.5rem;
+  perspective: 600px;
+}
+.fm-mascot-body {
+  position: absolute;
+  inset: 0;
+  animation: fm-mascot-float 4.5s ease-in-out infinite;
+}
+.fm-mascot-flip {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.3, 1.4, 0.4, 1);
+}
+.fm-mascot[data-state='lock'] .fm-mascot-flip {
+  transform: rotateY(180deg);
+}
+.fm-mascot-face {
+  position: absolute;
+  inset: 0;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  border-radius: 27%;
+  box-shadow: 0 16px 30px -12px rgb(37 99 240 / 0.6);
+}
+.fm-mascot-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2f6bf5, #1d4ed8);
+  color: #fff;
+  transform: rotateY(180deg);
+}
+/* Nuqta logotipdagi joyida turadi; --dx/--dy (kursor tomonga siljish) LoginPage'da beriladi */
+.fm-mascot-dot {
+  position: absolute;
+  left: 66.9%;
+  top: 14.8%;
+  height: 14.2%;
+  width: 14.2%;
+  border-radius: 9999px;
+  background: #ff8a1f;
+  transform: translate(var(--dx, 0px), var(--dy, 0px));
+  transition:
+    transform 0.15s ease-out,
+    background-color 0.2s ease;
+  animation: fm-login-live 2s ease-out infinite;
+}
+.fm-mascot[data-state='error'] .fm-mascot-dot {
+  background: rgb(var(--danger));
+}
+.fm-mascot-m {
+  stroke-dasharray: 1;
+}
+.fm-mascot[data-state='loading'] .fm-mascot-m {
+  animation: fm-login-mark 0.9s cubic-bezier(0.5, 0, 0.2, 1) infinite;
+}
+.fm-mascot-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: -1.1rem;
+  height: 0.5rem;
+  width: 64%;
+  border-radius: 9999px;
+  background: rgb(var(--shadow-color));
+  filter: blur(5px);
+  animation: fm-mascot-shadow 4.5s ease-in-out infinite;
+}
+/* Sarlavha: brend ko'kidan to'q sariqqa oqib turuvchi matn */
+.fm-login-title {
+  background: linear-gradient(90deg, rgb(var(--fg)) 0%, rgb(var(--brand)) 45%, #ff8a1f 60%, rgb(var(--fg)) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: fm-login-bar 8s linear infinite;
+}
+.fm-login-live {
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 9999px;
+  background: #ff8a1f;
+  animation: fm-login-live 1.8s ease-out infinite;
+}
+.fm-login-tile {
+  position: absolute;
+  border-radius: 28%;
+  border: 1.5px solid rgb(var(--brand) / 0.28);
+  background: rgb(var(--brand) / 0.07);
+  pointer-events: none;
+  animation: fm-login-tile 9s ease-in-out infinite;
+}
+/* Pastdagi oqib turuvchi to'lqinlar (svg kengligi 200% — yarmiga surilganda uzluksiz takrorlanadi) */
+.fm-login-wave {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 200%;
+  pointer-events: none;
+  animation: fm-login-wave 20s linear infinite;
+}
+.fm-login-wave-a {
+  height: 9rem;
+  fill: rgb(var(--brand) / 0.09);
+}
+.fm-login-wave-b {
+  height: 6rem;
+  fill: rgb(255 138 31 / 0.09);
+  animation-duration: 13s;
+  animation-direction: reverse;
+}
+.fm-login-wave-c {
+  height: 3.5rem;
+  fill: rgb(var(--brand) / 0.13);
+  animation-duration: 9s;
+}
+
+/* Kirish tugmasi: ustiga borganda yaltiroq o'tadi va o'q o'ngga suriladi */
+.fm-login-submit {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.625rem;
+}
+.fm-login-submit::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  transform: translateX(-120%) skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  pointer-events: none;
+}
+.fm-login-submit:hover::after {
+  transform: translateX(320%) skewX(-20deg);
+  transition: transform 0.8s ease;
+}
+.fm-login-submit svg {
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.fm-login-submit:hover svg {
+  transform: translateX(4px);
+}
+
+/* Ro'yxat qatori ustiga borganda belgi biroz ko'tariladi */
+.fm-login-item > span:first-child {
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 0.25s ease;
+}
+.fm-login-item:hover > span:first-child {
+  transform: translateY(-3px) scale(1.06);
+  background-color: rgb(255 255 255 / 0.2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fm-login-rise,
+  .fm-login-word,
+  .fm-login-bg,
+  .fm-login-ripple,
+  .fm-logo * {
+    animation-delay: 0s !important;
+  }
+}
+
 /* Chop etish: navigatsiya va .no-print elementlar yashiriladi */
 @media print {
   .no-print {

@@ -14,10 +14,12 @@ import {
   QODIR_PAYMENT_CATEGORY,
   STORE_INCOME_CATEGORY,
   STORE_LEDGER_START_YMD,
+  QODIR_LEDGER_START_YMD,
   TRUST_INCOME_CATEGORY,
   balanceDelta,
   calcCheckExpense,
-  calcStoreDebt,
+  CalculationService,
+  calcStoreDebtParts,
   calcTrustDebt,
   isQodirPaymentCategory,
   isQodirStore,
@@ -145,15 +147,18 @@ export async function createDdsInTx(tx: Tx, input: CreateDdsInput) {
   let source: DdsSource = trustPayment ? DdsSource.TRUST_PAYMENT : input.source || DdsSource.MANUAL;
 
   if (qodirPayment) {
-    if (type !== 'EXPENSE') {
-      throw new LedgerError(`"${QODIR_PAYMENT_CATEGORY}" kategoriyasi faqat CHIQIM uchun (Qodir akaga berilgan pul)`);
+    // 14.11.2026 dan: Qodir aka BIZGA qarzdor — u bergan pul KIRIM bo'lib yoziladi va qarzini kamaytiradi
+    // (qarzidan ortig'i / oldindan bergani — depozit bo'lib turadi)
+    if (type !== 'INCOME') {
+      throw new LedgerError(`"${QODIR_PAYMENT_CATEGORY}" kategoriyasi faqat KIRIM uchun (Qodir aka bergan pul)`);
     }
     storeTarget = await findQodirStore(tx);
     if (!storeTarget) throw new LedgerError("\"Qodir aka\" do'koni spravochnikda topilmadi — avval do'konni qo'shing");
     finalCategory = QODIR_PAYMENT_CATEGORY;
     source = DdsSource.QODIR_PAYMENT;
-    // Qarzni qaytarish — operatsion xarajat emas: OPEX'ga tushmasin, P&L foydasini kamaytirmasin
-    expenseType = ExpenseCategoryType.COGS;
+    // Qarz qaytishi — daromad emas: P&L tushumiga qo'shilmaydi
+    expenseType = ExpenseCategoryType.INCOME_TRANSFER;
+    sourcePerson = storeTarget.name;
   } else if (storePayment) {
     if (type !== 'INCOME') {
       throw new LedgerError(`"${STORE_INCOME_CATEGORY}" kategoriyasi faqat KIRIM uchun (do'kon bergan pul)`);
@@ -163,11 +168,6 @@ export async function createDdsInTx(tx: Tx, input: CreateDdsInput) {
     storeTarget = await tx.store.findUnique({ where: { id: storeId }, select: { id: true, name: true } });
     if (!storeTarget) throw new LedgerError("Tanlangan do'kon topilmadi");
     const kind = storeSettlementKind(storeTarget.name);
-    if (kind === 'WE_OWE') {
-      throw new LedgerError(
-        `Qodir aka bilan hisob-kitob "${QODIR_PAYMENT_CATEGORY}" chiqimi orqali yuritiladi — bu kategoriyada tanlab bo'lmaydi`
-      );
-    }
     if (kind === 'TRUST') {
       throw new LedgerError(
         `Trust bilan hisob-kitob "${TRUST_INCOME_CATEGORY}" kirimi orqali yuritiladi — bu kategoriyada tanlab bo'lmaydi`
@@ -220,7 +220,7 @@ export async function createDdsInTx(tx: Tx, input: CreateDdsInput) {
         amount,
         dateTime,
         ddsTransactionId: created.id,
-        note: input.description || (qodirPayment ? "Qodir akaga to'lov" : `${storeTarget.name}: do'kondan tushum`),
+        note: input.description || (qodirPayment ? 'Qodir aka bergan pul' : `${storeTarget.name}: do'kondan tushum`),
         createdById: input.createdById || null,
       },
     });
@@ -343,19 +343,82 @@ export async function syncTrustDebtForDeal(tx: Tx, dealId: string) {
  *   (summa = mijozga berilgan summa); aks holda yozuv o'chiriladi. Bitimning do'koni o'zgarsa yozuv yangi do'konga ko'chadi.
  * syncTrustDebtForDeal chaqirilgan hamma joyda chaqiriladi.
  */
-export async function syncStoreDebtForDeal(tx: Tx, dealId: string) {
-  const deal = await tx.deal.findUnique({ where: { id: dealId }, include: { store: { select: { name: true } } } });
-  if (!deal) return 0;
+/** Faol komissiya qoidalari (sale.service bilan aylanma import bo'lmasligi uchun shu yerda alohida o'qiladi) */
+async function loadRulesForLedger(db: Tx | typeof prisma) {
+  const rules = await db.commissionRule.findMany({ where: { isActive: true }, include: { store: true, provider: true } });
+  return rules.map((r) => ({
+    storeName: r.store?.name || null,
+    providerName: r.provider?.name || null,
+    ratePercent: Number(r.ratePercent),
+    profitPercent: r.profitPercent === null ? null : Number(r.profitPercent),
+    validFrom: r.validFrom,
+    validTo: r.validTo,
+    priority: r.priority,
+  }));
+}
 
-  const debt = calcStoreDebt({
+interface DealForStoreDebt {
+  calculatedAmount: unknown;
+  withdrawnLimit: unknown;
+  customerLimit: unknown;
+  approvalStatus: string;
+  date: Date;
+  store?: { name: string } | null;
+  provider?: { name: string } | null;
+}
+
+/**
+ * Bitimning do'kon qarzi tarkibi. Qodir aka: chek + agent ulushi + bizning 6% foyda (joriy qoidalar bo'yicha
+ * calculateDeal bilan hisoblanadi); boshqa do'konlar: faqat chek. `rules` berilmasa bazadan o'qiladi.
+ */
+export async function storeDebtPartsForDeal(
+  db: Tx | typeof prisma,
+  deal: DealForStoreDebt,
+  rules?: Awaited<ReturnType<typeof loadRulesForLedger>>
+) {
+  let agentAmount = 0;
+  let expectedProfit = 0;
+  if (isQodirStore(deal.store?.name)) {
+    const calc = CalculationService.calculateDeal(
+      {
+        customerLimit: Number(deal.customerLimit) || 0,
+        withdrawnLimit: Number(deal.withdrawnLimit) || 0,
+        calculatedAmount: Number(deal.calculatedAmount) || 0,
+        storeName: deal.store?.name || '',
+        providerName: deal.provider?.name || '',
+        date: deal.date,
+      },
+      rules || (await loadRulesForLedger(db))
+    );
+    agentAmount = calc.agentAmount;
+    expectedProfit = calc.expectedProfit;
+  }
+  return calcStoreDebtParts({
     calculatedAmount: Number(deal.calculatedAmount),
     storeName: deal.store?.name,
     approvalStatus: deal.approvalStatus,
     date: deal.date,
+    agentAmount,
+    expectedProfit,
   });
+}
+
+export async function syncStoreDebtForDeal(tx: Tx, dealId: string) {
+  const deal = await tx.deal.findUnique({
+    where: { id: dealId },
+    include: { store: { select: { name: true } }, provider: { select: { name: true } } },
+  });
+  if (!deal) return 0;
+
+  const parts = await storeDebtPartsForDeal(tx, deal);
+  const debt = parts.total;
 
   if (debt > 0) {
-    const note = `Bitim #${deal.dealNumber}: mijozga berilgan summa`;
+    const fmt = (n: number) => Math.round(n).toLocaleString('ru-RU');
+    const note =
+      parts.agent > 0 || parts.profit > 0
+        ? `Bitim #${deal.dealNumber}: chek ${fmt(parts.check)} + agent ulushi ${fmt(parts.agent)} + foyda ${fmt(parts.profit)}`
+        : `Bitim #${deal.dealNumber}: mijozga berilgan summa`;
     await tx.storeLedgerEntry.upsert({
       where: { dealId },
       create: { storeId: deal.storeId, type: StoreEntryType.DEBT, amount: debt, dateTime: deal.date, dealId, note },
@@ -701,8 +764,12 @@ export async function getStoreLedger(storeId: string, range: DateRange = {}) {
         date: true,
         customerName: true,
         withdrawnLimit: true,
+        customerLimit: true,
         calculatedAmount: true,
+        agentAmount: true,
+        approvalStatus: true,
         profit: true,
+        provider: { select: { name: true } },
       },
     }),
     prisma.storeLedgerEntry.findMany({
@@ -749,7 +816,8 @@ export async function getStoreLedger(storeId: string, range: DateRange = {}) {
   return {
     store,
     settlement: storeSettlementKind(store.name),
-    ledgerStart: STORE_LEDGER_START_YMD,
+    // Qodir aka bilan hisob-kitob o'z sanasidan (01.11.2026) boshlanadi
+    ledgerStart: isQodirStore(store.name) ? QODIR_LEDGER_START_YMD : STORE_LEDGER_START_YMD,
     summary: {
       dealsCount: deals.length,
       withdrawnTotal: sum((d) => d.withdrawnLimit),
@@ -762,7 +830,17 @@ export async function getStoreLedger(storeId: string, range: DateRange = {}) {
       period: summarizeLedger(entries.map((e) => ({ type: e.type, amount: Number(e.amount) }))),
       overall: summarizeLedger(overallRows.map((g) => ({ type: g.type, amount: Number(g._sum.amount) || 0 }))),
     },
-    deals: deals.map((d) => ({ ...d, checkExpense: checkByDeal.get(d.id) || null })),
+    // debtParts — shu bitim bo'yicha do'kon qarzi tarkibi (Qodir aka: chek + agent ulushi + 6% foyda; boshqalar: faqat chek)
+    deals: await (async () => {
+      const rules = isQodirStore(store.name) ? await loadRulesForLedger(prisma) : [];
+      return Promise.all(
+        deals.map(async (d) => ({
+          ...d,
+          checkExpense: checkByDeal.get(d.id) || null,
+          debtParts: await storeDebtPartsForDeal(prisma, { ...d, store: { name: store.name } }, rules),
+        }))
+      );
+    })(),
     expenses: expenses.map((e) => ({ ...e, dealNumber: e.dealId ? dealById.get(e.dealId)?.dealNumber ?? null : null })),
     entries,
   };
@@ -843,8 +921,10 @@ export async function getStoresReport(range: DateRange = {}) {
       profit: total((r) => r.profit),
       dealExpenses: total((r) => r.dealExpenses),
       netProfit: total((r) => r.netProfit),
-      storesOweUs: total((r) => (r.settlement === 'STORE_OWES' ? r.overall.balance : 0)),
-      weOwe: total((r) => (r.settlement === 'WE_OWE' ? r.overall.balance : 0)),
+      // Qarz va depozit bir-birini yopib yubormasin: alohida yig'iladi
+      storesOweUs: total((r) => (r.settlement === 'STORE_OWES' ? r.overall.debtLeft : 0)),
+      storeDeposits: total((r) => (r.settlement === 'STORE_OWES' ? r.overall.deposit : 0)),
+      weOwe: 0,
     },
     stores: rows,
   };

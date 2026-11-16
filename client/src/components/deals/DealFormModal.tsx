@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Info, ShieldAlert } from 'lucide-react';
-import { Button, Field, Input, Modal, SegmentedControl, Select, Textarea, controlClass, cn } from '../ui';
+import { Badge, Button, Field, Input, Modal, Select, Textarea, controlClass, cn } from '../ui';
 import { AmountInput } from '../AmountInput';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -141,6 +141,13 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   const [error, setError] = useState('');
 
   const set = (updates: Partial<FormState>) => setForm((prev) => ({ ...prev, ...updates }));
+
+  // Daftar endi qo'lda tanlanmaydi: server o'zi qo'yadi (faqat Imanium + Denov/Jizzax). Bu yerda faqat ko'rsatiladi.
+  const autoDaftar = (() => {
+    const p = (providers.find((x) => x.id === form.providerId)?.name || '').toLowerCase();
+    const s = (stores.find((x) => x.id === form.storeId)?.name || '').toLowerCase();
+    return /imani|imanum|imanu|иман/.test(p) && /denov|денов|jizzax|jizzah|жиззах/.test(s);
+  })();
 
   const store = stores.find((s) => s.id === form.storeId);
   const agency = agencies.find((a) => a.id === form.agencyId);
@@ -287,10 +294,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
               value={form.providerId}
               onChange={(e) => {
                 const provider = providers.find((p) => p.id === e.target.value);
-                set({
-                  providerId: e.target.value,
-                  isDaftar: provider?.isDaftarDefault !== undefined ? provider.isDaftarDefault : form.isDaftar,
-                });
+                void provider;
+                set({ providerId: e.target.value });
               }}
             >
               {providers.map((p) => (
@@ -315,17 +320,9 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         <div className="flex flex-col gap-2 rounded-control border border-line bg-surface-2/50 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-medium text-fg">{t('dealsPage.daftar')}</p>
-            <p className="mt-0.5 text-xs text-fg-muted">{form.isDaftar ? t('dealsPage.daftar_on_hint') : t('dealsPage.daftar_off_hint')}</p>
+            <p className="mt-0.5 text-xs text-fg-muted">{t('dealsPage.daftar_auto_hint')}</p>
           </div>
-          <SegmentedControl
-            ariaLabel={t('dealsPage.daftar')}
-            items={[
-              { value: 'no', label: t('common.no') },
-              { value: 'yes', label: t('common.yes') },
-            ]}
-            value={form.isDaftar ? 'yes' : 'no'}
-            onChange={(v) => set({ isDaftar: v === 'yes' })}
-          />
+          <Badge tone={autoDaftar ? 'warning' : 'neutral'}>{autoDaftar ? t('common.yes') : t('common.no')}</Badge>
         </div>
 
         {/* Mijoz */}

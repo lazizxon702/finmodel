@@ -39,6 +39,8 @@ export interface PushOutcome extends ChannelOutcome {
 export interface NotifyResult {
   telegram: ChannelOutcome;
   push: PushOutcome;
+  /** Web Push (brauzer / iPhone Bosh ekran ilovasi) */
+  webPush: PushOutcome;
 }
 
 interface OutgoingNotification {
@@ -327,27 +329,205 @@ async function sendPush(userId: string, message: OutgoingNotification): Promise<
   }
 }
 
+// ───────────────────────────── Web Push (VAPID: brauzer va iPhone) ─────────────────────────────
+
+interface VapidKeys {
+  publicKey: string;
+  privateKey: string;
+  subject: string;
+}
+
+/** Web Push kaliti bo'lmaganda ham, VAPID_SUBJECT berilmasa shu manzil ishlatiladi (https yoki mailto bo'lishi shart) */
+const DEFAULT_VAPID_SUBJECT = 'https://finmodel-erp-uz.vercel.app';
+const WEB_PUSH_TIMEOUT_MS = 10_000;
+/** Push xizmati xabarni shuncha vaqt saqlaydi (qurilma o'chiq bo'lsa) */
+const WEB_PUSH_TTL_SECONDS = 24 * 60 * 60;
+/** Brauzer push xizmati shu holatlarda obuna endi yaroqsiz deydi — bazadan o'chiriladi */
+const DEAD_WEB_PUSH_STATUS = new Set([404, 410]);
+
+let vapidCache: { value: VapidKeys | null } | null = null;
+let webPushWarned = false;
+
+function warnWebPushOnce(message: string) {
+  if (webPushWarned) return;
+  webPushWarned = true;
+  console.warn(`Web Push o'chirilgan: ${message} (docs/FIREBASE_SETUP.md ga qarang)`);
+}
+
+/** Obuna endpoint'i yaroqsiz bo'lganini bildiruvchi HTTP holat kodi (sof funksiya — testlanadi) */
+export function isDeadWebPushStatus(statusCode: unknown): boolean {
+  return typeof statusCode === 'number' && DEAD_WEB_PUSH_STATUS.has(statusCode);
+}
+
+/** Web Push yuki (sof funksiya — testlanadi). Xizmat ishchisi (sw.js) shu JSON'ni o'qiydi. */
+export function buildWebPushPayload(message: OutgoingNotification, url = '/deals'): string {
+  const type = message.data?.type || 'notification';
+  const tagSuffix = message.data?.dealId || message.data?.dealNumber || '';
+  return JSON.stringify({
+    title: message.title,
+    body: message.body,
+    url,
+    // Bir xil tag — bir bitim uchun takroriy xabar oldingisini almashtiradi
+    tag: tagSuffix ? `${type}-${tagSuffix}` : type,
+  });
+}
+
+function parseVapidKeys(input: { publicKey?: unknown; privateKey?: unknown; subject?: unknown }): VapidKeys | null {
+  const publicKey = String(input.publicKey || '').trim();
+  const privateKey = String(input.privateKey || '').trim();
+  if (!publicKey || !privateKey) return null;
+  const subject = String(input.subject || '').trim() || DEFAULT_VAPID_SUBJECT;
+  return { publicKey, privateKey, subject };
+}
+
+/** VAPID kalitlari: env → server/vapid-keys.local.json. Dangasa (lazy), bir marta. */
+function loadVapidKeys(): VapidKeys | null {
+  if (vapidCache) return vapidCache.value;
+  let value = parseVapidKeys({
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+    subject: process.env.VAPID_SUBJECT,
+  });
+  if (!value) {
+    const candidates = [
+      path.resolve(__dirname, '../../vapid-keys.local.json'), // server/ (src yoki dist ichidan)
+      path.resolve(process.cwd(), 'vapid-keys.local.json'),
+    ];
+    const file = candidates.find((candidate) => {
+      try {
+        return fs.statSync(candidate).isFile();
+      } catch {
+        return false;
+      }
+    });
+    if (file) {
+      try {
+        const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+        value = parseVapidKeys({
+          publicKey: json?.publicKey,
+          privateKey: json?.privateKey,
+          subject: process.env.VAPID_SUBJECT || json?.subject,
+        });
+        if (!value) warnWebPushOnce("vapid-keys.local.json ichida publicKey / privateKey yo'q");
+      } catch {
+        warnWebPushOnce("vapid-keys.local.json yaroqli JSON emas");
+      }
+    } else {
+      warnWebPushOnce("VAPID kalitlari topilmadi (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY yoki server/vapid-keys.local.json)");
+    }
+  }
+  vapidCache = { value };
+  return value;
+}
+
+/** Brauzer obuna qilish uchun ochiq kalit (maxfiy kalit hech qachon qaytarilmaydi). Sozlanmagan bo'lsa null. */
+export function getWebPushPublicKey(): string | null {
+  return loadVapidKeys()?.publicKey ?? null;
+}
+
+export function isWebPushConfigured(): boolean {
+  return !!loadVapidKeys();
+}
+
+/** Brauzer obunasini tekshiradi: https endpoint + p256dh/auth kalitlari */
+export function readWebPushSubscription(body: any): { endpoint: string; p256dh: string; auth: string } | null {
+  const endpoint = typeof body?.endpoint === 'string' ? body.endpoint.trim() : '';
+  const p256dh = typeof body?.keys?.p256dh === 'string' ? body.keys.p256dh.trim() : '';
+  const auth = typeof body?.keys?.auth === 'string' ? body.keys.auth.trim() : '';
+  if (!endpoint || endpoint.length > 2048 || !/^https:\/\//i.test(endpoint)) return null;
+  if (!p256dh || p256dh.length > 256 || !auth || auth.length > 128) return null;
+  return { endpoint, p256dh, auth };
+}
+
+async function sendWebPush(userId: string, message: OutgoingNotification): Promise<PushOutcome> {
+  const outcome: PushOutcome = { status: 'skipped', sent: 0, failed: 0, removed: 0 };
+  const keys = loadVapidKeys();
+  if (!keys) return { ...outcome, reason: 'WEB_PUSH_NOT_CONFIGURED' };
+
+  try {
+    const subs = await prisma.webPushSubscription.findMany({
+      where: { userId },
+      select: { endpoint: true, p256dh: true, auth: true },
+    });
+    if (!subs.length) return { ...outcome, reason: 'NO_WEB_PUSH_SUBSCRIPTIONS' };
+
+    const mod: any = await import('web-push');
+    const webpush = mod.default || mod;
+    const payload = buildWebPushPayload(message);
+    const dead: string[] = [];
+    let lastError = '';
+
+    await Promise.all(
+      subs.map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload,
+            {
+              TTL: WEB_PUSH_TTL_SECONDS,
+              urgency: 'high',
+              timeout: WEB_PUSH_TIMEOUT_MS,
+              vapidDetails: { subject: keys.subject, publicKey: keys.publicKey, privateKey: keys.privateKey },
+            }
+          );
+          outcome.sent += 1;
+        } catch (error) {
+          outcome.failed += 1;
+          const status = (error as any)?.statusCode;
+          if (isDeadWebPushStatus(status)) dead.push(sub.endpoint);
+          lastError = status ? `HTTP_${status}` : String((error as any)?.code || (error as any)?.message || 'WEB_PUSH_ERROR').slice(0, 120);
+        }
+      })
+    );
+
+    if (dead.length) {
+      const removed = await prisma.webPushSubscription.deleteMany({ where: { endpoint: { in: dead } } });
+      outcome.removed = removed.count;
+    }
+
+    outcome.status = outcome.sent > 0 ? 'sent' : 'failed';
+    if (outcome.failed > 0) {
+      outcome.reason = lastError || 'WEB_PUSH_ERROR';
+      console.warn(
+        `Bildirishnoma: web push ${outcome.sent} ta yuborildi, ${outcome.failed} ta xato (${outcome.reason}), ` +
+          `${outcome.removed} ta yaroqsiz obuna o'chirildi`
+      );
+    }
+    return outcome;
+  } catch (error) {
+    const reason = String((error as any)?.code || (error as any)?.message || error).slice(0, 200);
+    console.warn('Bildirishnoma: web push yuborilmadi:', reason);
+    return { ...outcome, status: 'failed', reason };
+  }
+}
+
 // ───────────────────────────── Yuborish ─────────────────────────────
 
-/** Foydalanuvchiga ikkala kanal orqali yuboradi. Xato tashlamaydi — natijani qaytaradi. */
+/** Foydalanuvchiga uchala kanal (Telegram, Android FCM, Web Push) orqali yuboradi. Xato tashlamaydi — natijani qaytaradi. */
 async function deliverToUser(userId: string, message: OutgoingNotification): Promise<NotifyResult> {
   const result: NotifyResult = {
     telegram: { status: 'skipped', reason: 'USER_NOT_FOUND' },
     push: { status: 'skipped', reason: 'USER_NOT_FOUND', sent: 0, failed: 0, removed: 0 },
+    webPush: { status: 'skipped', reason: 'USER_NOT_FOUND', sent: 0, failed: 0, removed: 0 },
   };
   try {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { telegramId: true, isActive: true } });
     if (!user) return result;
     if (!user.isActive) {
-      result.telegram.reason = result.push.reason = 'USER_BLOCKED';
+      result.telegram.reason = result.push.reason = result.webPush.reason = 'USER_BLOCKED';
       return result;
     }
-    const [telegram, push] = await Promise.all([sendTelegram(user.telegramId, message.html), sendPush(userId, message)]);
-    return { telegram, push };
+    const [telegram, push, webPush] = await Promise.all([
+      sendTelegram(user.telegramId, message.html),
+      sendPush(userId, message),
+      sendWebPush(userId, message),
+    ]);
+    return { telegram, push, webPush };
   } catch (error) {
     console.warn('Bildirishnoma yuborishda xatolik:', safeError(error));
     result.telegram = { status: 'failed', reason: 'INTERNAL_ERROR' };
     result.push = { ...result.push, status: 'failed', reason: 'INTERNAL_ERROR' };
+    result.webPush = { ...result.webPush, status: 'failed', reason: 'INTERNAL_ERROR' };
     return result;
   }
 }

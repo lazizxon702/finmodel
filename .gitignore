@@ -45,3 +45,6 @@ sheets_overview.txt
 sheets_structure.txt
 server/backup_*.json
 server/seed_data.json
+
+# Web Push (VAPID) lokal kalitlari
+server/vapid-keys.local.json

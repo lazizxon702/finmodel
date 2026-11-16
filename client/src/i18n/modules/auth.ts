@@ -4,6 +4,10 @@ import { defineModule } from '../types';
 export default defineModule({
   uz: {
     'auth.title': 'Tizimga kirish',
+    'auth.greeting_morning': 'Xayrli tong',
+    'auth.greeting_day': 'Xayrli kun',
+    'auth.greeting_evening': 'Xayrli kech',
+    'auth.greeting_night': 'Xayrli tun',
     'auth.subtitle': 'Davom etish uchun login va parolingizni kiriting',
     'auth.username': 'Login',
     'auth.username_placeholder': 'Masalan: admin',
@@ -17,6 +21,10 @@ export default defineModule({
   },
   ru: {
     'auth.title': 'Вход в систему',
+    'auth.greeting_morning': 'Доброе утро',
+    'auth.greeting_day': 'Добрый день',
+    'auth.greeting_evening': 'Добрый вечер',
+    'auth.greeting_night': 'Доброй ночи',
     'auth.subtitle': 'Введите логин и пароль, чтобы продолжить',
     'auth.username': 'Логин',
     'auth.username_placeholder': 'Например: admin',
@@ -30,6 +38,10 @@ export default defineModule({
   },
   en: {
     'auth.title': 'Sign in',
+    'auth.greeting_morning': 'Good morning',
+    'auth.greeting_day': 'Good afternoon',
+    'auth.greeting_evening': 'Good evening',
+    'auth.greeting_night': 'Good night',
     'auth.subtitle': 'Enter your username and password to continue',
     'auth.username': 'Username',
     'auth.username_placeholder': 'For example: admin',

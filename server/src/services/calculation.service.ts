@@ -19,7 +19,13 @@ export interface DealCalculationInput {
 export interface CommissionRuleItem {
   storeName?: string | null;
   providerName?: string | null;
+  /** Kompaniya ulushi (ulush: 0.22 = 22%) — diskontning shundan ortig'i agent foydasiga o'tadi */
   ratePercent: number;
+  /** Bizning foydamiz (ulush). Bo'sh bo'lsa = ratePercent. Qodir aka: 0.22 dan 0.06 bizniki, 0.16 uniki */
+  profitPercent?: number | null;
+  /** Qoida amal qiladigan davr (shu lahzalar ham kiradi). Bo'sh — cheklanmagan */
+  validFrom?: Date | string | null;
+  validTo?: Date | string | null;
   priority: number;
 }
 
@@ -57,6 +63,32 @@ export function normalizeName(name?: string | null): string {
     .trim();
 }
 
+const CYR_TO_LAT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'j', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
+  н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sh',
+  ъ: '', ы: 'i', ь: '', э: 'e', ю: 'yu', я: 'ya', ў: 'o', қ: 'q', ғ: 'g', ҳ: 'h',
+};
+
+/** Kirill harflarini lotinga o'giradi, lotin harflarini o'zgartirmaydi (kichik harfda) */
+export function transliterate(input?: string | null): string {
+  let out = '';
+  for (const ch of String(input || '').toLowerCase()) out += CYR_TO_LAT[ch] ?? ch;
+  return out;
+}
+
+/**
+ * Odam ismini solishtirish kaliti: kirill = lotin ("Гулнур" = "Gulnur"), x = h ("Xosila" = "Hosila"),
+ * tinish belgilarsiz, bo'shliqlar bitta. Operator (Agent yozuvi) ismlari BITTA agentlik ichida shu kalit bo'yicha
+ * yagona bo'ladi; turli agentliklardagi bir xil ismlar — boshqa-boshqa odam (egasi qarori, 14.11.2026).
+ */
+export function personNameKey(name?: string | null): string {
+  return transliterate(name)
+    .replace(/x/g, 'h')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Spravochnikdagi dublikat yozuvlarning yagona (kanonik) nomlari.
  * Kalit — normallashtirilgan variant, qiymat — bazada saqlanadigan yagona nom.
@@ -72,6 +104,11 @@ export const STORE_ALIASES: Record<string, string> = {
   'green bazar': 'Green Bazar',
   'planet phone': 'Planet Phone',
   'variant shahlo': 'Variant Shahlo',
+  'tursunqulova shahlo': 'Tursunqulova Shahlo',
+  'tursunqulova shaxlo': 'Tursunqulova Shahlo',
+  'tursunquruva shaxlo': 'Tursunqulova Shahlo',
+  'tursunquruva shahlo': 'Tursunqulova Shahlo',
+  greenbazar: 'Green Bazar',
   'trust': 'Trust',
   'маргилон медиа парк': 'Маргилон Медиа парк',
 };
@@ -86,6 +123,10 @@ export const PROVIDER_ALIASES: Record<string, string> = {
   'alif online': 'Alif Online',
   'trust 1': 'Trust 1',
   trust1: 'Trust 1',
+  'payletar offline': 'Paylater offline',
+  'payletar online': 'Paylater online',
+  'paylater offline': 'Paylater offline',
+  'paylater online': 'Paylater online',
 };
 
 export const AGENCY_ALIASES: Record<string, string> = {
@@ -148,6 +189,11 @@ const QODIR_PAYMENT_NAMES = new Set([
   'qodir akaga tolovi',
   'qodir oka tolovi',
   'qodir oka tolov',
+  // Jonli bazada shunday nom bilan kiritilgan (TX-1159): Qodir aka bergan pul — qarziga to'lov
+  'qodir aka prixod',
+  'qodir aka prihod',
+  'qodir akadan prixod',
+  'qodir oka prixod',
 ]);
 export function isQodirPaymentCategory(categoryName?: string | null): boolean {
   return QODIR_PAYMENT_NAMES.has(normalizeName(categoryName));
@@ -167,14 +213,14 @@ export function isStoreIncomeCategory(categoryName?: string | null): boolean {
 
 /**
  * Do'kon bilan hisob-kitob yo'nalishi:
- *   WE_OWE     — "Qodir aka": mijozga U to'laydi, shuning uchun BIZ undan qarzdormiz;
+ *   WE_OWE     — endi ishlatilmaydi (14.11.2026 gacha Qodir aka shunday edi; tur eski kod uchun qoldirilgan);
  *   TRUST      — Trust / Trust 1 do'koni: o'zining Trust daftari bor, do'kon daftariga yozilmaydi;
  *   STORE_OWES — qolgan barcha do'konlar: DO'KON bizdan qarzdor.
  */
 export type StoreSettlement = 'WE_OWE' | 'STORE_OWES' | 'TRUST';
 export function storeSettlementKind(storeName?: string | null): StoreSettlement {
   if (isTrustName(storeName)) return 'TRUST';
-  if (isQodirStore(storeName)) return 'WE_OWE';
+  // 14.11.2026 dan: Qodir aka ham BIZGA qarzdor (chek + agent ulushi + 6% foyda); 'WE_OWE' endi hech kimga berilmaydi
   return 'STORE_OWES';
 }
 
@@ -182,6 +228,9 @@ export function storeSettlementKind(storeName?: string | null): StoreSettlement 
 export function storeLedgerStartDate(startYmd: string = STORE_LEDGER_START_YMD): Date {
   return new Date(`${startYmd}T00:00:00+05:00`);
 }
+/** Qodir aka bilan hisob-kitob boshlanadigan kun (boshqa do'konlardan alohida) */
+export const QODIR_LEDGER_START_YMD = '2026-11-01';
+
 /** Sana do'kon daftari boshlangan kunda yoki undan keyinmi */
 export function isOnOrAfterStoreLedgerStart(
   date: Date | string | null | undefined,
@@ -205,10 +254,206 @@ export function calcTrustDebt(withdrawnLimit: number): number {
   return w > 0 ? round2(w * TRUST_RATE) : 0;
 }
 
-/** Agent komissiyasi (foydasi) = Yechilgan limit × (Xarid diskonti − Agent foizi) */
-export function calcAgentCommission(withdrawnLimit: number, purchaseDiscountPct: number, agentRate: number): number {
+/**
+ * Agent komissiyasi (foydasi) = Yechilgan limit × (Xarid diskonti − Kompaniya ulushi). Manfiy bo'lmaydi.
+ * Misol: limit 10 000 000, diskont 30%, Imanum 25% → 500 000.
+ */
+export function calcAgentCommission(withdrawnLimit: number, purchaseDiscountPct: number, companyRate: number): number {
   const w = Number(withdrawnLimit) || 0;
-  return round2(w * ((Number(purchaseDiscountPct) || 0) - (Number(agentRate) || 0)));
+  return Math.max(0, round2(w * ((Number(purchaseDiscountPct) || 0) - (Number(companyRate) || 0))));
+}
+
+/**
+ * Kutilayotgan kompaniya foydasi = Yechilgan limit − Mijozga berilgan summa − Agent foydasi − hamkor ulushi.
+ *   oddiy bitim:  limit × min(diskont, kompaniya ulushi)          (10 000 000, 30%, Imanum 25% → 2 500 000)
+ *   Qodir aka:    22% dan 16% uniki, 6% bizniki                   (10 000 000 → 600 000)
+ * Diskont kompaniya ulushidan kichik bo'lsa avval hamkor ulushi ayriladi; foyda manfiy bo'lmaydi.
+ */
+export function calcExpectedProfit(
+  withdrawnLimit: number,
+  purchaseDiscountPct: number,
+  companyRate: number,
+  profitRate: number
+): number {
+  const w = Number(withdrawnLimit) || 0;
+  const disc = Number(purchaseDiscountPct) || 0;
+  const rate = Number(companyRate) || 0;
+  const partnerCut = Math.max(0, rate - (Number(profitRate) || 0));
+  return Math.max(0, round2(w * (Math.min(disc, rate) - partnerCut)));
+}
+
+// ───────────────────────── Kompaniya ulushi qoidalari ─────────────────────────
+
+/** Imanum: 03.11.2026 gacha (shu kun ham) 22%, 04.11.2026 dan 25% (Asia/Tashkent) — egasi qarori 14.11.2026 */
+export const IMANUM_RATE_CHANGE_YMD = '2026-11-04';
+
+/** 01.11–10.11.2026 hisobi egasining Google jadvaliga tenglashtirilgan davr oxiri va keyingi kun */
+// Jadval: "Фин модел" → Сделки_и_Склад, 01.11–11.11.2026, 202 chek
+const SHEET_PARITY_END_YMD = '2026-11-11';
+const SHEET_PARITY_NEXT_YMD = '2026-11-12';
+
+interface DefaultRule {
+  kind: 'store' | 'provider';
+  /** Normallashtirilgan nom bo'laklari; do'kon — aniq nom, provayder — nom ichida uchrasa */
+  keys: string[];
+  name: string;
+  ratePercent: number;
+  profitPercent?: number;
+  validFromYmd?: string;
+  validToYmd?: string;
+}
+
+/**
+ * Standart qoidalar (egasi ro'yxati, 14.11.2026). Spravochnikda mos qoida bo'lmasa shular ishlaydi;
+ * `scripts/seed-commission-rules.ts` shu ro'yxatni spravochnikka yozadi. Do'kon qoidasi provayder qoidasidan ustun.
+ */
+export const DEFAULT_COMMISSION_RULES: DefaultRule[] = [
+  { kind: 'store', keys: ['qodir aka'], name: 'Qodir aka', ratePercent: 0.22, profitPercent: 0.06 },
+  // Egasi (14.11 kech): 01–10.11 hisobi "Фин модел" jadvaliga tenglashtiriladi — o'sha davrda Green Bazar 35%, Variant 22%, Iman daftar 22%
+  { kind: 'store', keys: ['green bazar'], name: 'Green Bazar', ratePercent: 0.35, validToYmd: SHEET_PARITY_END_YMD },
+  { kind: 'store', keys: ['green bazar'], name: 'Green Bazar', ratePercent: 0.3, validFromYmd: SHEET_PARITY_NEXT_YMD },
+  { kind: 'store', keys: ['tursunqulova shahlo'], name: 'Tursunqulova Shahlo', ratePercent: 0.22 },
+  { kind: 'store', keys: ['trust', 'trust 1'], name: 'Trust', ratePercent: TRUST_RATE },
+  { kind: 'provider', keys: ['6 oy'], name: '6 oylik Alif', ratePercent: 0.35 },
+  { kind: 'provider', keys: ['alif online'], name: 'Alif Online', ratePercent: 0.27 },
+  { kind: 'provider', keys: ['alif offline', 'alif of'], name: 'Alif Offline', ratePercent: 0.22 },
+  { kind: 'provider', keys: ['alif nasiya'], name: 'Alif nasiya', ratePercent: 0.22 },
+  { kind: 'provider', keys: ['imanum', 'imani', 'imanu'], name: 'Imanum', ratePercent: 0.22, validToYmd: '2026-11-03' },
+  { kind: 'provider', keys: ['imanum', 'imani', 'imanu'], name: 'Imanum', ratePercent: 0.25, validFromYmd: IMANUM_RATE_CHANGE_YMD },
+  { kind: 'provider', keys: ['variant offline', 'variyant offline'], name: 'Variant offline', ratePercent: 0.22 },
+  { kind: 'provider', keys: ['vari'], name: 'Variant', ratePercent: 0.22, validToYmd: SHEET_PARITY_END_YMD },
+  { kind: 'provider', keys: ['vari'], name: 'Variant', ratePercent: 0.27, validFromYmd: SHEET_PARITY_NEXT_YMD },
+  { kind: 'provider', keys: ['iman daftar'], name: 'Iman daftar', ratePercent: 0.22, validToYmd: SHEET_PARITY_END_YMD },
+  { kind: 'provider', keys: ['trust 1', 'trust'], name: 'Trust 1', ratePercent: TRUST_RATE },
+  { kind: 'provider', keys: ['payme'], name: 'Payme', ratePercent: 0.2 },
+  // Jadvalda Infin Bank 22% hisoblangan (#8094, #3730) — tenglashtirilgan davrda 22, keyin egasi ro'yxatidagi 15
+  { kind: 'provider', keys: ['infin'], name: 'Infin Bank', ratePercent: 0.22, validToYmd: SHEET_PARITY_END_YMD },
+  { kind: 'provider', keys: ['infin'], name: 'Infin Bank', ratePercent: 0.15, validFromYmd: SHEET_PARITY_NEXT_YMD },
+  { kind: 'provider', keys: ['paylater offline'], name: 'Paylater offline', ratePercent: 0.22 },
+  { kind: 'provider', keys: ['paylater online'], name: 'Paylater online', ratePercent: 0.27 },
+  { kind: 'provider', keys: ['finsum', 'finsim'], name: 'Finsum Nasiya', ratePercent: 0.22 },
+];
+
+export interface ResolvedCommission {
+  /** Kompaniya ulushi (ulush) */
+  rate: number;
+  /** Bizning foydamiz (ulush) */
+  profitRate: number;
+  /** Qoida qayerdan olindi */
+  source: 'RULE' | 'DEFAULT' | 'NONE';
+  ruleName?: string;
+}
+
+/**
+ * Qodir aka do'konida bizning foyda provayderga bog'liq (egasi, 16.11.2026; 01.11 dan hamma cheklarga):
+ * Alif orqali (online/offline/nasiya) — 5%, qolganlari (Finsum va b.) — qoidadagi 6%. Ulush (22%) va agent foydasi o'zgarmaydi.
+ */
+export const QODIR_ALIF_PROFIT_RATE = 0.05;
+function qodirProfitRate(storeKey: string, providerKey: string, providerRawKey: string, profitRate: number): number {
+  if (storeKey !== 'qodir aka') return profitRate;
+  return providerKey.includes('alif') || providerRawKey.includes('alif') ? QODIR_ALIF_PROFIT_RATE : profitRate;
+}
+
+const dayStart = (ymd: string) => new Date(`${ymd}T00:00:00+05:00`).getTime();
+const dayEnd = (ymd: string) => new Date(`${ymd}T23:59:59.999+05:00`).getTime();
+const toTime = (v: Date | string | null | undefined): number | null => {
+  if (!v) return null;
+  const t = new Date(v).getTime();
+  return isNaN(t) ? null : t;
+};
+
+/**
+ * Bitim uchun kompaniya ulushi va foyda foizini topadi.
+ *   1) spravochnik qoidalari (faol, sanasi mos); 2) topilmasa — standart qoidalar; 3) bo'lmasa 0.
+ * Tanlash tartibi: ustuvorlik (priority) → do'kon qoidasi provayder qoidasidan ustun → uzunroq (aniqroq) nom →
+ * sanasi ko'rsatilgan qoida → kechroq boshlangan qoida.
+ * Do'kon — kanonik nom ANIQ teng bo'lsa; provayder — kanonik nom ichida qoida nomi uchrasa.
+ * Qoidada do'kon ham, provayder ham bo'lsa — IKKALASI mos kelishi shart.
+ */
+export function resolveCommission(
+  storeName: string | null | undefined,
+  providerName: string | null | undefined,
+  rules: CommissionRuleItem[] = [],
+  dealDate?: Date | string | null
+): ResolvedCommission {
+  const s = normalizeName(canonicalStoreName(storeName));
+  const p = normalizeName(canonicalProviderName(providerName));
+  const pRaw = normalizeName(providerName);
+  const at = toTime(dealDate) ?? Date.now();
+
+  interface Cand {
+    rate: number;
+    profitRate: number;
+    priority: number;
+    isStore: boolean;
+    len: number;
+    from: number | null;
+    dated: boolean;
+    name?: string;
+  }
+  const better = (a: Cand, b: Cand) =>
+    b.priority - a.priority ||
+    Number(b.isStore) - Number(a.isStore) ||
+    b.len - a.len ||
+    Number(b.dated) - Number(a.dated) ||
+    (b.from ?? -Infinity) - (a.from ?? -Infinity);
+
+  const fromRules: Cand[] = [];
+  for (const r of rules) {
+    const rs = normalizeName(canonicalStoreName(r.storeName));
+    const rp = normalizeName(canonicalProviderName(r.providerName));
+    if (!rs && !rp) continue;
+    if (rs && rs !== s) continue;
+    if (rp && !(p.includes(rp) || pRaw.includes(rp))) continue;
+    const from = toTime(r.validFrom);
+    const to = toTime(r.validTo);
+    if (from !== null && at < from) continue;
+    if (to !== null && at > to) continue;
+    const rate = Number(r.ratePercent) || 0;
+    const profitRate = r.profitPercent === null || r.profitPercent === undefined ? rate : Number(r.profitPercent) || 0;
+    fromRules.push({
+      rate,
+      profitRate,
+      priority: Number(r.priority) || 0,
+      isStore: !!rs,
+      len: rs.length + rp.length,
+      from,
+      dated: from !== null || to !== null,
+    });
+  }
+  if (fromRules.length) {
+    const best = fromRules.sort(better)[0];
+    return { rate: best.rate, profitRate: qodirProfitRate(s, p, pRaw, best.profitRate), source: 'RULE' };
+  }
+
+  const defaults: Cand[] = [];
+  for (const d of DEFAULT_COMMISSION_RULES) {
+    const key =
+      d.kind === 'store'
+        ? d.keys.find((k) => k === s)
+        : // "trust" provayderi faqat aniq nom bo'yicha (Trustbank Trust emas)
+          d.keys.find((k) => (k.startsWith('trust') ? p === k : p.includes(k) || pRaw.includes(k)));
+    if (!key) continue;
+    const from = d.validFromYmd ? dayStart(d.validFromYmd) : null;
+    const to = d.validToYmd ? dayEnd(d.validToYmd) : null;
+    if (from !== null && at < from) continue;
+    if (to !== null && at > to) continue;
+    defaults.push({
+      rate: d.ratePercent,
+      profitRate: d.profitPercent ?? d.ratePercent,
+      priority: d.kind === 'store' ? 10 : 5,
+      isStore: d.kind === 'store',
+      len: key.length,
+      from,
+      dated: from !== null || to !== null,
+      name: d.name,
+    });
+  }
+  if (defaults.length) {
+    const best = defaults.sort(better)[0];
+    return { rate: best.rate, profitRate: qodirProfitRate(s, p, pRaw, best.profitRate), source: 'DEFAULT', ruleName: best.name };
+  }
+  return { rate: 0, profitRate: 0, source: 'NONE' };
 }
 
 /**
@@ -226,19 +471,40 @@ export function calcCheckExpense(input: { calculatedAmount: number; storeName?: 
  * 0 qaytadi: bitim tasdiqlanmagan, Trust do'koni (o'z daftari bor), bitim sanasi daftar boshlanishidan oldin, summa 0.
  * Yo'nalish (kim kimdan qarzdor) — storeSettlementKind.
  */
-export function calcStoreDebt(input: {
+export function calcStoreDebt(input: StoreDebtInput): number {
+  return calcStoreDebtParts(input).total;
+}
+
+export interface StoreDebtInput {
   calculatedAmount: number | string | { toString(): string };
   storeName?: string | null;
   approvalStatus?: string | null;
   date?: Date | string | null;
+  /** Qodir aka uchun: agent foydasi va bizning 6% foydamiz ham uning qarziga qo'shiladi */
+  agentAmount?: number | string | { toString(): string } | null;
+  expectedProfit?: number | string | { toString(): string } | null;
   /** Sinov uchun: boshlanish kunini almashtirish (standart — STORE_LEDGER_START_YMD) */
   startYmd?: string;
-}): number {
-  if (input.approvalStatus !== 'APPROVED') return 0;
-  if (storeSettlementKind(input.storeName) === 'TRUST') return 0;
-  if (!isOnOrAfterStoreLedgerStart(input.date, input.startYmd)) return 0;
-  const amt = Number(input.calculatedAmount) || 0;
-  return amt > 0 ? round2(amt) : 0;
+}
+
+/**
+ * Do'kon qarzining tarkibi. Oddiy do'kon: faqat chek (mijozga berilgan summa).
+ * Qodir aka (egasi qarori 14.11.2026): U bizga qarzdor — chek + agent ulushi + bizning 6% foyda, 3 alohida qism.
+ *   Misol: limit 10 000 000, diskont 30% → 7 000 000 + 800 000 + 600 000 = 8 400 000.
+ */
+export function calcStoreDebtParts(input: StoreDebtInput): { check: number; agent: number; profit: number; total: number } {
+  const zero = { check: 0, agent: 0, profit: 0, total: 0 };
+  if (input.approvalStatus !== 'APPROVED') return zero;
+  if (storeSettlementKind(input.storeName) === 'TRUST') return zero;
+  const qodir = isQodirStore(input.storeName);
+  // Qodir aka bilan hisob-kitob 01.11.2026 dan (egasi, 14.11.2026: "Qodir aka daftarini to'g'rila"); boshqa do'konlar — STORE_LEDGER_START_YMD
+  const startYmd = input.startYmd ?? (qodir ? QODIR_LEDGER_START_YMD : STORE_LEDGER_START_YMD);
+  if (!isOnOrAfterStoreLedgerStart(input.date, startYmd)) return zero;
+  const check = Math.max(0, round2(Number(input.calculatedAmount) || 0));
+  if (check <= 0) return zero;
+  const agent = qodir ? Math.max(0, round2(Number(input.agentAmount) || 0)) : 0;
+  const profit = qodir ? Math.max(0, round2(Number(input.expectedProfit) || 0)) : 0;
+  return { check, agent, profit, total: round2(check + agent + profit) };
 }
 
 /** Bitim hisob-kitoblarga (foyda, DDS, qarzlar, dashboard) kiradimi — faqat ADMIN tasdiqlagani */
@@ -270,7 +536,15 @@ export function summarizeLedger(entries: TrustLedgerLike[]) {
     if (e.type === 'DEBT') debt += a;
     else if (e.type === 'PAYMENT') paid += a;
   }
-  return { debt: round2(debt), paid: round2(paid), balance: round2(debt - paid) };
+  const balance = round2(debt - paid);
+  // Ortiqcha / oldindan berilgan pul — depozit: keyingi cheklar qarzi shundan avtomatik ayriladi
+  return {
+    debt: round2(debt),
+    paid: round2(paid),
+    balance,
+    debtLeft: Math.max(0, balance),
+    deposit: Math.max(0, round2(-balance)),
+  };
 }
 /** Trust hisob-kitobi: Jami qarz, Trust bergan pul, Qoldiq */
 export function summarizeTrustLedger(entries: TrustLedgerLike[]) {
@@ -340,6 +614,216 @@ export function tashkentDayRange(fromYmd?: string | null, toYmd?: string | null)
   };
 }
 
+// ─────────────────────────── Daftar "Ha" qoidasi ───────────────────────────
+
+/** Daftar "Ha" bo'ladigan do'konlar (normallashtirilgan nom ichida uchrasa) — faqat Imanum provayderi bilan */
+const DAFTAR_STORE_KEYS = ['denov', 'денов', 'jizzax', 'jizzah', 'жиззах', 'джизак'];
+// 'iman daftar' — jonli bazadagi provayder nomi (#3728, Denov): egasi 15.11.2026 — do'koni Denov/Jizzax deb yozilgan chek Daftar hisoblanadi
+const DAFTAR_PROVIDER_KEYS = ['imani', 'imanum', 'imanu', 'иманум', 'имани', 'iman daftar'];
+
+/**
+ * Egasi qarori (14.11.2026): Daftar "Ha" FAQAT provayder Imanum (Imanium) VA do'kon Denov yoki Jizzax bo'lganda.
+ * Boshqa har qanday holatda Daftar "Ha" bo'lmaydi — qo'lda belgilash ham e'tiborga olinmaydi.
+ */
+export function isDaftarDeal(storeName?: string | null, providerName?: string | null): boolean {
+  const s = normalizeName(canonicalStoreName(storeName));
+  const p = normalizeName(canonicalProviderName(providerName));
+  return DAFTAR_PROVIDER_KEYS.some((k) => p.includes(k)) && DAFTAR_STORE_KEYS.some((k) => s.includes(k));
+}
+
+/**
+ * Daftar cheki bosqichlari (egasi tasdiqlagan, 15.11.2026):
+ *   CHEQUE — chek urildi (kompaniya o'z pulidan sarfladi; ilovada pul tushganini tekshirish kerak)
+ *   MONEY  — pul tushdi (ilovada tekshirildi; endi shu limitga qurilma olish kerak)
+ *   DEVICE — qurilma olindi (omborda; narxi qo'lda kiritiladi)
+ *   SOLD   — sotildi (foyda/zarar ma'lum)
+ */
+export type DaftarStage = 'CHEQUE' | 'MONEY' | 'DEVICE' | 'SOLD';
+
+export function daftarStage(status?: string | null): DaftarStage {
+  if (status === 'MONEY_RECEIVED') return 'MONEY';
+  if (status === 'IN_WAREHOUSE' || status === 'IN_TRANSIT') return 'DEVICE';
+  if (status === 'SOLD' || status === 'PARTIAL_AMOUNT') return 'SOLD';
+  return 'CHEQUE';
+}
+
+export interface DaftarDealRow {
+  status?: string | null;
+  withdrawnLimit: number;
+  calculatedAmount: number;
+  agentAmount: number;
+  /** Kompaniya sarflagani = mijozga berilgan + agent ulushi */
+  totalPurchaseCost: number;
+  /** Olingan qurilma narxi (qo'lda kiritiladi; kiritilmagan bo'lsa 0) */
+  devicePurchaseAmount: number;
+  salePrice: number;
+  receivedFromBuyer: number;
+  debtRemainder: number;
+}
+
+/** Bitta daftar chekida kompaniya sarflagan pul */
+export function daftarSpent(d: Pick<DaftarDealRow, 'totalPurchaseCost' | 'calculatedAmount' | 'agentAmount'>): number {
+  return Number(d.totalPurchaseCost) || (Number(d.calculatedAmount) || 0) + (Number(d.agentAmount) || 0);
+}
+
+/** Daftar chekining foyda/zarari: faqat sotilgach = sotilgan narx − kompaniya sarflagani; sotilmagan bo'lsa null */
+export function daftarDealResult(d: DaftarDealRow): number | null {
+  if (daftarStage(d.status) !== 'SOLD' || !(Number(d.salePrice) > 0)) return null;
+  return round2(Number(d.salePrice) - daftarSpent(d));
+}
+
+/**
+ * Daftar (Denov / Jizzax) yig'masi — qoidalar egasidan (15.11.2026), taxminsiz:
+ *   • qurilma narxi va sotuv narxi QO'LDA kiritiladi;
+ *   • foyda/zarar = sotilgan narx − kompaniya sarflagani (mijozga berilgan + agent ulushi), faqat sotilgach;
+ *   • har bir chek bo'yicha alohida qurilma olinadi: qurilma olinmagan chekning limiti — "tovar olish kerak";
+ *   • qoldiqlar: limit qoldig'i, ombordagi tovar, xaridorlar qarzi, pul qoldig'i (tushgan − sarflangan).
+ */
+export function summarizeDaftar(deals: DaftarDealRow[]) {
+  const out = {
+    dealsCount: deals.length,
+    limitTotal: 0,
+    /** Kompaniya sarflagani (hamma cheklar) */
+    spentTotal: 0,
+    stages: { CHEQUE: 0, MONEY: 0, DEVICE: 0, SOLD: 0 } as Record<DaftarStage, number>,
+    /** Qurilma olingan cheklar (omborda + sotilgan): soni va kiritilgan qurilma narxlari yig'indisi */
+    bought: { count: 0, amount: 0, missingPrice: 0 },
+    /** Sotilgan: soni, sotuv narxi, xaridordan tushgan pul */
+    sold: { count: 0, salePrice: 0, received: 0, missingPrice: 0 },
+    /** Foyda/zarar — faqat sotilgan cheklar bo'yicha */
+    profit: 0,
+    /** Tovar olish kerak: qurilma hali olinmagan cheklar (pul tushishini kutayotgan + pul tushgan) */
+    needToBuy: { count: 0, limit: 0, awaitingMoneyCount: 0, awaitingMoneyLimit: 0, readyCount: 0, readyLimit: 0 },
+    balances: {
+      /** Daftardagi limit qoldig'i — hali qurilma olinmagan limit */
+      limitLeft: 0,
+      /** Ombordagi tovar — olingan, sotilmagan qurilmalar narxi */
+      inStock: 0,
+      inStockCount: 0,
+      /** Xaridorlar qarzi */
+      buyerDebt: 0,
+      /** Pul qoldig'i = xaridorlardan tushgan pul − kompaniya sarflagani */
+      cash: 0,
+    },
+  };
+  for (const d of deals) {
+    const limit = Number(d.withdrawnLimit) || 0;
+    const spent = daftarSpent(d);
+    const device = Number(d.devicePurchaseAmount) || 0;
+    const stage = daftarStage(d.status);
+    out.limitTotal += limit;
+    out.spentTotal += spent;
+    out.stages[stage] += 1;
+    if (stage === 'CHEQUE' || stage === 'MONEY') {
+      out.needToBuy.count += 1;
+      out.needToBuy.limit += limit;
+      if (stage === 'CHEQUE') {
+        out.needToBuy.awaitingMoneyCount += 1;
+        out.needToBuy.awaitingMoneyLimit += limit;
+      } else {
+        out.needToBuy.readyCount += 1;
+        out.needToBuy.readyLimit += limit;
+      }
+      out.balances.limitLeft += limit;
+    } else {
+      out.bought.count += 1;
+      out.bought.amount += device;
+      if (!device) out.bought.missingPrice += 1;
+    }
+    if (stage === 'DEVICE') {
+      out.balances.inStock += device;
+      out.balances.inStockCount += 1;
+    }
+    if (stage === 'SOLD') {
+      const sale = Number(d.salePrice) || 0;
+      out.sold.count += 1;
+      out.sold.salePrice += sale;
+      out.sold.received += Number(d.receivedFromBuyer) || 0;
+      if (!sale) out.sold.missingPrice += 1;
+      out.profit += daftarDealResult(d) ?? 0;
+      out.balances.buyerDebt += Math.max(0, Number(d.debtRemainder) || 0);
+    }
+  }
+  out.balances.cash = out.sold.received - out.spentTotal;
+  return out;
+}
+
+// ─────────────────────────── Agent foydasi hisoblanmaydigan agentliklar ───────────────────────────
+
+/**
+ * Egasi qarori (14.11.2026): Anvar agentlar ro'yxatida ALOHIDA qator bo'lib turadi, lekin uning cheklaridan agent foydasi
+ * HECH KIMGA hisoblanmaydi (agentga ham, kompaniyaga ham qo'shilmaydi). Bitimdagi saqlangan agentAmount / tannarx o'zgarmaydi —
+ * qoida faqat HISOBOTLARDA qo'llanadi (Agentlar sahifasi, agent foydasi yig'malari).
+ */
+export const NO_AGENT_COMMISSION_AGENCIES = ['Anvar'];
+
+export function isNoCommissionAgency(agencyName?: string | null): boolean {
+  const key = personNameKey(agencyName);
+  return !!key && NO_AGENT_COMMISSION_AGENCIES.some((n) => personNameKey(n) === key);
+}
+
+/** Hisobotga kiradigan agent foydasi: foydasi hisoblanmaydigan agentlik (Anvar) uchun 0 */
+export function reportAgentAmount(agentAmount: unknown, agencyName?: string | null): number {
+  return isNoCommissionAgency(agencyName) ? 0 : Number(agentAmount) || 0;
+}
+
+// ─────────────────────────── Operator ulushi (agent foydasidan) ───────────────────────────
+
+export interface OperatorShareRule {
+  /** Qoida qaysi agentlik (jamoa) uchun */
+  agency: string;
+  /** Oddiy foiz: har bir bitimning YECHILGAN LIMITIDAN operatorga */
+  basePct: number;
+  /** Operatorning shu OYdagi yechilgan limiti `monthlyLimitThreshold` dan oshgan qismiga foiz */
+  bonusPct: number;
+  monthlyLimitThreshold: number;
+}
+
+/**
+ * Egasi qarori (14.11.2026, aniqlashtirilgan): FAQAT Jahongir jamoasi. Operatorga har bir bitimning YECHILGAN LIMITIDAN 0.5%
+ * (Muyassar 155 900 000 → 779 500; agent foydasidan EMAS);
+ * operatorning bir oydagi yechilgan limiti 500 000 000 dan oshsa — oshgan qismiga 0.7%.
+ * Bu summa agent foydasidan AYRILMAYDI, faqat hisobotda ko'rsatiladi.
+ */
+export const OPERATOR_SHARE_RULES: OperatorShareRule[] = [
+  { agency: 'Jahongir', basePct: 0.5, bonusPct: 0.7, monthlyLimitThreshold: 500_000_000 },
+];
+
+export function operatorShareRuleFor(agencyName?: string | null): OperatorShareRule | null {
+  const key = personNameKey(agencyName);
+  if (!key) return null;
+  return OPERATOR_SHARE_RULES.find((r) => personNameKey(r.agency) === key) || null;
+}
+
+/** Toshkent vaqti bo'yicha oy kaliti (YYYY-MM) */
+export function tashkentMonthKey(date: Date): string {
+  return new Date(date.getTime() + 5 * 3600 * 1000).toISOString().slice(0, 7);
+}
+
+/**
+ * BITTA operatorning bitimlari bo'yicha ulushni bitimma-bitim hisoblaydi (id -> so'm, yaxlitlanmagan).
+ * Bitimlar sana bo'yicha tartiblanadi; har oy uchun limit alohida yig'iladi. Chegarani kesib o'tgan bitim
+ * ikkiga bo'linadi (limitning chegaragacha qismi basePct, oshgan qismi bonusPct).
+ * Oyning to'liq bitimlari berilishi shart (aks holda chegara noto'g'ri sanaladi).
+ */
+export function calcOperatorShares(
+  deals: { id: string; date: Date; withdrawnLimit: number; agentAmount: number }[],
+  rule: OperatorShareRule
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const cumByMonth = new Map<string, number>();
+  const sorted = [...deals].sort((a, b) => a.date.getTime() - b.date.getTime() || a.id.localeCompare(b.id));
+  for (const d of sorted) {
+    const month = tashkentMonthKey(d.date);
+    const before = cumByMonth.get(month) || 0;
+    const limit = Math.max(0, d.withdrawnLimit);
+    cumByMonth.set(month, before + limit);
+    const below = Math.max(0, Math.min(limit, rule.monthlyLimitThreshold - before));
+    out.set(d.id, (below * rule.basePct + (limit - below) * rule.bonusPct) / 100);
+  }
+  return out;
+}
+
 export class CalculationService {
   // Yuqoridagi yagona qoidalarning statik ko'rinishi (CalculationService.xxx deb chaqirish uchun)
   static readonly TRUST_RATE = TRUST_RATE;
@@ -356,8 +840,12 @@ export class CalculationService {
   static summarizeTrustLedger = summarizeTrustLedger;
   static summarizeLedger = summarizeLedger;
   static calcStoreDebt = calcStoreDebt;
+  static calcStoreDebtParts = calcStoreDebtParts;
+  static resolveCommission = resolveCommission;
+  static calcExpectedProfit = calcExpectedProfit;
   static storeSettlementKind = storeSettlementKind;
   static normalizeDealItems = normalizeDealItems;
+  static isDaftarDeal = isDaftarDeal;
 
   /**
    * Determine whether the deal is a "Daftar" provider
@@ -376,52 +864,8 @@ export class CalculationService {
     rules: CommissionRuleItem[],
     dealDate?: Date | string | null
   ): number {
-    const s = (storeName || '').trim().toLowerCase();
-    const p = (providerName || '').trim().toLowerCase();
-
-    // Check custom rules sorted by priority descending
-    const sorted = [...rules].sort((a, b) => b.priority - a.priority);
-    for (const r of sorted) {
-      if (r.storeName && s.includes(r.storeName.toLowerCase())) {
-        return r.ratePercent;
-      }
-      if (r.providerName && p.includes(r.providerName.toLowerCase())) {
-        return r.ratePercent;
-      }
-    }
-
-    // Default fallback rules from Google Sheets formula:
-    // REGEXMATCH(LOWER(TO_TEXT(N)), "green bazar") -> 35%
-    if (s.includes('green bazar')) return 0.35;
-
-    // REGEXMATCH(LOWER(TO_TEXT(G)), "6 oylik|6 oy") -> 35%
-    if (p.includes('6 oylik') || p.includes('6 oy')) return 0.35;
-
-    // REGEXMATCH(LOWER(TO_TEXT(N)), "qodir") -> 22%
-    if (isQodirStore(s) || s.includes('qodir')) return 0.22;
-
-    // REGEXMATCH(LOWER(TO_TEXT(G)), "alif online|vari") -> 27%
-    if (p.includes('alif online') || p.includes('vari')) return 0.27;
-
-    // AND(REGEXMATCH(LOWER(TO_TEXT(G)), "imani|imanu"), date >= 2026-11-03) -> 25%
-    const isIman = p.includes('imani') || p.includes('imanu');
-    if (isIman && dealDate) {
-      const d = new Date(dealDate);
-      if (!isNaN(d.getTime()) && d >= new Date('2026-11-03T00:00:00.000Z')) {
-        return 0.25;
-      }
-    }
-
-    // REGEXMATCH(LOWER(TO_TEXT(G)), "imani|imanu|alif offline|alif nasiya") -> 22%
-    if (isIman || p.includes('alif of') || p.includes('alif offline') || p.includes('alif nasiya')) return 0.22;
-
-    // REGEXMATCH(LOWER(TO_TEXT(G)), "payme") -> 20%
-    if (p.includes('payme')) return 0.20;
-
-    // REGEXMATCH(LOWER(TO_TEXT(G)), "trust") -> 16%
-    if (isTrustDeal(s, p)) return TRUST_RATE;
-
-    return 0;
+    // Nomi tarixiy: bu KOMPANIYA ulushi (agentga diskontning shundan ortig'i qoladi). Qoidalar — resolveCommission.
+    return resolveCommission(storeName, providerName, rules, dealDate).rate;
   }
 
   /**
@@ -454,11 +898,16 @@ export class CalculationService {
     const sName = input.storeName || '';
     const pName = input.providerName || '';
 
-    const isDaftar = input.isDaftarManual !== undefined ? input.isDaftarManual : this.isDaftarProvider(pName);
+    // Daftar "Ha" faqat Imanum + Denov/Jizzax (egasi qarori, 14.11.2026); isDaftarManual endi e'tiborga olinmaydi
+    const isDaftar = isDaftarDeal(sName, pName);
     const purchaseDiscountPct = withdrawn > 0 ? (withdrawn - calculated) / withdrawn : 0;
-    const ruleRate = this.getAgentRate(sName, pName, rules, input.date);
+    const commission = resolveCommission(sName, pName, rules, input.date);
+    const ruleRate = commission.rate;
 
-    const agentAmount = withdrawn * (purchaseDiscountPct - ruleRate);
+    // Agent foydasi = limit × (diskont − kompaniya ulushi); diskont ulushdan kichik bo'lsa 0 (manfiy bo'lmaydi)
+    const agentAmount = Math.max(0, withdrawn * (purchaseDiscountPct - ruleRate));
+    // Kutilayotgan foyda (holatga bog'liq emas): limit − mijozga berilgan − agent − hamkor ulushi
+    const expectedProfit = calcExpectedProfit(withdrawn, purchaseDiscountPct, ruleRate, commission.profitRate);
     const totalPurchaseCost = agentAmount + calculated;
     const agentPct = withdrawn > 0 ? agentAmount / withdrawn : 0;
     const remainingLimit = limit - withdrawn;
@@ -488,23 +937,23 @@ export class CalculationService {
     const salePrice = Number(input.salePrice) || 0;
     const receivedFromBuyer = Number(input.receivedFromBuyer) || 0;
 
-    // Rule 1: Qodir aka / oka yoki Green Bazar bo'lsa xarid summasidan 5% foydaga o'tkaziladi
-    const isQodirOrGreen = isQodir || sLower.includes('qodir') || sLower.includes('green bazar');
-    const partnerBonus5Pct = isQodirOrGreen ? totalPurchaseCost * 0.05 : 0;
-
-    // Rule 2: Trust 1 yoki Trust cheklaridan urilgan tranzaksiyalarda avtomatik tarzda 16% foydaga o'tishi kerak
-    // Trust bizga yechilgan limitning 16% ini qarzdor bo'ladi — bu bitim foydasiga ham kiradi
+    // Trust bizga yechilgan limitning 16% ini qarzdor bo'ladi (Trust daftari)
     const trustDebtAmount = isTrust ? calcTrustDebt(withdrawn) : 0;
-    const trustProfit16Pct = isTrust ? (withdrawn > 0 ? trustDebtAmount : calculated * TRUST_RATE) : 0;
 
-    let profit = partnerBonus5Pct + trustProfit16Pct;
-    let marginPct = isTrust ? 0.16 : 0;
+    // FOYDA (egasi qarori 14.11.2026):
+    //   • sotilgan tovar         — sotuv narxi − tannarx (mijozga berilgan + agent foydasi);
+    //   • daftar "Ha" — qurilma SOTILGUNCHA 0; sotilgach foyda/zarar = sotuv narxi − kompaniya sarflagani (egasi, 15.11.2026);
+    //   • qolgan hamma bitim     — kutilayotgan foyda avtomatik (limit × kompaniya ulushi; hamkor do'konlarda o'z foizi).
+    const profitDeferred = isDaftar && !(status === DealStatus.SOLD && salePrice > 0);
+    let profit = profitDeferred ? 0 : expectedProfit;
+    let marginPct = withdrawn > 0 ? profit / withdrawn : 0;
     let debtRemainder = 0;
 
     if (status === DealStatus.SOLD) {
-      // Sotuv narxi - Yechilgan limit + 5% hamkor bonusi (agar Qodir aka/Green Bazar) + 16% Trust foydasi
-      profit = (salePrice - (calculated + differenceAmount)) + partnerBonus5Pct + trustProfit16Pct;
-      marginPct = salePrice > 0 ? profit / salePrice : (isTrust ? 0.16 : 0);
+      if (salePrice > 0) {
+        profit = salePrice - totalPurchaseCost;
+        marginPct = profit / salePrice;
+      }
       debtRemainder = salePrice - receivedFromBuyer;
     }
 
@@ -537,6 +986,10 @@ export class CalculationService {
       trustDebtAmount,
       isTrust,
       totalExtraBalance,
+      companyRate: ruleRate,
+      profitRate: commission.profitRate,
+      expectedProfit,
+      profitDeferred,
       profit,
       marginPct,
       debtRemainder,

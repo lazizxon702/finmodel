@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Settings, Store, Building2, Users, Percent, ShoppingBag,
-  Plus, Edit, CheckCircle, RefreshCw, Sliders
+  Plus, CheckCircle, RefreshCw, Sliders
 } from 'lucide-react';
 import { formatPercent } from '../utils/format';
 import { useTranslation } from '../context/LanguageContext';
@@ -10,6 +10,10 @@ import {
   Button, Card, Modal, PageHeader, Badge, Field, Input, Select,
   TableContainer, Table, Thead, Tbody, Tr, Th, Td, TableEmpty, EmptyState, Tabs, cn,
 } from '../components/ui';
+import { RowActions } from '../components/references/RowActions';
+import {
+  RuleFormState, emptyRuleForm, ruleToForm, formToRuleBody, isoToTashkentYmd,
+} from '../components/references/ruleForm';
 
 type RefTab = 'RULES' | 'PROVIDERS' | 'STORES' | 'AGENCIES' | 'BUYERS' | 'SETTINGS';
 
@@ -41,27 +45,27 @@ export const ReferencesPage: React.FC = () => {
   // Modallar va forma holatlari
   const [showAddRuleModal, setShowAddRuleModal] = useState(false);
   const [editingRule, setEditingRule] = useState<any | null>(null);
-  const [ruleForm, setRuleForm] = useState({
-    name: '',
-    storeId: '',
-    providerId: '',
-    ratePercent: 0.22,
-    priority: 1,
-  });
+  const [ruleForm, setRuleForm] = useState<RuleFormState>(emptyRuleForm);
 
+  // Har bir ro'yxatda: tahrirlanayotgan yozuv id'si (null — yangi qo'shilmoqda)
   const [showAddStore, setShowAddStore] = useState(false);
+  const [editingStoreId, setEditingStoreId] = useState<string | null>(null);
   const [storeForm, setStoreForm] = useState({ name: '', contactPhone: '', address: '' });
 
   const [showAddProvider, setShowAddProvider] = useState(false);
+  const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
   const [providerForm, setProviderForm] = useState({ name: '', defaultDiscount: 0.25, isDaftarDefault: false });
 
   const [showAddAgency, setShowAddAgency] = useState(false);
+  const [editingAgencyId, setEditingAgencyId] = useState<string | null>(null);
   const [agencyForm, setAgencyForm] = useState({ name: '', phone: '' });
 
   const [showAddAgent, setShowAddAgent] = useState<string | null>(null);
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [agentForm, setAgentForm] = useState({ name: '', phone: '' });
 
   const [showAddBuyer, setShowAddBuyer] = useState(false);
+  const [editingBuyerId, setEditingBuyerId] = useState<string | null>(null);
   const [buyerForm, setBuyerForm] = useState({ name: '', phone: '', isWholesale: true });
 
   const fetchAll = async () => {
@@ -69,9 +73,9 @@ export const ReferencesPage: React.FC = () => {
       setLoading(true);
       const [rRes, pRes, sRes, aRes, bRes, setRes] = await Promise.all([
         axios.get('/api/references/rules'),
-        axios.get('/api/references/providers'),
-        axios.get('/api/references/stores'),
-        axios.get('/api/references/agencies'),
+        axios.get('/api/references/providers', { params: { all: 1 } }),
+        axios.get('/api/references/stores', { params: { all: 1 } }),
+        axios.get('/api/references/agencies', { params: { all: 1 } }),
         axios.get('/api/references/buyers'),
         axios.get('/api/references/settings'),
       ]);
@@ -97,100 +101,215 @@ export const ReferencesPage: React.FC = () => {
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
+  const showError = (err: any) => alert(err.response?.data?.error || t('common.save_error'));
+
   // Qoida amallari
+  const openRuleModal = (rule: any | null) => {
+    setEditingRule(rule);
+    setRuleForm(rule ? ruleToForm(rule) : emptyRuleForm);
+    setShowAddRuleModal(true);
+  };
+
   const handleSaveRule = async (e: React.FormEvent) => {
     e.preventDefault();
+    const parsed = formToRuleBody(ruleForm);
+    if ('error' in parsed) {
+      alert(parsed.error === 'rate' ? t('references.rules.err.rate') : t('references.rules.err.profit'));
+      return;
+    }
+    if (!parsed.body.storeId && !parsed.body.providerId) {
+      alert(t('references.rules.err.target'));
+      return;
+    }
     try {
       if (editingRule) {
-        await axios.put(`/api/references/rules/${editingRule.id}`, {
-          ...ruleForm,
-          storeId: ruleForm.storeId || null,
-          providerId: ruleForm.providerId || null,
-        });
+        await axios.put(`/api/references/rules/${editingRule.id}`, parsed.body);
         notify(t('references.rules.updated'));
       } else {
-        await axios.post('/api/references/rules', {
-          ...ruleForm,
-          storeId: ruleForm.storeId || null,
-          providerId: ruleForm.providerId || null,
-        });
+        await axios.post('/api/references/rules', parsed.body);
         notify(t('references.rules.saved'));
       }
       setShowAddRuleModal(false);
       setEditingRule(null);
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || t('common.save_error'));
+      showError(err);
+    }
+  };
+
+  // Umumiy o'chirish: server bog'langan yozuvni o'chirmay yashirsa (deactivated) — shuni aytamiz
+  const handleDelete = async (path: string, name: string, deletedMsg: string) => {
+    if (!window.confirm(t('references.confirmDelete').replace('{name}', name))) return;
+    try {
+      const res = await axios.delete(`/api/references/${path}`);
+      notify(res.data?.deactivated ? t('references.deactivated') : deletedMsg);
+      fetchAll();
+    } catch (err: any) {
+      alert(err.response?.data?.error || t('common.delete_error'));
+    }
+  };
+
+  // Yashirilgan yozuvni qayta yoqish
+  const handleRestore = async (path: string) => {
+    try {
+      await axios.put(`/api/references/${path}`, { isActive: true });
+      notify(t('references.restored'));
+      fetchAll();
+    } catch (err: any) {
+      showError(err);
     }
   };
 
   // Do'kon amallari
+  const openStoreModal = (store: any | null) => {
+    setEditingStoreId(store?.id || null);
+    setStoreForm({ name: store?.name || '', contactPhone: store?.contactPhone || '', address: store?.address || '' });
+    setShowAddStore(true);
+  };
+
   const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post('/api/references/stores', storeForm);
+      if (editingStoreId) {
+        await axios.put(`/api/references/stores/${editingStoreId}`, storeForm);
+        notify(t('references.stores.updated'));
+      } else {
+        await axios.post('/api/references/stores', storeForm);
+        notify(t('references.stores.added'));
+      }
       setShowAddStore(false);
+      setEditingStoreId(null);
       setStoreForm({ name: '', contactPhone: '', address: '' });
-      notify(t('references.stores.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || t('common.save_error'));
+      showError(err);
     }
   };
 
   // Provayder amallari
+  const openProviderModal = (p: any | null) => {
+    setEditingProviderId(p?.id || null);
+    setProviderForm(
+      p
+        ? { name: p.name, defaultDiscount: Number(p.defaultDiscount), isDaftarDefault: Boolean(p.isDaftarDefault) }
+        : { name: '', defaultDiscount: 0.25, isDaftarDefault: false }
+    );
+    setShowAddProvider(true);
+  };
+
   const handleSaveProvider = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post('/api/references/providers', providerForm);
+      if (editingProviderId) {
+        await axios.put(`/api/references/providers/${editingProviderId}`, providerForm);
+        notify(t('references.providers.updated'));
+      } else {
+        await axios.post('/api/references/providers', providerForm);
+        notify(t('references.providers.added'));
+      }
       setShowAddProvider(false);
+      setEditingProviderId(null);
       setProviderForm({ name: '', defaultDiscount: 0.25, isDaftarDefault: false });
-      notify(t('references.providers.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || t('common.save_error'));
+      showError(err);
     }
   };
 
   // Agentlik amallari
+  const openAgencyModal = (a: any | null) => {
+    setEditingAgencyId(a?.id || null);
+    setAgencyForm({ name: a?.name || '', phone: a?.phone || '' });
+    setShowAddAgency(true);
+  };
+
   const handleSaveAgency = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post('/api/references/agencies', agencyForm);
+      if (editingAgencyId) {
+        await axios.put(`/api/references/agencies/${editingAgencyId}`, agencyForm);
+        notify(t('references.agencies.updated'));
+      } else {
+        await axios.post('/api/references/agencies', agencyForm);
+        notify(t('references.agencies.added'));
+      }
       setShowAddAgency(false);
+      setEditingAgencyId(null);
       setAgencyForm({ name: '', phone: '' });
-      notify(t('references.agencies.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || t('common.save_error'));
+      showError(err);
     }
+  };
+
+  // Agent: yangi qo'shish (agentlik id'si bilan) yoki tahrirlash (agent id'si bilan)
+  const openAgentModal = (agencyId: string, agent: any | null) => {
+    setShowAddAgent(agencyId);
+    setEditingAgentId(agent?.id || null);
+    setAgentForm({ name: agent?.name || '', phone: agent?.phone || '' });
+  };
+
+  const closeAgentModal = () => {
+    setShowAddAgent(null);
+    setEditingAgentId(null);
   };
 
   const handleSaveAgent = async (agencyId: string, e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post(`/api/references/agencies/${agencyId}/agents`, agentForm);
-      setShowAddAgent(null);
+      if (editingAgentId) {
+        await axios.put(`/api/references/agents/${editingAgentId}`, agentForm);
+        notify(t('references.agents.updated'));
+      } else {
+        await axios.post(`/api/references/agencies/${agencyId}/agents`, agentForm);
+        notify(t('references.agents.added'));
+      }
+      closeAgentModal();
       setAgentForm({ name: '', phone: '' });
-      notify(t('references.agents.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || t('common.save_error'));
+      showError(err);
     }
   };
 
   // Xaridor amallari
+  const openBuyerModal = (b: any | null) => {
+    setEditingBuyerId(b?.id || null);
+    setBuyerForm({ name: b?.name || '', phone: b?.phone || '', isWholesale: b ? Boolean(b.isWholesale) : true });
+    setShowAddBuyer(true);
+  };
+
   const handleSaveBuyer = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await axios.post('/api/references/buyers', buyerForm);
+      if (editingBuyerId) {
+        await axios.put(`/api/references/buyers/${editingBuyerId}`, buyerForm);
+        notify(t('references.buyers.updated'));
+      } else {
+        await axios.post('/api/references/buyers', buyerForm);
+        notify(t('references.buyers.added'));
+      }
       setShowAddBuyer(false);
+      setEditingBuyerId(null);
       setBuyerForm({ name: '', phone: '', isWholesale: true });
-      notify(t('references.buyers.added'));
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.error || t('common.save_error'));
+      showError(err);
     }
+  };
+
+  // Yashirilgan (nofaol) qator ko'rinishi
+  const dimmed = (inactive: boolean) => (inactive ? 'opacity-55' : undefined);
+  const hiddenBadge = (inactive: boolean) =>
+    inactive ? <Badge tone="neutral" className="ml-2">{t('references.hidden')}</Badge> : null;
+
+  // "dd.mm.yyyy" ko'rinishida davr (bo'sh tomon — cheklanmagan)
+  const fmtYmd = (ymd: string) => (ymd ? ymd.split('-').reverse().join('.') : '');
+  const rulePeriod = (rule: any) => {
+    const from = fmtYmd(isoToTashkentYmd(rule.validFrom));
+    const to = fmtYmd(isoToTashkentYmd(rule.validTo));
+    if (!from && !to) return t('references.rules.noLimit');
+    return `${from || '…'} — ${to || '…'}`;
   };
 
   const plusIcon = <Plus className="h-4 w-4" />;
@@ -246,11 +365,7 @@ export const ReferencesPage: React.FC = () => {
             <Button
               className="shrink-0"
               leftIcon={plusIcon}
-              onClick={() => {
-                setEditingRule(null);
-                setRuleForm({ name: '', storeId: '', providerId: '', ratePercent: 0.22, priority: 1 });
-                setShowAddRuleModal(true);
-              }}
+              onClick={() => openRuleModal(null)}
             >
               {t('references.rules.add')}
             </Button>
@@ -264,21 +379,27 @@ export const ReferencesPage: React.FC = () => {
                   <Th>{t('common.store')}</Th>
                   <Th>{t('common.provider')}</Th>
                   <Th align="right">{t('references.rules.col.rate')}</Th>
+                  <Th align="right">{t('references.rules.col.profit')}</Th>
+                  <Th>{t('references.rules.col.period')}</Th>
                   <Th align="center">{t('references.rules.col.priority')}</Th>
                   <Th align="center">{t('common.status')}</Th>
                   <Th align="center">{t('common.actions')}</Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {rules.length === 0 && <TableEmpty colSpan={7} title={t('references.rules.empty')} />}
+                {rules.length === 0 && <TableEmpty colSpan={9} title={t('references.rules.empty')} />}
                 {rules.map((rule) => (
-                  <Tr key={rule.id}>
+                  <Tr key={rule.id} className={dimmed(!rule.isActive)}>
                     <Td className="font-semibold text-fg">{rule.name}</Td>
                     <Td className="text-fg-secondary">{rule.store?.name || t('references.rules.anyStore')}</Td>
                     <Td className="text-fg-secondary">{rule.provider?.name || t('references.rules.anyProvider')}</Td>
                     <Td align="right" numeric className="font-semibold text-accent">
                       {formatPercent(rule.ratePercent)}
                     </Td>
+                    <Td align="right" numeric className={rule.profitPercent == null ? 'text-fg-muted' : 'font-semibold text-fg'}>
+                      {formatPercent(rule.profitPercent ?? rule.ratePercent)}
+                    </Td>
+                    <Td numeric className="whitespace-nowrap text-fg-secondary">{rulePeriod(rule)}</Td>
                     <Td align="center" numeric className="text-fg-secondary">{rule.priority}</Td>
                     <Td align="center">
                       <Badge tone={rule.isActive ? 'success' : 'neutral'}>
@@ -286,24 +407,10 @@ export const ReferencesPage: React.FC = () => {
                       </Badge>
                     </Td>
                     <Td align="center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        leftIcon={<Edit className="h-3.5 w-3.5" />}
-                        onClick={() => {
-                          setEditingRule(rule);
-                          setRuleForm({
-                            name: rule.name,
-                            storeId: rule.storeId || '',
-                            providerId: rule.providerId || '',
-                            ratePercent: Number(rule.ratePercent),
-                            priority: rule.priority,
-                          });
-                          setShowAddRuleModal(true);
-                        }}
-                      >
-                        {t('common.edit')}
-                      </Button>
+                      <RowActions
+                        onEdit={() => openRuleModal(rule)}
+                        onDelete={() => handleDelete(`rules/${rule.id}`, rule.name, t('references.rules.deleted'))}
+                      />
                     </Td>
                   </Tr>
                 ))}
@@ -319,7 +426,7 @@ export const ReferencesPage: React.FC = () => {
           <SectionBar
             hint={t('references.providers.hint')}
             action={
-              <Button leftIcon={plusIcon} onClick={() => setShowAddProvider(true)}>
+              <Button leftIcon={plusIcon} onClick={() => openProviderModal(null)}>
                 {t('references.providers.add')}
               </Button>
             }
@@ -333,13 +440,14 @@ export const ReferencesPage: React.FC = () => {
                   <Th align="right">{t('references.providers.col.discount')}</Th>
                   <Th align="center">{t('references.providers.col.daftar')}</Th>
                   <Th align="center">{t('references.providers.col.id')}</Th>
+                  <Th align="center">{t('common.actions')}</Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {providers.length === 0 && <TableEmpty colSpan={4} title={t('references.providers.empty')} />}
+                {providers.length === 0 && <TableEmpty colSpan={5} title={t('references.providers.empty')} />}
                 {providers.map((p) => (
-                  <Tr key={p.id}>
-                    <Td className="font-semibold text-fg">{p.name}</Td>
+                  <Tr key={p.id} className={dimmed(!p.isActive)}>
+                    <Td className="font-semibold text-fg">{p.name}{hiddenBadge(!p.isActive)}</Td>
                     <Td align="right" numeric className="text-fg-secondary">{formatPercent(p.defaultDiscount)}</Td>
                     <Td align="center">
                       <Badge tone={p.isDaftarDefault ? 'danger' : 'neutral'}>
@@ -347,6 +455,14 @@ export const ReferencesPage: React.FC = () => {
                       </Badge>
                     </Td>
                     <Td align="center" numeric className="font-mono text-xs text-fg-muted">{p.id.slice(0, 8)}...</Td>
+                    <Td align="center">
+                      <RowActions
+                        inactive={!p.isActive}
+                        onRestore={() => handleRestore(`providers/${p.id}`)}
+                        onEdit={() => openProviderModal(p)}
+                        onDelete={() => handleDelete(`providers/${p.id}`, p.name, t('references.providers.deleted'))}
+                      />
+                    </Td>
                   </Tr>
                 ))}
               </Tbody>
@@ -361,7 +477,7 @@ export const ReferencesPage: React.FC = () => {
           <SectionBar
             hint={t('references.stores.hint')}
             action={
-              <Button leftIcon={plusIcon} onClick={() => setShowAddStore(true)}>
+              <Button leftIcon={plusIcon} onClick={() => openStoreModal(null)}>
                 {t('references.stores.add')}
               </Button>
             }
@@ -374,15 +490,24 @@ export const ReferencesPage: React.FC = () => {
                   <Th>{t('references.stores.col.name')}</Th>
                   <Th>{t('references.stores.col.phone')}</Th>
                   <Th>{t('common.address')}</Th>
+                  <Th align="center">{t('common.actions')}</Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {stores.length === 0 && <TableEmpty colSpan={3} title={t('references.stores.empty')} />}
+                {stores.length === 0 && <TableEmpty colSpan={4} title={t('references.stores.empty')} />}
                 {stores.map((s) => (
-                  <Tr key={s.id}>
-                    <Td className="font-semibold text-fg">{s.name}</Td>
+                  <Tr key={s.id} className={dimmed(!s.isActive)}>
+                    <Td className="font-semibold text-fg">{s.name}{hiddenBadge(!s.isActive)}</Td>
                     <Td numeric className="text-fg-secondary">{s.contactPhone || '-'}</Td>
                     <Td className="text-fg-muted">{s.address || '-'}</Td>
+                    <Td align="center">
+                      <RowActions
+                        inactive={!s.isActive}
+                        onRestore={() => handleRestore(`stores/${s.id}`)}
+                        onEdit={() => openStoreModal(s)}
+                        onDelete={() => handleDelete(`stores/${s.id}`, s.name, t('references.stores.deleted'))}
+                      />
+                    </Td>
                   </Tr>
                 ))}
               </Tbody>
@@ -397,7 +522,7 @@ export const ReferencesPage: React.FC = () => {
           <SectionBar
             hint={t('references.agencies.hint')}
             action={
-              <Button leftIcon={plusIcon} onClick={() => setShowAddAgency(true)}>
+              <Button leftIcon={plusIcon} onClick={() => openAgencyModal(null)}>
                 {t('references.agencies.add')}
               </Button>
             }
@@ -420,29 +545,47 @@ export const ReferencesPage: React.FC = () => {
                     </h3>
                     <p className="mt-0.5 text-xs tabular-nums text-fg-muted">{agency.phone || t('references.agencies.noPhone')}</p>
                   </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="shrink-0"
-                    leftIcon={<Plus className="h-3.5 w-3.5" />}
-                    onClick={() => {
-                      setShowAddAgent(agency.id);
-                      setAgentForm({ name: '', phone: '' });
-                    }}
-                  >
-                    {t('references.agencies.addAgent')}
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      leftIcon={<Plus className="h-3.5 w-3.5" />}
+                      onClick={() => openAgentModal(agency.id, null)}
+                    >
+                      {t('references.agencies.addAgent')}
+                    </Button>
+                    <RowActions
+                      onEdit={() => openAgencyModal(agency)}
+                      onDelete={() => handleDelete(`agencies/${agency.id}`, agency.name, t('references.agencies.deleted'))}
+                    />
+                  </div>
                 </div>
 
                 <div className="border-t border-line pt-3">
                   <span className="text-xs font-medium text-fg-muted">{t('references.agencies.agentsList')}</span>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="mt-2 space-y-1">
                     {agency.agents?.length > 0 ? (
                       agency.agents.map((agt: any) => (
-                        <Badge key={agt.id}>
-                          {agt.name}
-                          {agt.phone && <span className="tabular-nums text-fg-muted">({agt.phone})</span>}
-                        </Badge>
+                        <div
+                          key={agt.id}
+                          className={cn(
+                            'flex items-center justify-between gap-2 rounded-control bg-surface-2 px-2.5 py-1',
+                            dimmed(!agt.isActive)
+                          )}
+                        >
+                          <span className="min-w-0 truncate text-sm text-fg">
+                            {agt.name}
+                            {agt.phone && <span className="ml-1.5 text-xs tabular-nums text-fg-muted">({agt.phone})</span>}
+                            {hiddenBadge(!agt.isActive)}
+                          </span>
+                          <RowActions
+                            compact
+                            inactive={!agt.isActive}
+                            onRestore={() => handleRestore(`agents/${agt.id}`)}
+                            onEdit={() => openAgentModal(agency.id, agt)}
+                            onDelete={() => handleDelete(`agents/${agt.id}`, agt.name, t('references.agents.deleted'))}
+                          />
+                        </div>
                       ))
                     ) : (
                       <span className="text-xs text-fg-muted">{t('references.agencies.noAgents')}</span>
@@ -461,7 +604,7 @@ export const ReferencesPage: React.FC = () => {
           <SectionBar
             hint={t('references.buyers.hint')}
             action={
-              <Button leftIcon={plusIcon} onClick={() => setShowAddBuyer(true)}>
+              <Button leftIcon={plusIcon} onClick={() => openBuyerModal(null)}>
                 {t('references.buyers.add')}
               </Button>
             }
@@ -474,10 +617,11 @@ export const ReferencesPage: React.FC = () => {
                   <Th>{t('references.buyers.col.name')}</Th>
                   <Th>{t('common.phone')}</Th>
                   <Th align="center">{t('references.buyers.col.type')}</Th>
+                  <Th align="center">{t('common.actions')}</Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {buyers.length === 0 && <TableEmpty colSpan={3} title={t('references.buyers.empty')} />}
+                {buyers.length === 0 && <TableEmpty colSpan={4} title={t('references.buyers.empty')} />}
                 {buyers.map((b) => (
                   <Tr key={b.id}>
                     <Td className="font-semibold text-fg">{b.name}</Td>
@@ -486,6 +630,12 @@ export const ReferencesPage: React.FC = () => {
                       <Badge tone={b.isWholesale ? 'brand' : 'neutral'}>
                         {b.isWholesale ? t('references.buyers.wholesale') : t('references.buyers.retail')}
                       </Badge>
+                    </Td>
+                    <Td align="center">
+                      <RowActions
+                        onEdit={() => openBuyerModal(b)}
+                        onDelete={() => handleDelete(`buyers/${b.id}`, b.name, t('references.buyers.deleted'))}
+                      />
                     </Td>
                   </Tr>
                 ))}
@@ -554,7 +704,7 @@ export const ReferencesPage: React.FC = () => {
               onChange={(e) => setRuleForm({ ...ruleForm, storeId: e.target.value })}
             >
               <option value="">{t('references.rules.field.allStores')}</option>
-              {stores.map((s) => (
+              {stores.filter((s) => s.isActive || s.id === ruleForm.storeId).map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </Select>
@@ -567,7 +717,7 @@ export const ReferencesPage: React.FC = () => {
               onChange={(e) => setRuleForm({ ...ruleForm, providerId: e.target.value })}
             >
               <option value="">{t('references.rules.field.allProviders')}</option>
-              {providers.map((p) => (
+              {providers.filter((p) => p.isActive || p.id === ruleForm.providerId).map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </Select>
@@ -584,11 +734,48 @@ export const ReferencesPage: React.FC = () => {
                 id="ref-rule-rate"
                 type="number"
                 step="0.01"
+                min="0"
+                max="100"
                 required
                 className="tabular-nums"
                 onFocus={(e) => e.target.select()}
-                value={ruleForm.ratePercent}
-                onChange={(e) => setRuleForm({ ...ruleForm, ratePercent: parseFloat(e.target.value) || 0 })}
+                value={ruleForm.ratePct}
+                onChange={(e) => setRuleForm({ ...ruleForm, ratePct: e.target.value })}
+              />
+            </Field>
+            <Field
+              label={t('references.rules.field.profit')}
+              hint={t('references.rules.field.profit_hint')}
+              htmlFor="ref-rule-profit"
+            >
+              <Input
+                id="ref-rule-profit"
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                className="tabular-nums"
+                placeholder={t('references.rules.field.profit_placeholder')}
+                onFocus={(e) => e.target.select()}
+                value={ruleForm.profitPct}
+                onChange={(e) => setRuleForm({ ...ruleForm, profitPct: e.target.value })}
+              />
+            </Field>
+            <Field label={t('references.rules.field.validFrom')} htmlFor="ref-rule-from">
+              <Input
+                id="ref-rule-from"
+                type="date"
+                value={ruleForm.validFrom}
+                onChange={(e) => setRuleForm({ ...ruleForm, validFrom: e.target.value })}
+              />
+            </Field>
+            <Field label={t('references.rules.field.validTo')} htmlFor="ref-rule-to">
+              <Input
+                id="ref-rule-to"
+                type="date"
+                min={ruleForm.validFrom || undefined}
+                value={ruleForm.validTo}
+                onChange={(e) => setRuleForm({ ...ruleForm, validTo: e.target.value })}
               />
             </Field>
             <Field label={t('references.rules.col.priority')} required htmlFor="ref-rule-priority">
@@ -599,9 +786,19 @@ export const ReferencesPage: React.FC = () => {
                 className="tabular-nums"
                 onFocus={(e) => e.target.select()}
                 value={ruleForm.priority}
-                onChange={(e) => setRuleForm({ ...ruleForm, priority: parseInt(e.target.value) || 1 })}
+                onChange={(e) => setRuleForm({ ...ruleForm, priority: e.target.value })}
               />
             </Field>
+            <label htmlFor="ref-rule-active" className="flex min-h-touch cursor-pointer items-center gap-2 self-end text-sm text-fg-secondary">
+              <input
+                type="checkbox"
+                id="ref-rule-active"
+                checked={ruleForm.isActive}
+                onChange={(e) => setRuleForm({ ...ruleForm, isActive: e.target.checked })}
+                className={checkboxClass}
+              />
+              {t('references.rules.field.active')}
+            </label>
           </div>
         </form>
       </Modal>
@@ -610,11 +807,11 @@ export const ReferencesPage: React.FC = () => {
       <Modal
         open={showAddStore}
         onClose={() => setShowAddStore(false)}
-        title={t('references.stores.modal.title')}
+        title={editingStoreId ? t('references.stores.modal.editTitle') : t('references.stores.modal.title')}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowAddStore(false)}>{t('common.cancel')}</Button>
-            <Button type="submit" form="ref-store-form">{t('common.add')}</Button>
+            <Button type="submit" form="ref-store-form">{editingStoreId ? t('common.save') : t('common.add')}</Button>
           </>
         }
       >
@@ -651,11 +848,11 @@ export const ReferencesPage: React.FC = () => {
       <Modal
         open={showAddProvider}
         onClose={() => setShowAddProvider(false)}
-        title={t('references.providers.modal.title')}
+        title={editingProviderId ? t('references.providers.modal.editTitle') : t('references.providers.modal.title')}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowAddProvider(false)}>{t('common.cancel')}</Button>
-            <Button type="submit" form="ref-provider-form">{t('common.add')}</Button>
+            <Button type="submit" form="ref-provider-form">{editingProviderId ? t('common.save') : t('common.add')}</Button>
           </>
         }
       >
@@ -704,11 +901,11 @@ export const ReferencesPage: React.FC = () => {
       <Modal
         open={showAddAgency}
         onClose={() => setShowAddAgency(false)}
-        title={t('references.agencies.modal.title')}
+        title={editingAgencyId ? t('references.agencies.modal.editTitle') : t('references.agencies.modal.title')}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowAddAgency(false)}>{t('common.cancel')}</Button>
-            <Button type="submit" form="ref-agency-form">{t('common.add')}</Button>
+            <Button type="submit" form="ref-agency-form">{editingAgencyId ? t('common.save') : t('common.add')}</Button>
           </>
         }
       >
@@ -738,12 +935,12 @@ export const ReferencesPage: React.FC = () => {
       {showAddAgent && (
         <Modal
           open
-          onClose={() => setShowAddAgent(null)}
-          title={t('references.agents.modal.title')}
+          onClose={closeAgentModal}
+          title={editingAgentId ? t('references.agents.modal.editTitle') : t('references.agents.modal.title')}
           footer={
             <>
-              <Button variant="secondary" onClick={() => setShowAddAgent(null)}>{t('common.cancel')}</Button>
-              <Button type="submit" form="ref-agent-form">{t('common.add')}</Button>
+              <Button variant="secondary" onClick={closeAgentModal}>{t('common.cancel')}</Button>
+              <Button type="submit" form="ref-agent-form">{editingAgentId ? t('common.save') : t('common.add')}</Button>
             </>
           }
         >
@@ -774,11 +971,11 @@ export const ReferencesPage: React.FC = () => {
       <Modal
         open={showAddBuyer}
         onClose={() => setShowAddBuyer(false)}
-        title={t('references.buyers.modal.title')}
+        title={editingBuyerId ? t('references.buyers.modal.editTitle') : t('references.buyers.modal.title')}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowAddBuyer(false)}>{t('common.cancel')}</Button>
-            <Button type="submit" form="ref-buyer-form">{t('common.add')}</Button>
+            <Button type="submit" form="ref-buyer-form">{editingBuyerId ? t('common.save') : t('common.add')}</Button>
           </>
         }
       >

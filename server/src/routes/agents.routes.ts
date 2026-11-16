@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { Prisma, Role } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { isNoCommissionAgency, reportAgentAmount } from '../services/calculation.service';
 import { AuthRequest, authenticateToken } from '../middleware/auth.middleware';
 import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../services/access.service';
 import {
@@ -101,6 +102,7 @@ router.get('/deals', authenticateToken, denyOperator, async (req: AuthRequest, r
             withdrawnLimit: true,
             calculatedAmount: true,
             agentAmount: true,
+            agency: { select: { name: true } },
             profit: true,
             agentPct: true,
             purchaseDiscountPct: true,
@@ -152,7 +154,9 @@ router.get('/deals', authenticateToken, denyOperator, async (req: AuthRequest, r
       calculatedAmount: num(d.calculatedAmount),
       purchaseDiscountPct: num(d.purchaseDiscountPct),
       // Agent foydasi = Yechilgan limit × (Xarid diskonti − Agent foizi)
-      agentAmount: num(d.agentAmount),
+      // Foydasi hisoblanmaydigan agentlik (Anvar) — 0 va belgi
+      agentAmount: reportAgentAmount(d.agentAmount, d.agency?.name),
+      noCommission: isNoCommissionAgency(d.agency?.name),
       agentPct: num(d.agentPct),
       profit: num(d.profit),
       marginPct: num(d.marginPct),
@@ -176,7 +180,7 @@ router.get('/deals', authenticateToken, denyOperator, async (req: AuthRequest, r
       const w = num(d.withdrawnLimit);
       totalWithdrawn += w;
       totalCalculated += num(d.calculatedAmount);
-      totalAgentCommission += num(d.agentAmount);
+      totalAgentCommission += reportAgentAmount(d.agentAmount, d.agency?.name);
       totalProfit += num(d.profit);
       sumAgentPct += num(d.agentPct);
       sumDiscountPct += num(d.purchaseDiscountPct);
@@ -257,6 +261,7 @@ router.get('/commission-summary', authenticateToken, denyOperator, async (req: A
       dealsToday: number;
       dealsMonth: number;
       dealsTotal: number;
+      noCommission?: boolean;
     };
     const emptyRow = (agencyId: string | null, agencyName: string): Row => ({
       agencyId,
@@ -331,6 +336,15 @@ router.get('/commission-summary', authenticateToken, denyOperator, async (req: A
         if (r) {
           r.today = num(g._sum.agentAmount);
           r.dealsToday = g._count._all;
+        }
+      }
+      // Foydasi hisoblanmaydigan agentlik (Anvar): qator qoladi (cheklar soni bilan), agent foydasi 0
+      for (const r of map.values()) {
+        if (isNoCommissionAgency(r.agencyName)) {
+          r.today = 0;
+          r.month = 0;
+          r.total = 0;
+          r.noCommission = true;
         }
       }
       rows = Array.from(map.values()).sort((a, b) => b.total - a.total || a.agencyName.localeCompare(b.agencyName));

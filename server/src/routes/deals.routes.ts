@@ -6,6 +6,9 @@ import { requireAdminConfirm } from '../lib/security';
 import { emitRealtime } from '../lib/realtime';
 import {
   CalculationService,
+  calcOperatorShares,
+  reportAgentAmount,
+  operatorShareRuleFor,
   formatTashkentDateTime,
   initialApprovalStatus,
   isQodirStore,
@@ -140,6 +143,30 @@ export function dealDateTimeLabel(deal: { date: Date | string; createdAt?: Date 
 }
 
 /** Sana oralig'i filtri: "YYYY-MM-DD" — Toshkent kuni chegaralari bilan; to'liq ISO — o'zicha */
+/**
+ * OPERATOR uchun ulush (faqat qoida bor jamoa — Jahongir): bitim id -> so'm. Oylik chegara to'g'ri sanalishi uchun
+ * operatorning BARCHA tasdiqlangan bitimlari olinadi. Boshqa rol yoki qoidasiz jamoa — rule: null.
+ */
+async function operatorSharesForUser(user: NonNullable<AuthRequest['user']>) {
+  const none = { rule: null as ReturnType<typeof operatorShareRuleFor>, shares: new Map<string, number>() };
+  if (user.role !== Role.OPERATOR) return none;
+  const me = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { parentAgent: { select: { agency: { select: { name: true } } } } },
+  });
+  const rule = operatorShareRuleFor(me?.parentAgent?.agency?.name);
+  if (!rule) return none;
+  const own = await prisma.deal.findMany({
+    where: await scopedDealWhere(user, APPROVED_ONLY),
+    select: { id: true, date: true, withdrawnLimit: true },
+  });
+  const shares = calcOperatorShares(
+    own.map((d) => ({ id: d.id, date: d.date, withdrawnLimit: Number(d.withdrawnLimit), agentAmount: 0 })),
+    rule
+  );
+  return { rule, shares };
+}
+
 export function dateRangeWhere(startDate?: unknown, endDate?: unknown): Prisma.DateTimeFilter | undefined {
   const bound = (v: unknown, isEnd: boolean): Date | undefined => {
     if (v === undefined || v === null || v === '') return undefined;
@@ -704,8 +731,15 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
       }),
     ]);
 
+    // Ulush qoidasi bor jamoa operatori: har bir chekda agent summasi o'rniga o'z ulushi (tasdiqlanmagan chek — 0)
+    const { rule: operatorShareRule, shares } = await operatorSharesForUser(req.user!);
+
     return res.json({
-      deals: deals.map(serializeDeal),
+      deals: deals.map((d) => {
+        const dto = serializeDeal(d);
+        return operatorShareRule ? { ...dto, operatorShare: Math.round(shares.get(d.id) || 0) } : dto;
+      }),
+      operatorShareRule,
       pagination: {
         total: totalCount,
         page: pageNum,
@@ -746,6 +780,7 @@ router.get('/totals', authenticateToken, async (req: AuthRequest, res: Response)
     const deals = await prisma.deal.findMany({
       where: await scopedDealWhere(req.user!, APPROVED_ONLY, filters),
       select: {
+        id: true,
         customerLimit: true,
         withdrawnLimit: true,
         agentAmount: true,
@@ -765,6 +800,7 @@ router.get('/totals', authenticateToken, async (req: AuthRequest, res: Response)
         debtRemainder: true,
         status: true,
         store: { select: { name: true } },
+        agency: { select: { name: true } },
       },
     });
 
@@ -773,7 +809,8 @@ router.get('/totals', authenticateToken, async (req: AuthRequest, res: Response)
         acc.dealCount += 1;
         acc.totalLimit += n(d.customerLimit);
         acc.totalWithdrawn += n(d.withdrawnLimit);
-        acc.totalAgentAmount += n(d.agentAmount);
+        // Anvar cheklaridan agent foydasi hech kimga hisoblanmaydi (egasi qarori, 14.11.2026)
+        acc.totalAgentAmount += reportAgentAmount(d.agentAmount, d.agency?.name);
         acc.totalPurchaseCost += n(d.totalPurchaseCost);
         acc.totalCalculatedAmount += n(d.calculatedAmount);
         acc.totalRemainingLimit += n(d.remainingLimit);
@@ -833,7 +870,11 @@ router.get('/totals', authenticateToken, async (req: AuthRequest, res: Response)
       }
     );
 
-    return res.json(totals);
+    // OPERATOR (faqat ulush qoidasi bor jamoa — Jahongir): agent komissiyasi o'rniga O'Z ulushi ko'rsatiladi
+    const { rule: operatorShareRule, shares } = await operatorSharesForUser(req.user!);
+    const operatorShare = Math.round(deals.reduce((sum, d) => sum + (shares.get(d.id) || 0), 0));
+
+    return res.json({ ...totals, operatorShareRule, operatorShare });
   } catch (error: any) {
     return sendError(res, error, 'Jami summalarni hisoblashda xatolik');
   }
@@ -1156,8 +1197,14 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
   }
 });
 
+/** Kuzatuvchi (VIEWER) bitimlarni faqat ko'radi — qo'shish, tahrirlash va o'chirish taqiqlangan (egasi, 15.11.2026) */
+function denyViewer(req: AuthRequest, res: Response, next: () => void) {
+  if (req.user?.role === Role.VIEWER) return res.status(403).json({ error: "Kuzatuvchi roli bitimlarni faqat ko'ra oladi — o'zgartirish huquqi yo'q" });
+  return next();
+}
+
 // POST /api/deals — yangi bitim. OPERATOR/AGENT kiritgani PENDING_APPROVAL, qolganlarniki darhol APPROVED
-router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Response) => {
   try {
     const body = req.body || {};
     const user = req.user!;
@@ -1349,7 +1396,7 @@ router.post('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 });
 
 // PUT /api/deals/:id — tahrirlash. OPERATOR/AGENT: faqat o'z doirasidagi va tasdiqlanmagan bitim
-router.put('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const body = req.body || {};
@@ -1734,7 +1781,7 @@ router.delete('/all', authenticateToken, requireRoles([Role.ADMIN]), requireAdmi
 });
 
 // DELETE /api/deals/:id — ADMIN/MANAGER: istalgan; OPERATOR/AGENT: faqat o'z doirasidagi kutilayotgan bitim
-router.delete('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const user = req.user!;

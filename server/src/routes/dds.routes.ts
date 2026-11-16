@@ -244,11 +244,11 @@ router.get('/categories', authenticateToken, denyScopedRoles, async (req: AuthRe
     });
 
     // Tizim kategoriyalari doim ro'yxatda: Trust to'lovi (KIRIM), chek xarajati (CHIQIM),
-    // Qodir akaga to'lov (CHIQIM, COGS) va do'kondan tushum (KIRIM)
+    // Qodir aka bergan pul (KIRIM — 14.11.2026 dan u bizga qarzdor) va do'kondan tushum (KIRIM)
     const system = [
       { name: TRUST_INCOME_CATEGORY, type: TransactionType.INCOME, expenseType: ExpenseCategoryType.INCOME_TRANSFER },
       { name: CHECK_EXPENSE_CATEGORY, type: TransactionType.EXPENSE, expenseType: ExpenseCategoryType.COGS },
-      { name: QODIR_PAYMENT_CATEGORY, type: TransactionType.EXPENSE, expenseType: ExpenseCategoryType.COGS },
+      { name: QODIR_PAYMENT_CATEGORY, type: TransactionType.INCOME, expenseType: ExpenseCategoryType.INCOME_TRANSFER },
       { name: STORE_INCOME_CATEGORY, type: TransactionType.INCOME, expenseType: ExpenseCategoryType.INCOME_TRANSFER },
     ];
     const byName = new Map<string, { name: string; type: string; expenseType: string; system: boolean; count: number }>();

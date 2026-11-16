@@ -47,7 +47,7 @@ import {
   STORE_INCOME_CATEGORY,
   STORE_LEDGER_START_YMD,
 } from '../src/services/calculation.service';
-import { createDds, deleteDds, getAccountBalances, syncStoreDebtForDeal } from '../src/services/ledger.service';
+import { createDds, deleteDds, getAccountBalances, getStoreLedger, syncStoreDebtForDeal } from '../src/services/ledger.service';
 import ddsRoutes from '../src/routes/dds.routes';
 import dealsRoutes from '../src/routes/deals.routes';
 import financesRoutes from '../src/routes/finances.routes';
@@ -73,6 +73,8 @@ const DEAL_DATE = new Date(`${DAY}T10:15:00+05:00`);
 const OLD_DATE = new Date(`${OLD_DAY}T10:15:00+05:00`);
 const NUM_BASE = 1_800_000_000 + Math.floor(Math.random() * 100_000) * 10;
 const PERIOD = `startDate=${DAY}&endDate=${DAY}`;
+// Qodir aka bitimi (d2): chek 2 000 000 + agent ulushi 1 900 000 + bizning 6% foyda 300 000 (standart qoidalar bo'yicha)
+const DEBT_QODIR_D2 = 4_200_000;
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -237,14 +239,18 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
       expect(r.body.balances.CASH).toBeCloseTo(balancesBefore.CASH - 3_500_000, 2);
     });
 
-    it('Qodir aka: tasdiqlanganda DEBT yoziladi (biz undan qarzdormiz), chek DDS chiqimiga tushmaydi', async () => {
+    it('Qodir aka: tasdiqlanganda DEBT yoziladi (U bizga qarzdor: chek + agent ulushi + 6% foyda), chek DDS chiqimiga tushmaydi', async () => {
       d2 = await mkDeal(2, qodirStore.id, 2_000_000, { profit: 250_000 });
       const r = await api('POST', `/api/deals/${d2.id}/approve`, 'ADMIN', {});
       expect(r.status).toBe(200);
 
+      // Hisob (standart qoida: Qodir aka 22%, bizniki 6%; bitim: yechilgan 5 000 000, berilgan 2 000 000, diskont 60%):
+      //   chek 2 000 000 + agent 5 000 000 × (60% − 22%) = 1 900 000 + foyda 5 000 000 × (22% − 16%) = 300 000 → 4 200 000
+      // (Spravochnikda Qodir aka uchun maxsus qoida bo'lsa — lokal bazaga bog'liq — natija boshqacha bo'lishi mumkin)
       const e = await debtEntry(d2.id);
       expect(e).toMatchObject({ storeId: qodirStore.id, type: 'DEBT' });
-      expect(Number(e!.amount)).toBe(2_000_000);
+      expect(Number(e!.amount)).toBe(DEBT_QODIR_D2);
+      expect(e!.note).toContain('agent ulushi');
       expect(await prisma.ddsTransaction.count({ where: { dealId: d2.id } })).toBe(0);
       expect(r.body.balances.CASH).toBeCloseTo(balancesBefore.CASH - 3_500_000, 2);
     });
@@ -335,13 +341,12 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
       ...over,
     });
 
-    it(`"${STORE_INCOME_CATEGORY}": do'kon tanlanmasa / noma'lum / Qodir aka / Trust / chiqim → 400, hech narsa yozilmaydi`, async () => {
+    it(`"${STORE_INCOME_CATEGORY}": do'kon tanlanmasa / noma'lum / Trust / chiqim → 400, hech narsa yozilmaydi`, async () => {
       const ddsBefore = await prisma.ddsTransaction.count();
       const bad: Record<string, unknown>[] = [
         {},
         { storeId: '' },
         { storeId: '00000000-0000-0000-0000-000000000000' },
-        { storeId: qodirStore.id },
         { storeId: trustStore.id },
         { storeId: s1.id, type: 'EXPENSE' },
       ];
@@ -386,49 +391,68 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
       storeIncomeTxId = again.body.id;
     });
 
-    it(`"${QODIR_PAYMENT_CATEGORY}" chiqimi: Qodir aka daftariga PAYMENT, toifasi COGS — P&L'da OPEX'ga tushmaydi`, async () => {
+    it(`"${STORE_INCOME_CATEGORY}": Qodir aka ham do'kon sifatida qabul qilinadi — PAYMENT yoziladi, o'chirilsa qaytadi`, async () => {
+      const before = (await getAccountBalances()) as Record<string, number>;
+      const r = await api('POST', '/api/dds', 'CASHIER', incomeBody({ storeId: qodirStore.id, amount: 100_000 }));
+      expect(r.status, JSON.stringify(r.body)).toBe(201);
+      expect(r.body).toMatchObject({ type: 'INCOME', source: 'STORE_PAYMENT', categoryName: STORE_INCOME_CATEGORY, sourcePerson: qodirStore.name });
+      const e = await prisma.storeLedgerEntry.findUnique({ where: { ddsTransactionId: r.body.id } });
+      expect(e).toMatchObject({ storeId: qodirStore.id, type: 'PAYMENT' });
+      expect(Number(e!.amount)).toBe(100_000);
+
+      expect((await api('DELETE', `/api/dds/${r.body.id}`, 'ADMIN')).status).toBe(200);
+      expect(await prisma.storeLedgerEntry.findUnique({ where: { ddsTransactionId: r.body.id } })).toBeNull();
+      const after = (await getAccountBalances()) as Record<string, number>;
+      expect(after.BANK_CARD).toBeCloseTo(before.BANK_CARD, 2);
+    });
+
+    it(`"${QODIR_PAYMENT_CATEGORY}" faqat KIRIM: Qodir aka daftariga PAYMENT, kassa oshadi (INCOME_TRANSFER); chiqim sifatida → 400`, async () => {
       const finBefore = (await api('GET', `/api/finances/summary?${PERIOD}`, 'CFO')).body;
       const before = (await getAccountBalances()) as Record<string, number>;
+      const ddsBefore = await prisma.ddsTransaction.count();
 
-      // Kirim sifatida yozib bo'lmaydi
+      // Chiqim sifatida yozib bo'lmaydi (Qodir aka endi bizga qarzdor — biz unga to'lamaymiz)
       const wrong = await api('POST', '/api/dds', 'CASHIER', {
         dateTime: `${DAY}T12:00:00+05:00`,
-        type: 'INCOME',
+        type: 'EXPENSE',
         account: 'CASH',
         categoryName: QODIR_PAYMENT_CATEGORY,
         amount: 500_000,
         description: `${TAG} xato`,
       });
       expect(wrong.status).toBe(400);
+      expect(typeof wrong.body.error).toBe('string');
+      expect(await prisma.ddsTransaction.count()).toBe(ddsBefore);
 
       const r = await api('POST', '/api/dds', 'CASHIER', {
         dateTime: `${DAY}T12:00:00+05:00`,
-        type: 'EXPENSE',
+        type: 'INCOME',
         account: 'CASH',
-        expenseType: 'OPEX', // forma OPEX yuborsa ham server COGS yozadi
+        expenseType: 'OPEX', // forma nimani yuborsa ham server INCOME_TRANSFER yozadi
         categoryName: QODIR_PAYMENT_CATEGORY,
         sourcePerson: 'Kassir',
         amount: 500_000,
-        description: `${TAG} Qodir akaga to'lov`,
+        description: `${TAG} Qodir aka bergan pul`,
       });
       expect(r.status, JSON.stringify(r.body)).toBe(201);
       expect(r.body).toMatchObject({
-        type: 'EXPENSE',
+        type: 'INCOME',
         source: 'QODIR_PAYMENT',
-        expenseType: 'COGS',
+        expenseType: 'INCOME_TRANSFER',
         categoryName: QODIR_PAYMENT_CATEGORY,
         amount: 500_000,
       });
-      expect(r.body.balances.CASH).toBeCloseTo(before.CASH - 500_000, 2);
+      expect(r.body.balances.CASH).toBeCloseTo(before.CASH + 500_000, 2);
 
       const e = await prisma.storeLedgerEntry.findUnique({ where: { ddsTransactionId: r.body.id } });
       expect(e).toMatchObject({ storeId: qodirStore.id, type: 'PAYMENT' });
       expect(Number(e!.amount)).toBe(500_000);
 
+      // Qarz qaytishi — daromad ham, xarajat ham emas: P&L o'zgarmaydi
       const finAfter = (await api('GET', `/api/finances/summary?${PERIOD}`, 'CFO')).body;
       expect(finAfter.pnl.totalOpex).toBeCloseTo(finBefore.pnl.totalOpex, 2);
       expect(finAfter.pnl.netProfit).toBeCloseTo(finBefore.pnl.netProfit, 2);
-      expect(finAfter.pnl.cogsCashOut).toBeCloseTo(finBefore.pnl.cogsCashOut + 500_000, 2);
+      expect(finAfter.pnl.cogsCashOut).toBeCloseTo(finBefore.pnl.cogsCashOut, 2);
     });
 
     it("kategoriyalar ro'yxatida ikkala yangi tizim kategoriyasi doim bor", async () => {
@@ -436,7 +460,11 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
       expect(names.body).toContain(QODIR_PAYMENT_CATEGORY);
       expect(names.body).toContain(STORE_INCOME_CATEGORY);
       const detailed = (await api('GET', '/api/dds/categories?detailed=true', 'CASHIER')).body;
-      expect(detailed.find((c: any) => c.name === QODIR_PAYMENT_CATEGORY)).toMatchObject({ type: 'EXPENSE', expenseType: 'COGS', system: true });
+      expect(detailed.find((c: any) => c.name === QODIR_PAYMENT_CATEGORY)).toMatchObject({
+        type: 'INCOME',
+        expenseType: 'INCOME_TRANSFER',
+        system: true,
+      });
       expect(detailed.find((c: any) => c.name === STORE_INCOME_CATEGORY)).toMatchObject({
         type: 'INCOME',
         expenseType: 'INCOME_TRANSFER',
@@ -493,8 +521,9 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
         dealExpenses: 50_000,
         netProfit: 350_000,
       });
-      expect(b.ledger.period).toEqual({ debt: 3_500_000, paid: 1_000_000, balance: 2_500_000 });
-      expect(b.ledger.overall).toEqual({ debt: 3_500_000, paid: 1_000_000, balance: 2_500_000 });
+      const ledger1 = { debt: 3_500_000, paid: 1_000_000, balance: 2_500_000, debtLeft: 2_500_000, deposit: 0 };
+      expect(b.ledger.period).toEqual(ledger1);
+      expect(b.ledger.overall).toEqual(ledger1);
 
       expect(b.deals).toHaveLength(1);
       expect(b.deals[0]).toMatchObject({
@@ -505,7 +534,10 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
         withdrawnLimit: 5_000_000,
         calculatedAmount: 3_500_000,
         profit: 400_000,
+        // Oddiy do'kon: qarz tarkibida faqat chek
+        debtParts: { check: 3_500_000, agent: 0, profit: 0, total: 3_500_000 },
       });
+      expect(b.deals[0]).toHaveProperty('agentAmount');
       expect(b.deals[0].checkExpense).toMatchObject({ amount: 3_500_000 });
       expect(b.deals[0].checkExpense.txNumber).toMatch(/^TX-\d+$/);
       expect(typeof b.deals[0].checkExpense.dateLabel).toBe('string');
@@ -543,21 +575,31 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
       expect(all.summary.dealsCount).toBe(2);
       expect(all.summary.payoutTotal).toBe(4_400_000);
       expect(all.summary.profit).toBe(470_000);
-      expect(all.ledger.overall).toEqual({ debt: 3_500_000, paid: 1_000_000, balance: 2_500_000 });
+      expect(all.ledger.overall).toEqual(ledger1);
       expect(all.deals.map((d: any) => d.id).sort()).toEqual([d1.id, d4.id].sort());
     });
 
-    it('Qodir aka: /qodir — biz qarzdormiz (WE_OWE), qoldiq = qarz − to\'langan; Trust do\'koni — daftarsiz (TRUST)', async () => {
+    it("Qodir aka: /qodir — U bizga qarzdor (STORE_OWES), qarz = chek + agent + 6% foyda, qoldiq = qarz − to'langan; Trust do'koni — daftarsiz (TRUST)", async () => {
       const q = (await api('GET', `/api/store-reports/qodir?${PERIOD}`, 'CASHIER')).body;
       expect(q.store.id).toBe(qodirStore.id);
-      expect(q.settlement).toBe('WE_OWE');
+      expect(q.settlement).toBe('STORE_OWES');
       expect(q.summary).toMatchObject({ dealsCount: 1, payoutTotal: 2_000_000, profit: 250_000, dealExpenses: 0, netProfit: 250_000 });
-      expect(q.ledger.period).toEqual({ debt: 2_000_000, paid: 500_000, balance: 1_500_000 });
-      expect(q.ledger.overall.debt).toBeCloseTo(qodirOverallBefore.debt + 2_000_000, 2);
+      expect(q.ledger.period).toEqual({
+        debt: DEBT_QODIR_D2,
+        paid: 500_000,
+        balance: DEBT_QODIR_D2 - 500_000,
+        debtLeft: DEBT_QODIR_D2 - 500_000,
+        deposit: 0,
+      });
+      expect(q.ledger.overall.debt).toBeCloseTo(qodirOverallBefore.debt + DEBT_QODIR_D2, 2);
       expect(q.ledger.overall.paid).toBeCloseTo(qodirOverallBefore.paid + 500_000, 2);
-      expect(q.ledger.overall.balance).toBeCloseTo(qodirOverallBefore.balance + 1_500_000, 2);
+      expect(q.ledger.overall.balance).toBeCloseTo(qodirOverallBefore.balance + DEBT_QODIR_D2 - 500_000, 2);
       expect(q.deals).toHaveLength(1);
-      expect(q.deals[0]).toMatchObject({ id: d2.id, checkExpense: null });
+      expect(q.deals[0]).toMatchObject({
+        id: d2.id,
+        checkExpense: null,
+        debtParts: { check: 2_000_000, agent: 1_900_000, profit: 300_000, total: DEBT_QODIR_D2 },
+      });
       expect(q.expenses).toEqual([]);
       expect(q.entries.map((e: any) => e.type).sort()).toEqual(['DEBT', 'PAYMENT']);
       expect(q.entries.find((e: any) => e.type === 'PAYMENT').ddsTransaction.categoryName).toBe(QODIR_PAYMENT_CATEGORY);
@@ -569,8 +611,34 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
       const t = (await api('GET', `/api/store-reports/${trustStore.id}?${PERIOD}`, 'ADMIN')).body;
       expect(t.settlement).toBe('TRUST');
       expect(t.summary).toMatchObject({ dealsCount: 1, payoutTotal: 1_000_000, profit: 800_000 });
-      expect(t.ledger.period).toEqual({ debt: 0, paid: 0, balance: 0 });
+      expect(t.ledger.period).toEqual({ debt: 0, paid: 0, balance: 0, debtLeft: 0, deposit: 0 });
       expect(t.entries).toEqual([]);
+    });
+
+    it("bitta do'kon (servis getStoreLedger): deals[] elementlarida agentAmount, customerLimit, approvalStatus, provider, debtParts bor", async () => {
+      // Servis qatlami
+      const svc: any = await getStoreLedger(qodirStore.id, {
+        start: new Date(`${DAY}T00:00:00+05:00`),
+        end: new Date(`${DAY}T23:59:59.999+05:00`),
+      });
+      const sd = svc.deals.find((d: any) => d.id === d2.id);
+      expect(sd).toBeTruthy();
+      expect(sd).toHaveProperty('agentAmount');
+      expect(sd).toHaveProperty('customerLimit');
+      expect(sd.approvalStatus).toBe('APPROVED');
+      expect(sd.provider).toMatchObject({ name: `${TAG}_provider` });
+      expect(sd.debtParts).toEqual({ check: 2_000_000, agent: 1_900_000, profit: 300_000, total: DEBT_QODIR_D2 });
+    });
+
+    it("bitta do'kon HTTP javobi (/api/store-reports/qodir): deals[] da agentAmount, customerLimit, approvalStatus, provider, debtParts", async () => {
+      const sd = { debtParts: { check: 2_000_000, agent: 1_900_000, profit: 300_000, total: DEBT_QODIR_D2 } };
+      const http = (await api('GET', `/api/store-reports/qodir?${PERIOD}`, 'CASHIER')).body;
+      const hd = http.deals.find((d: any) => d.id === d2.id);
+      expect(hd.debtParts).toEqual(sd.debtParts);
+      expect(hd.agentAmount).toBe(0); // bitim yaratishda agentAmount yozilmagan (mkDeal) — qarz tarkibi esa qoida bo'yicha hisoblanadi
+      expect(hd, 'customerLimit').toHaveProperty('customerLimit');
+      expect(hd.approvalStatus, 'approvalStatus').toBe('APPROVED');
+      expect(hd.provider, 'provider').toMatchObject({ name: `${TAG}_provider` });
     });
 
     it("yig'ma ro'yxat: do'kon qatorlari va jami ko'rsatkichlar to'g'ri, bitimlar soni bo'yicha saralangan", async () => {
@@ -592,8 +660,8 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
         profit: 400_000,
         dealExpenses: 50_000,
         netProfit: 350_000,
-        period: { debt: 3_500_000, paid: 1_000_000, balance: 2_500_000 },
-        overall: { debt: 3_500_000, paid: 1_000_000, balance: 2_500_000 },
+        period: { debt: 3_500_000, paid: 1_000_000, balance: 2_500_000, debtLeft: 2_500_000, deposit: 0 },
+        overall: { debt: 3_500_000, paid: 1_000_000, balance: 2_500_000, debtLeft: 2_500_000, deposit: 0 },
       });
       expect(row(s2.id)).toMatchObject({
         settlement: 'STORE_OWES',
@@ -602,17 +670,17 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
         period: { debt: 1_200_000, paid: 0, balance: 1_200_000 },
       });
       expect(row(qodirStore.id)).toMatchObject({
-        settlement: 'WE_OWE',
+        settlement: 'STORE_OWES',
         dealsCount: 1,
         payoutTotal: 2_000_000,
-        period: { debt: 2_000_000, paid: 500_000, balance: 1_500_000 },
+        period: { debt: DEBT_QODIR_D2, paid: 500_000, balance: DEBT_QODIR_D2 - 500_000, debtLeft: DEBT_QODIR_D2 - 500_000, deposit: 0 },
       });
       expect(row(trustStore.id)).toMatchObject({
         settlement: 'TRUST',
         dealsCount: 1,
         profit: 800_000,
-        period: { debt: 0, paid: 0, balance: 0 },
-        overall: { debt: 0, paid: 0, balance: 0 },
+        period: { debt: 0, paid: 0, balance: 0, debtLeft: 0, deposit: 0 },
+        overall: { debt: 0, paid: 0, balance: 0, debtLeft: 0, deposit: 0 },
       });
 
       // Shu (bo'sh) kunda faqat sinov bitimlari bor: d1, d2, d5 va POST orqali yaratilgani
@@ -620,9 +688,15 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
       expect(b.totals.payoutTotal).toBe(3_500_000 + 2_000_000 + 1_000_000 + 1_200_000);
       expect(b.totals.dealExpenses).toBe(50_000);
       expect(b.totals.netProfit).toBeCloseTo(b.totals.profit - 50_000, 2);
-      // Joriy (butun davr) qoldiqlar: do'konlar bizga / biz Qodir akaga
-      expect(b.totals.storesOweUs).toBeCloseTo(listBefore.totals.storesOweUs + 2_500_000 + 1_200_000, 2);
-      expect(b.totals.weOwe).toBeCloseTo(listBefore.totals.weOwe + 1_500_000, 2);
+      // Joriy (butun davr) qoldiqlar: do'konlar bizga (Qodir aka ham shu yerda), omonatlar alohida; weOwe doim 0.
+      // Qodir aka'ning avvalgi qoldig'i lokal bazaga bog'liq — shuning uchun o'zgarish debtLeft/deposit bo'yicha hisoblanadi.
+      const qb0 = qodirOverallBefore.balance;
+      const qb1 = qb0 + DEBT_QODIR_D2 - 500_000;
+      const qodirOweDelta = Math.max(0, qb1) - Math.max(0, qb0);
+      const qodirDepositDelta = Math.max(0, -qb1) - Math.max(0, -qb0);
+      expect(b.totals.storesOweUs).toBeCloseTo(listBefore.totals.storesOweUs + 2_500_000 + 1_200_000 + qodirOweDelta, 2);
+      expect(b.totals.storeDeposits).toBeCloseTo(listBefore.totals.storeDeposits + qodirDepositDelta, 2);
+      expect(b.totals.weOwe).toBe(0);
 
       const dealCounts = b.stores.map((s: any) => s.dealsCount);
       expect(dealCounts).toEqual([...dealCounts].sort((x: number, y: number) => y - x));
@@ -634,7 +708,7 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
     it("to'lov o'chirilsa — do'kon qoldig'i qaytadi", async () => {
       expect((await api('DELETE', `/api/dds/${storeIncomeTxId}`, 'ADMIN')).status).toBe(200);
       const b = (await api('GET', `/api/store-reports/${s1.id}?${PERIOD}`, 'ADMIN')).body;
-      expect(b.ledger.overall).toEqual({ debt: 3_500_000, paid: 0, balance: 3_500_000 });
+      expect(b.ledger.overall).toEqual({ debt: 3_500_000, paid: 0, balance: 3_500_000, debtLeft: 3_500_000, deposit: 0 });
       expect(b.entries).toHaveLength(1);
     });
   });

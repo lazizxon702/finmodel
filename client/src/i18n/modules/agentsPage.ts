@@ -4,6 +4,7 @@ import { defineModule } from '../types';
 export default defineModule({
   uz: {
     'agentsPage.title': 'Agent foydasi',
+    'agentsPage.no_commission': 'Agent foydasi hisoblanmaydi',
     'agentsPage.subtitle': "Agentliklar bo'yicha hisoblangan agent foydasi va ularning bitimlari.",
     'agentsPage.cabinet_title': 'Mening kabinetim',
     'agentsPage.cabinet_subtitle': "O'zingiz va jamoangiz bitimlari hamda hisoblangan foydangiz.",
@@ -56,6 +57,7 @@ export default defineModule({
   },
   ru: {
     'agentsPage.title': 'Доход агентов',
+    'agentsPage.no_commission': 'Прибыль агента не начисляется',
     'agentsPage.subtitle': 'Начисленный доход агентов по агентствам и их сделки.',
     'agentsPage.cabinet_title': 'Мой кабинет',
     'agentsPage.cabinet_subtitle': 'Ваши сделки и сделки вашей команды, а также начисленный доход.',
@@ -108,6 +110,7 @@ export default defineModule({
   },
   en: {
     'agentsPage.title': 'Agent earnings',
+    'agentsPage.no_commission': 'No agent profit counted',
     'agentsPage.subtitle': 'Agent earnings by agency and the deals behind them.',
     'agentsPage.cabinet_title': 'My cabinet',
     'agentsPage.cabinet_subtitle': "Your deals, your team's deals and what you have earned.",

@@ -4,7 +4,7 @@ import { AlertCircle, Info } from 'lucide-react';
 import { Button, Field, Input, Modal, SegmentedControl, Select, Textarea, cn, controlClass } from '../ui';
 import { AmountInput } from '../AmountInput';
 import { useTranslation } from '../../context/LanguageContext';
-import { todayYmd } from '../../utils/format';
+import { formatMoney, todayYmd } from '../../utils/format';
 import { apiErrorMessage } from '../dashboard/period';
 import { isStoreIncomeCandidate } from '../stores/storeUtils';
 import {
@@ -54,7 +54,7 @@ interface FormState {
  * - Server xatosi (`error`) forma ichida ko'rsatiladi.
  * - Sana bugun bo'lsa server hozirgi vaqtni yozadi (faqat "YYYY-MM-DD" yuboriladi).
  * - «Do'kondan tushum» kirimida do'kon tanlash majburiy (`storeId` yuboriladi) — do'kon qarzi kamayadi.
- * - «Qodir aka to'lovi» faqat chiqim — Qodir akaga qarzimiz kamayadi.
+ * - «Qodir aka to'lovi» faqat kirim — Qodir akaning bizga qarzi kamayadi (ortig'i depozit bo'lib qoladi).
  */
 export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categories, defaultPerson, onSaved }) => {
   const { t } = useTranslation();
@@ -81,10 +81,24 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
   const [errors, setErrors] = useState<{ amount?: string; category?: string; store?: string }>({});
   const [serverError, setServerError] = useState<string | null>(null);
 
-  // «Do'kondan tushum» uchun do'konlar (bitim formasi ishlatadigan spravochnik); Qodir aka va Trust kirmaydi
+  // «Do'kondan tushum» uchun do'konlar (bitim formasi ishlatadigan spravochnik); Trust do'konlari kirmaydi, Qodir aka kiradi
   const [stores, setStores] = useState<StoreOption[]>([]);
   const [storesLoading, setStoresLoading] = useState(false);
   const [storesError, setStoresError] = useState(false);
+
+  // Qarzi bor xaridorlar (masalan Umirzoq): kirimda shu tugma bosilsa, summa uning qarzidan ayriladi (eng eski chekdan boshlab)
+  const [buyerDebts, setBuyerDebts] = useState<{ buyerId: string; name: string; debt: number }[]>([]);
+  const [payBuyerId, setPayBuyerId] = useState('');
+  const payBuyer = form.type === 'INCOME' ? buyerDebts.find((b) => b.buyerId === payBuyerId) || null : null;
+
+  useEffect(() => {
+    if (!open) return;
+    setPayBuyerId('');
+    axios
+      .get('/api/sales/buyer-debts')
+      .then((res) => setBuyerDebts(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setBuyerDebts([])); // ruxsat bo'lmasa yoki xato — tugmalar ko'rinmaydi
+  }, [open]);
 
   // Har ochilganda formani boshlang'ich holatga qaytaramiz
   useEffect(() => {
@@ -135,10 +149,11 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
   }, [open, needsStore]);
 
   const changeType = (type: TxType) => {
-    // Faqat kirim («Trust 1 daromadi», «Do'kondan tushum») yoki faqat chiqim («Qodir aka to'lovi»)
-    // bo'la oladigan kategoriya turga mos kelmasa — oddiy kategoriyaga almashtiriladi
-    const incomeOnly = isTrustIncomeCategory(form.categoryName) || isStoreIncomeCategory(form.categoryName);
-    const mismatch = (type === 'EXPENSE' && incomeOnly) || (type === 'INCOME' && isQodirPaymentCategory(form.categoryName));
+    // Faqat kirim bo'la oladigan kategoriya («Trust 1 daromadi», «Do'kondan tushum», «Qodir aka to'lovi»)
+    // chiqimga mos kelmasa — oddiy kategoriyaga almashtiriladi
+    const incomeOnly =
+      isTrustIncomeCategory(form.categoryName) || isStoreIncomeCategory(form.categoryName) || isQodirPaymentCategory(form.categoryName);
+    const mismatch = type === 'EXPENSE' && incomeOnly;
     if (!isNewCategory && mismatch) {
       patch({ type, categoryName: neutralCategory(), storeId: '' });
     } else {
@@ -147,15 +162,39 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
   };
 
   const changeCategory = (categoryName: string) => {
-    // Tizim kategoriyasi tanlansa operatsiya turi avtomatik mos keladi: Trust / do'kon tushumi — kirim, Qodir aka — chiqim
-    if (isTrustIncomeCategory(categoryName) || isStoreIncomeCategory(categoryName)) patch({ categoryName, type: 'INCOME' });
-    else if (isQodirPaymentCategory(categoryName)) patch({ categoryName, type: 'EXPENSE' });
-    else patch({ categoryName });
+    // Tizim kategoriyasi tanlansa operatsiya turi avtomatik mos keladi: Trust / do'kon tushumi / Qodir aka to'lovi — kirim
+    if (isTrustIncomeCategory(categoryName) || isStoreIncomeCategory(categoryName) || isQodirPaymentCategory(categoryName)) {
+      patch({ categoryName, type: 'INCOME' });
+    } else patch({ categoryName });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (saving) return; // ikki marta yuborilmasin
+
+    // Xaridor tugmasi tanlangan: pul kassaga kirim bo'ladi va shu xaridorning qarzidan ayriladi
+    if (payBuyer) {
+      const amount = Number(form.amount) || 0;
+      if (amount <= 0) return setErrors({ amount: t('ddsPage.form_amount_required') });
+      if (amount > payBuyer.debt) return setErrors({ amount: t('ddsPage.buyer_pay_too_much', { debt: formatMoney(payBuyer.debt) }) });
+      setErrors({});
+      setServerError(null);
+      setSaving(true);
+      try {
+        const res = await axios.post(`/api/sales/buyers/${payBuyer.buyerId}/payment`, {
+          amount,
+          accountType: form.account,
+          date: form.date || todayYmd(),
+          note: form.description.trim() || undefined,
+        });
+        onSaved(res.data);
+      } catch (err) {
+        setServerError(apiErrorMessage(err, t('common.save_error')));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
 
     const nextErrors: typeof errors = {};
     if (!form.amount || form.amount <= 0) nextErrors.amount = t('ddsPage.form_amount_required');
@@ -163,7 +202,7 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
     // Tur va tizim kategoriyasi mos kelmasa (yangi kategoriya qo'lda yozilganda) — yuborilmaydi
     else if (form.type === 'EXPENSE' && isTrust) nextErrors.category = t('ddsPage.form_trust_income_only');
     else if (form.type === 'EXPENSE' && isStoreIncome) nextErrors.category = t('ddsPage.form_store_income_only');
-    else if (form.type === 'INCOME' && isQodirPayment) nextErrors.category = t('ddsPage.form_qodir_expense_only');
+    else if (form.type === 'EXPENSE' && isQodirPayment) nextErrors.category = t('ddsPage.form_qodir_income_only');
     if (needsStore && !form.storeId) nextErrors.store = t('ddsPage.form_store_required');
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
@@ -232,6 +271,38 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
             ]}
           />
         </Field>
+
+        {form.type === 'INCOME' && buyerDebts.length > 0 && (
+          <div className="rounded-control border border-line bg-surface-2/50 p-3">
+            <p className="text-xs font-medium text-fg-secondary">{t('ddsPage.buyer_pay_title')}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {buyerDebts.map((b) => {
+                const active = payBuyerId === b.buyerId;
+                return (
+                  <button
+                    key={b.buyerId}
+                    type="button"
+                    disabled={saving}
+                    aria-pressed={active}
+                    onClick={() => setPayBuyerId(active ? '' : b.buyerId)}
+                    className={cn(
+                      'rounded-control border px-3 py-1.5 text-sm font-medium transition-colors',
+                      active ? 'border-brand bg-brand text-white' : 'border-line bg-surface text-fg hover:bg-surface-2'
+                    )}
+                  >
+                    {b.name}
+                    <span className={cn('ml-2 text-xs font-normal tabular-nums', active ? 'text-white/80' : 'text-fg-muted')}>{formatMoney(b.debt)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {payBuyer && (
+              <p className="mt-2 text-xs leading-relaxed text-fg-muted">
+                {t('ddsPage.buyer_pay_hint', { name: payBuyer.name, debt: formatMoney(payBuyer.debt), left: formatMoney(Math.max(0, payBuyer.debt - (Number(form.amount) || 0))) })}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
@@ -303,6 +374,7 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
           )}
         </div>
 
+        {!payBuyer && (
         <div>
           <div className="mb-1.5 flex items-center justify-between gap-2">
             <label htmlFor="dds-form-category" className="text-xs font-medium text-fg-secondary">
@@ -361,16 +433,18 @@ export const DdsFormModal: React.FC<DdsFormModalProps> = ({ open, onClose, categ
           {isQodirPayment && (
             <p className="mt-2 flex items-start gap-2 rounded-control bg-info-soft px-3 py-2 text-xs text-info">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{form.type === 'EXPENSE' ? t('ddsPage.form_qodir_note') : t('ddsPage.form_qodir_expense_only')}</span>
+              <span>{form.type === 'INCOME' ? t('ddsPage.form_qodir_note') : t('ddsPage.form_qodir_income_only')}</span>
             </p>
           )}
         </div>
+        )}
 
-        {needsStore && (
+        {needsStore && !payBuyer && (
           <Field
             label={t('ddsPage.form_store')}
             required
             htmlFor="dds-form-store"
+            hint={t('ddsPage.form_store_deposit_hint')}
             error={errors.store || (storesError ? t('ddsPage.form_store_load_error') : undefined)}
           >
             <Select

@@ -23,6 +23,8 @@ import {
   isQodirPaymentCategory,
   normalizeDealItems,
   normalizeName,
+  personNameKey,
+  isDaftarDeal,
 } from './calculation.service';
 import { isTrustIncomeCategory, rebuildAccountBalances, syncStoreDebtForDeal, syncTrustDebtForDeal } from './ledger.service';
 import { applySaleToDeals, lockSale } from './sale.service';
@@ -960,7 +962,7 @@ export async function syncDealsFromGoogleSheets(customUrl?: string, localFilePat
     for (const a of existingAgents) {
       const agencyKey = agencyKeyById.get(a.agencyId);
       if (!agencyKey) continue;
-      const k = `${agencyKey}::${normalizeName(a.name)}`;
+      const k = `${agencyKey}::${personNameKey(a.name)}`; // kirill = lotin
       const cand = { id: a.id, inSurvivor: agencyIndex.get(agencyKey)!.id === a.agencyId, deals: a._count.deals };
       const cur = agentIndex.get(k);
       if (!cur || (cand.inSurvivor && !cur.inSurvivor) || (cand.inSurvivor === cur.inSurvivor && cand.deals > cur.deals)) {
@@ -1107,7 +1109,7 @@ export async function syncDealsFromGoogleSheets(customUrl?: string, localFilePat
 
     const resolveAgent = async (agencyRawName: string, agencyId: string | null, agentRawName: string): Promise<string | null> => {
       const agencyKey = referenceKey('agency', agencyRawName);
-      const k = `${agencyKey}::${normalizeName(agentRawName)}`;
+      const k = `${agencyKey}::${personNameKey(agentRawName)}`;
       const found = agentIndex.get(k);
       if (found) return found.id;
       const name = cleanName(agentRawName);
@@ -1165,7 +1167,8 @@ export async function syncDealsFromGoogleSheets(customUrl?: string, localFilePat
       return {
         sellerName: d.sellerName,
         providerId: refs.providerId!,
-        isDaftar: d.isDaftar,
+        // Daftar "Ha" faqat Imanum + Denov/Jizzax (egasi qarori, 14.11.2026) — varaqdagi ustun e'tiborga olinmaydi
+        isDaftar: isDaftarDeal(d.storeName, d.providerName),
         customerName: d.customerName,
         customerPhone1: d.customerPhone1,
         customerPhone2: d.customerPhone2,

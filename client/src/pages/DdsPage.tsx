@@ -74,7 +74,7 @@ const SOURCE_TONE: Record<DdsSource, Tone> = {
   DEAL_CHECK: 'info',
   TRUST_PAYMENT: 'brand',
   STORE_PAYMENT: 'success',
-  QODIR_PAYMENT: 'danger',
+  QODIR_PAYMENT: 'success',
   SYNC: 'warning',
 };
 
@@ -234,7 +234,9 @@ export const DdsPage: React.FC = () => {
     if (created?.balances) setBalances(created.balances);
     setNotice({
       tone: 'success',
-      text: created?.trust
+      text: created?.buyerName
+        ? t('ddsPage.saved_buyer', { name: created.buyerName, amount: formatMoney((created.debtBefore || 0) - (created.debtAfter || 0)), left: formatMoney(created.debtAfter || 0) })
+        : created?.trust
         ? t('ddsPage.saved_trust', { tx: created.txNumber, balance: formatMoney(created.trust.balance) })
         : t('ddsPage.saved', { tx: created?.txNumber || '' }),
     });

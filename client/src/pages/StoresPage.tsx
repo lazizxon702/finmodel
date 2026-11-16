@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ChevronRight, HandCoins, Info, Layers, Search, Store, TrendingUp, Wallet, Scale } from 'lucide-react';
+import { AlertCircle, ChevronRight, HandCoins, Info, Layers, PiggyBank, Search, Store, TrendingUp, Scale } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -151,12 +151,11 @@ export const StoresPage: React.FC = () => {
               tone={Number(totals?.storesOweUs) > 0 ? 'warning' : 'success'}
             />
             <StatCard
-              title={t('stores.total_we_owe')}
-              value={<MoneyValue amount={totals?.weOwe} />}
-              hint={t('stores.overall_balance_hint')}
-              icon={<Wallet />}
-              tone={Number(totals?.weOwe) > 0 ? 'danger' : 'success'}
-              onClick={() => navigate('/qodir-ledger')}
+              title={t('stores.total_deposits')}
+              value={<MoneyValue amount={totals?.storeDeposits} />}
+              hint={t('stores.deposits_hint')}
+              icon={<PiggyBank />}
+              tone={Number(totals?.storeDeposits) > 0 ? 'info' : 'neutral'}
             />
           </div>
 
@@ -248,10 +247,10 @@ export const StoresPage: React.FC = () => {
                           {formatMoney(s.netProfit)}
                         </Td>
                         <Td align="right" numeric>
-                          <BalanceCell settlement={s.settlement} balance={s.period?.balance} />
+                          <BalanceCell settlement={s.settlement} debtLeft={s.period?.debtLeft} deposit={s.period?.deposit} />
                         </Td>
                         <Td align="right" numeric>
-                          <BalanceCell settlement={s.settlement} balance={s.overall?.balance} withBadge />
+                          <BalanceCell settlement={s.settlement} debtLeft={s.overall?.debtLeft} deposit={s.overall?.deposit} withBadge />
                         </Td>
                         <Td className="text-fg-muted">
                           <ChevronRight className="h-4 w-4" aria-hidden="true" />

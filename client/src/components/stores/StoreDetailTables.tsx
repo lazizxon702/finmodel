@@ -3,7 +3,7 @@ import { BookOpen, Layers, Receipt } from 'lucide-react';
 import { Badge, Table, TableContainer, TableEmpty, Tbody, Td, Th, Thead, Tr, cn } from '../ui';
 import { useTranslation } from '../../context/LanguageContext';
 import { formatDate, formatDateTime, formatMoney } from '../../utils/format';
-import type { Settlement, StoreDealRow, StoreExpenseRow, StoreLedgerEntry } from './storeUtils';
+import type { StoreDealRow, StoreExpenseRow, StoreLedgerEntry } from './storeUtils';
 
 // Do'kon sahifasidagi uchta jadval: hisob-kitob daftari, bitimlar, bog'langan DDS xarajatlari.
 // Hammasi TableContainer ichida — tor oynada (~1024px) karta ichida gorizontal suriladi.
@@ -12,13 +12,12 @@ const MAX_HEIGHT = 'max-h-[70vh]';
 
 interface LedgerProps {
   entries: StoreLedgerEntry[];
-  settlement: Settlement;
   /** Filtrsiz yozuvlar soni — bo'sh holat matnini tanlash uchun */
   totalCount: number;
 }
 
 /** Hisob-kitob daftari: DEBT — bitimdan yozilgan qarz, PAYMENT — DDS orqali to'lov */
-export const StoreLedgerTable: React.FC<LedgerProps> = ({ entries, settlement, totalCount }) => {
+export const StoreLedgerTable: React.FC<LedgerProps> = ({ entries, totalCount }) => {
   const { t } = useTranslation();
   return (
     <TableContainer bare maxHeightClass={MAX_HEIGHT}>
@@ -49,7 +48,7 @@ export const StoreLedgerTable: React.FC<LedgerProps> = ({ entries, settlement, t
                   {e.dateLabel || formatDateTime(e.dateTime)}
                 </Td>
                 <Td>
-                  <Badge tone={isDebt ? (settlement === 'WE_OWE' ? 'danger' : 'warning') : 'success'}>
+                  <Badge tone={isDebt ? 'warning' : 'success'}>
                     {isDebt ? t('stores.type_debt') : t('stores.type_payment')}
                   </Badge>
                 </Td>
@@ -95,12 +94,14 @@ export const StoreLedgerTable: React.FC<LedgerProps> = ({ entries, settlement, t
 
 interface DealsProps {
   deals: StoreDealRow[];
-  settlement: Settlement;
+  /** Qodir aka: qarz uch qismdan (chek + agent ulushi + 6% foyda) — alohida ustunlar */
+  isQodir?: boolean;
 }
 
 /** Davrdagi tasdiqlangan bitimlar va ularning cheki DDS'ga yozilgan-yozilmagani */
-export const StoreDealsTable: React.FC<DealsProps> = ({ deals, settlement }) => {
+export const StoreDealsTable: React.FC<DealsProps> = ({ deals, isQodir = false }) => {
   const { t } = useTranslation();
+  const colCount = isQodir ? 11 : 7;
   return (
     <TableContainer bare maxHeightClass={MAX_HEIGHT}>
       <Table>
@@ -110,14 +111,25 @@ export const StoreDealsTable: React.FC<DealsProps> = ({ deals, settlement }) => 
             <Th>{t('common.date')}</Th>
             <Th>{t('common.customer')}</Th>
             <Th align="right">{t('stores.col_withdrawn')}</Th>
-            <Th align="right">{t('stores.col_payout')}</Th>
+            {isQodir ? (
+              <>
+                <Th align="right">{t('stores.part_check')}</Th>
+                <Th align="right">{t('stores.part_agent')}</Th>
+                <Th align="right">{t('stores.part_profit')}</Th>
+                <Th align="right">{t('stores.part_total')}</Th>
+              </>
+            ) : (
+              <Th align="right">{t('stores.col_payout')}</Th>
+            )}
             <Th align="right">{t('stores.col_profit')}</Th>
             <Th>{t('stores.col_check')}</Th>
           </Tr>
         </Thead>
         <Tbody>
-          {deals.length === 0 && <TableEmpty colSpan={7} icon={<Layers />} title={t('stores.deals_empty')} />}
-          {deals.map((d) => (
+          {deals.length === 0 && <TableEmpty colSpan={colCount} icon={<Layers />} title={t('stores.deals_empty')} />}
+          {deals.map((d) => {
+            const parts = d.debtParts || { check: d.calculatedAmount, agent: 0, profit: 0, total: d.calculatedAmount };
+            return (
             <Tr key={d.id}>
               <Td numeric className="font-medium">
                 №{d.dealNumber}
@@ -133,9 +145,26 @@ export const StoreDealsTable: React.FC<DealsProps> = ({ deals, settlement }) => 
               <Td align="right" numeric>
                 {formatMoney(d.withdrawnLimit)}
               </Td>
-              <Td align="right" numeric className="font-semibold">
-                {formatMoney(d.calculatedAmount)}
-              </Td>
+              {isQodir ? (
+                <>
+                  <Td align="right" numeric>
+                    {formatMoney(parts.check)}
+                  </Td>
+                  <Td align="right" numeric>
+                    {formatMoney(parts.agent)}
+                  </Td>
+                  <Td align="right" numeric>
+                    {formatMoney(parts.profit)}
+                  </Td>
+                  <Td align="right" numeric className="font-semibold">
+                    {formatMoney(parts.total)}
+                  </Td>
+                </>
+              ) : (
+                <Td align="right" numeric className="font-semibold">
+                  {formatMoney(d.calculatedAmount)}
+                </Td>
+              )}
               <Td align="right" numeric className={cn('font-semibold', Number(d.profit) < 0 ? 'text-danger' : 'text-success')}>
                 {formatMoney(d.profit)}
               </Td>
@@ -150,7 +179,7 @@ export const StoreDealsTable: React.FC<DealsProps> = ({ deals, settlement }) => 
                       {d.checkExpense.dateLabel ? `, ${d.checkExpense.dateLabel}` : ''}
                     </span>
                   </span>
-                ) : settlement === 'WE_OWE' ? (
+                ) : isQodir ? (
                   // Qodir aka cheki DDS'ga chiqim qilinmaydi — summa uning daftariga qarz bo'lib yoziladi
                   <Badge tone="neutral" size="sm">
                     {t('stores.check_in_ledger')}
@@ -162,7 +191,8 @@ export const StoreDealsTable: React.FC<DealsProps> = ({ deals, settlement }) => 
                 )}
               </Td>
             </Tr>
-          ))}
+            );
+          })}
         </Tbody>
       </Table>
     </TableContainer>
