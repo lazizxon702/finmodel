@@ -50,6 +50,9 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { user } = useAuth();
+  // Registratura: moliyaviy raqamlar yashirin — eksport va AI yordamchi ochilmaydi
+  const financeHidden = user?.role === 'REGISTRATURA';
 
   // Push bildirishnoma bosilganda tegishli sahifaga o'tish (faqat native ilovada ishlaydi)
   useEffect(() => {
@@ -129,7 +132,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       <BottomNav onOpenSidebar={() => setSidebarOpen(true)} />
 
       {/* Export to Excel / Sheets modal */}
-      <ExportModal isOpen={exportOpen} onClose={() => setExportOpen(false)} />
+      {!financeHidden && <ExportModal isOpen={exportOpen} onClose={() => setExportOpen(false)} />}
 
       {/* Install Mobile App / APK Modal */}
       <InstallAppModal isOpen={installOpen} onClose={() => setInstallOpen(false)} />
@@ -138,7 +141,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       <NotificationSettings open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
 
       {/* 3D Smart AI ERP Assistant */}
-      <AIAssistantModal />
+      {!financeHidden && <AIAssistantModal />}
     </div>
   );
 };

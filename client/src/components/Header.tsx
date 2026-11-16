@@ -20,6 +20,7 @@ const iconButton =
 export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, onOpenExport, onOpenInstall, onOpenNotifications, title }) => {
   const { user, logout } = useAuth();
   const { t } = useTranslation();
+  const financeHidden = user?.role === 'REGISTRATURA';
 
   const fullName = user?.fullName || t('header.user');
   const initials = fullName
@@ -54,13 +55,16 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, onOpenExport, onO
 
         <ThemeToggle />
 
-        {/* Eksport — mobilda yon menyuda */}
+        {/* Eksport — mobilda yon menyuda. Registratura'ga ko'rsatilmaydi (moliyaviy raqamlar yashirin) */}
+        {!financeHidden && (
         <button type="button" onClick={onOpenExport} title={t('header.export_full')} className={`${iconButton} hidden md:inline-flex`}>
           <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
           <span className="hidden xl:inline">{t('header.export_short')}</span>
         </button>
+        )}
 
-        {/* AI yordamchi — mobilda yon menyuda */}
+        {/* AI yordamchi — mobilda yon menyuda. Registratura'ga ko'rsatilmaydi */}
+        {!financeHidden && (
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('open-ai-assistant'))}
@@ -70,6 +74,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSidebar, onOpenExport, onO
           <Bot className="h-4 w-4" aria-hidden="true" />
           <span className="hidden xl:inline">{t('layout.ai_agent_short')}</span>
         </button>
+        )}
 
         {/* Bildirishnoma sozlamalari — mobilda yon menyuda */}
         {onOpenNotifications && (

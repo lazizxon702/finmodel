@@ -460,6 +460,35 @@ export function dealItemsView(deal: any) {
   }));
 }
 
+/**
+ * Registratura xodimi pul ustunlaridan FAQAT yechilgan limit va xarid xarajatini ko'radi (egasi, 16.11.2026);
+ * foyda, agent ulushi, mijozga berilgan summa va boshqalar yuborilmaydi (0).
+ */
+const HIDDEN_FINANCE_FIELDS = [
+  'profit', 'marginPct', 'agentAmount', 'agentPct', 'calculatedAmount', 'purchaseDiscountPct', 'trustDebtAmount', 'differenceAmount',
+  'qodirDebt', 'qodirBalance', 'greenBazarBalance', 'trustBalance', 'totalExtraBalance', 'extraDaftar', 'devicePurchaseAmount',
+] as const;
+const HIDDEN_TOTALS_FIELDS = [
+  'totalAgentAmount', 'totalCalculatedAmount', 'totalProfit', 'totalDifference', 'totalDaftar', 'totalQodirDebt', 'totalQodirBalance',
+  'totalGreenBazarBalance', 'totalTrustBalance', 'totalExtraBalance', 'warehouseCostSum', 'cogsSum', 'totalQodirChekExpense',
+] as const;
+export function hidesDealFinance(role?: Role | string | null): boolean {
+  return role === Role.REGISTRATURA;
+}
+/** Rolga qarab bitim ko'rinishidan moliyaviy maydonlarni olib tashlaydi (0 qilib yuboradi) */
+export function maskDealForRole<T extends Record<string, any>>(dto: T, role?: Role | string | null): T {
+  if (!hidesDealFinance(role)) return dto;
+  const out: Record<string, any> = { ...dto, financeHidden: true };
+  for (const f of HIDDEN_FINANCE_FIELDS) if (f in out) out[f] = 0;
+  return out as T;
+}
+export function maskTotalsForRole<T extends Record<string, any>>(totals: T, role?: Role | string | null): T {
+  if (!hidesDealFinance(role)) return totals;
+  const out: Record<string, any> = { ...totals, financeHidden: true };
+  for (const f of HIDDEN_TOTALS_FIELDS) if (f in out) out[f] = 0;
+  return out as T;
+}
+
 /** Bitimni klientga yuboriladigan ko'rinishga keltiradi (items, dateTimeLabel, tozalangan ism/telefon) */
 export function serializeDeal(deal: any) {
   const { ddsTransactions, ...rest } = deal;
@@ -497,7 +526,8 @@ export async function scopedDealWhere(
   user: AuthUser,
   ...extra: (Prisma.DealWhereInput | undefined)[]
 ): Promise<Prisma.DealWhereInput> {
-  const scope = await dealScopeWhere(user);
+  // Registratura (egasi, 16.11.2026): Bitimlar sahifasida HAMMA cheklarni ko'radi (boshqa bo'limlarda doirasi o'z jamoasi bo'lib qoladi)
+  const scope = user.role === Role.REGISTRATURA ? {} : await dealScopeWhere(user);
   return { AND: [scope, ...(extra.filter(Boolean) as Prisma.DealWhereInput[])] };
 }
 
@@ -744,7 +774,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
 
     return res.json({
       deals: deals.map((d) => {
-        const dto = serializeDeal(d);
+        const dto = maskDealForRole(serializeDeal(d), req.user!.role);
         return operatorShareRule ? { ...dto, operatorShare: Math.round(shares.get(d.id) || 0) } : dto;
       }),
       operatorShareRule,
@@ -882,7 +912,7 @@ router.get('/totals', authenticateToken, async (req: AuthRequest, res: Response)
     const { rule: operatorShareRule, shares } = await operatorSharesForUser(req.user!);
     const operatorShare = Math.round(deals.reduce((sum, d) => sum + (shares.get(d.id) || 0), 0));
 
-    return res.json({ ...totals, operatorShareRule, operatorShare });
+    return res.json({ ...maskTotalsForRole(totals, req.user!.role), operatorShareRule, operatorShare });
   } catch (error: any) {
     return sendError(res, error, 'Jami summalarni hisoblashda xatolik');
   }
@@ -1199,7 +1229,7 @@ router.get('/:id', authenticateToken, async (req: AuthRequest, res: Response) =>
       include: { ...DEAL_INCLUDE, botDeal: true },
     });
     if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
-    return res.json(serializeDeal(deal));
+    return res.json(maskDealForRole(serializeDeal(deal), req.user!.role));
   } catch (error: any) {
     return sendError(res, error, 'Bitimni olishda xatolik');
   }
@@ -1406,7 +1436,7 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
     pushToSheetsIfApproved(newDeal);
 
     return res.status(201).json({
-      ...view,
+      ...maskDealForRole(view, user.role),
       ...(result.check
         ? { checkExpenseResult: { created: result.check.created, skippedReason: result.check.skippedReason } }
         : {}),

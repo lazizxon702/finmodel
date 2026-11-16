@@ -15,6 +15,8 @@ export interface DealsSummaryTotals {
   /** Faqat ulush qoidasi bor jamoa operatori uchun (Jahongir): agent komissiyasi o'rniga o'z ulushi */
   operatorShareRule?: { basePct: number; bonusPct: number; monthlyLimitThreshold: number } | null;
   operatorShare?: number;
+  /** Registratura: server moliyaviy summalarni 0 qilib yuboradi — ular ko'rsatilmaydi */
+  financeHidden?: boolean;
 }
 
 interface Props {
@@ -22,7 +24,7 @@ interface Props {
   avgDiscount: number;
   /** OPERATOR / AGENT ko'rinishi: faqat chek soni, yechilgan limit va agent foydasi */
   scoped?: boolean;
-  /** Registratura: agent foydasi yo'q — o'ng panel ko'rsatilmaydi (faqat scoped ko'rinishda) */
+  /** Registratura: agent foydasi/foyda/mijozga to'lov yo'q — faqat chek soni va yechilgan limit (ixcham ko'rinish majburiy) */
   hideAgent?: boolean;
   className?: string;
 }
@@ -34,8 +36,12 @@ const num = (v: unknown) => Number(v) || 0;
  * (mijozga to'lov / agent komissiyasi / qolgan farq) nisbat chizig'ida; o'ngda qolgan ko'rsatkichlar.
  * Faqat tasdiqlangan bitimlar bo'yicha.
  */
-export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, scoped, hideAgent, className }) => {
+export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, scoped: scopedProp, hideAgent: hideAgentProp, className }) => {
   const { t } = useTranslation();
+  // Server moliyani yashirgan bo'lsa (Registratura) — faqat chek soni va yechilgan limit ko'rsatiladi
+  const financeHidden = totals?.financeHidden === true;
+  const hideAgent = hideAgentProp || financeHidden;
+  const scoped = scopedProp || hideAgent;
 
   const count = num(totals?.dealCount);
   const withdrawn = num(totals?.totalWithdrawn);

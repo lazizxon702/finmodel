@@ -464,11 +464,14 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
           {isQodirStore(store?.name) && (
             <div className="rounded-control bg-warning-soft px-3 py-2.5 text-sm">
               <p className="font-medium text-warning">{t('dealsPage.qodir_note')}</p>
+              {/* Registratura'ga hisoblangan chek summasi (agent ulushi bilan) ko'rsatilmaydi */}
+              {!registratura && (
               <p className="mt-0.5 text-xs tabular-nums text-fg-secondary">
                 {t('dealsPage.qodir_check_estimate', {
                   amount: formatMoney(Number(form.calculatedAmount) + Number(form.withdrawnLimit) * 0.05),
                 })}
               </p>
+              )}
             </div>
           )}
 

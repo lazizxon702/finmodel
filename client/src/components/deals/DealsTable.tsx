@@ -5,7 +5,7 @@ import { useTranslation } from '../../context/LanguageContext';
 import { formatMoney, formatNumber, formatPercent } from '../../utils/format';
 import type { Deal, Role } from '../../types';
 import { ApprovalBadge, DealStatusBadge } from './DealBadges';
-import { cleanText, dealDateTime, dealPermissions, dealPhones, isQodirStore, productSummary } from './dealUtils';
+import { cleanText, dealDateTime, dealPermissions, dealPhones, isQodirStore, isRegistratura, productSummary } from './dealUtils';
 
 export interface DealRowHandlers {
   onView: (deal: Deal) => void;
@@ -116,6 +116,9 @@ const ExpenseMark: React.FC<{ deal: Deal }> = ({ deal }) => {
 export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filtered, onCreate, ...handlers }) => {
   const { t } = useTranslation();
   const { onView, onEdit, onDelete, onApprove, onReject, onExpense } = handlers;
+  // Registratura: pul ustunlaridan faqat "Yechilgan limit" va "Xarid xarajati" ko'rinadi
+  // (mijozga to'lov, agent komissiyasi, foyda, Daftar/Qodir summalari, chek xarajati — yashirin)
+  const hideFinance = isRegistratura(role) || totals?.financeHidden === true;
 
   if (loading && deals.length === 0) return <LoadingBlock label={t('common.loading')} />;
 
@@ -180,14 +183,18 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
               <Th>{t('common.product_name')}</Th>
               <Th>{t('dealsPage.col_store_provider')}</Th>
               <Th align="right" className="whitespace-normal leading-tight">{t('common.withdrawn_limit')}</Th>
-              <Th align="right" className="whitespace-normal leading-tight">{t('common.customer_payment')}</Th>
-              <Th align="right" className="whitespace-normal leading-tight">
-                {/* Ulush qoidasi bor jamoa operatori (Jahongir): agent komissiyasi o'rniga o'z ulushi */}
-                {t(totals?.operatorShareRule ? 'dealsPage.sum_operator_share' : 'common.agent_commission')}
-                <span className="block font-normal text-fg-muted">{t('common.purchase_cost')}</span>
-              </Th>
+              {!hideFinance && <Th align="right" className="whitespace-normal leading-tight">{t('common.customer_payment')}</Th>}
+              {hideFinance ? (
+                <Th align="right" className="whitespace-normal leading-tight">{t('common.purchase_cost')}</Th>
+              ) : (
+                <Th align="right" className="whitespace-normal leading-tight">
+                  {/* Ulush qoidasi bor jamoa operatori (Jahongir): agent komissiyasi o'rniga o'z ulushi */}
+                  {t(totals?.operatorShareRule ? 'dealsPage.sum_operator_share' : 'common.agent_commission')}
+                  <span className="block font-normal text-fg-muted">{t('common.purchase_cost')}</span>
+                </Th>
+              )}
               <Th>{t('common.status')}</Th>
-              <Th align="right">{t('common.profit')}</Th>
+              {!hideFinance && <Th align="right">{t('common.profit')}</Th>}
               <Th align="right" className="sticky right-0">
                 {t('common.actions')}
               </Th>
@@ -202,17 +209,27 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
               <Td align="right" numeric>
                 {formatNumber(totals?.totalWithdrawn)}
               </Td>
-              <Td align="right" numeric>
-                {formatNumber(totals?.totalCalculatedAmount)}
-              </Td>
-              <Td align="right" numeric>
-                <p>{formatNumber(totals?.operatorShareRule ? totals?.operatorShare : totals?.totalAgentAmount)}</p>
-                <p className="text-xs font-normal text-fg-muted">{formatNumber(totals?.totalPurchaseCost)}</p>
-              </Td>
+              {!hideFinance && (
+                <Td align="right" numeric>
+                  {formatNumber(totals?.totalCalculatedAmount)}
+                </Td>
+              )}
+              {hideFinance ? (
+                <Td align="right" numeric>
+                  {formatNumber(totals?.totalPurchaseCost)}
+                </Td>
+              ) : (
+                <Td align="right" numeric>
+                  <p>{formatNumber(totals?.operatorShareRule ? totals?.operatorShare : totals?.totalAgentAmount)}</p>
+                  <p className="text-xs font-normal text-fg-muted">{formatNumber(totals?.totalPurchaseCost)}</p>
+                </Td>
+              )}
               <Td />
-              <Td align="right" numeric className="text-success">
-                {formatNumber(totals?.totalProfit)}
-              </Td>
+              {!hideFinance && (
+                <Td align="right" numeric className="text-success">
+                  {formatNumber(totals?.totalProfit)}
+                </Td>
+              )}
               <Td className="sticky right-0 bg-surface-2" />
             </tr>
 
@@ -248,10 +265,10 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                       {d.isDaftar && (
                         <Badge tone="warning" size="sm">
                           {t('dealsPage.daftar')}
-                          {Number(d.extraDaftar) > 0 && <span className="tabular-nums">+{formatMoney(d.extraDaftar)}</span>}
+                          {!hideFinance && Number(d.extraDaftar) > 0 && <span className="tabular-nums">+{formatMoney(d.extraDaftar)}</span>}
                         </Badge>
                       )}
-                      {isQodirStore(d.store?.name) && (
+                      {!hideFinance && isQodirStore(d.store?.name) && (
                         <Badge tone="neutral" size="sm" title={t('dealsPage.qodir_check_title')}>
                           <span className="tabular-nums">
                             {t('dealsPage.qodir_check', { amount: formatMoney(Number(d.calculatedAmount) + Number(d.agentAmount)) })}
@@ -263,23 +280,31 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                   <Td align="right" numeric className="font-semibold">
                     {formatNumber(d.withdrawnLimit)}
                   </Td>
-                  <Td align="right" numeric>
-                    <p>{formatNumber(d.calculatedAmount)}</p>
-                    <p className="text-xs text-fg-muted" title={t('common.discount_pct')}>
-                      −{formatPercent(d.purchaseDiscountPct)}
-                    </p>
-                  </Td>
-                  <Td align="right" numeric>
-                    <p>{formatNumber(totals?.operatorShareRule ? (d as any).operatorShare ?? 0 : d.agentAmount)}</p>
-                    <p className="text-xs text-fg-muted" title={t('common.purchase_cost')}>
+                  {!hideFinance && (
+                    <Td align="right" numeric>
+                      <p>{formatNumber(d.calculatedAmount)}</p>
+                      <p className="text-xs text-fg-muted" title={t('common.discount_pct')}>
+                        −{formatPercent(d.purchaseDiscountPct)}
+                      </p>
+                    </Td>
+                  )}
+                  {hideFinance ? (
+                    <Td align="right" numeric>
                       {formatNumber(d.totalPurchaseCost)}
-                    </p>
-                  </Td>
+                    </Td>
+                  ) : (
+                    <Td align="right" numeric>
+                      <p>{formatNumber(totals?.operatorShareRule ? (d as any).operatorShare ?? 0 : d.agentAmount)}</p>
+                      <p className="text-xs text-fg-muted" title={t('common.purchase_cost')}>
+                        {formatNumber(d.totalPurchaseCost)}
+                      </p>
+                    </Td>
+                  )}
                   <Td className="max-w-[8.5rem]">
                     <div className="flex flex-wrap items-center gap-1">
                       <DealStatusBadge status={d.status} />
                       <ApprovalBadge status={status} />
-                      <ExpenseMark deal={d} />
+                      {!hideFinance && <ExpenseMark deal={d} />}
                     </div>
                     {status === 'REJECTED' && cleanText(d.rejectReason) && (
                       <p className="mt-0.5 truncate text-xs text-danger" title={d.rejectReason || undefined}>
@@ -287,14 +312,16 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                       </p>
                     )}
                   </Td>
-                  <Td align="right" numeric>
-                    <p className={cn('font-semibold', Number(d.profit) < 0 ? 'text-danger' : 'text-success')}>{formatNumber(d.profit)}</p>
-                    {Number(d.salePrice) > 0 && (
-                      <p className="text-xs text-fg-muted" title={t('common.sale_price')}>
-                        {formatNumber(d.salePrice)}
-                      </p>
-                    )}
-                  </Td>
+                  {!hideFinance && (
+                    <Td align="right" numeric>
+                      <p className={cn('font-semibold', Number(d.profit) < 0 ? 'text-danger' : 'text-success')}>{formatNumber(d.profit)}</p>
+                      {Number(d.salePrice) > 0 && (
+                        <p className="text-xs text-fg-muted" title={t('common.sale_price')}>
+                          {formatNumber(d.salePrice)}
+                        </p>
+                      )}
+                    </Td>
+                  )}
                   <Td align="right" className="sticky right-0 border-l border-line bg-surface group-hover:bg-surface-2">
                     <div className="flex items-center justify-end gap-0.5">{actions(d)}</div>
                   </Td>
@@ -351,8 +378,9 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                     <p className="font-medium tabular-nums text-fg">{formatMoney(d.withdrawnLimit)}</p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs text-fg-muted">{t('common.customer_payment')}</p>
-                    <p className="font-medium tabular-nums text-fg">{formatMoney(d.calculatedAmount)}</p>
+                    {/* Registratura: mijozga to'lov o'rniga xarid xarajati */}
+                    <p className="text-xs text-fg-muted">{t(hideFinance ? 'common.purchase_cost' : 'common.customer_payment')}</p>
+                    <p className="font-medium tabular-nums text-fg">{formatMoney(hideFinance ? d.totalPurchaseCost : d.calculatedAmount)}</p>
                   </div>
                 </div>
 
@@ -365,7 +393,7 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                     {t('approval.rejectReason')}: {d.rejectReason}
                   </p>
                 )}
-                {d.checkExpense && (
+                {!hideFinance && d.checkExpense && (
                   <p className="text-xs tabular-nums text-success">
                     {t('dealsPage.expense_written_short', { tx: d.checkExpense.txNumber, amount: formatMoney(d.checkExpense.amount) })}
                   </p>

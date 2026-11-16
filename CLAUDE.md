@@ -29,7 +29,9 @@ o'zi kelgan mijozlarga chek uradigan xodimlar. Egasi qarorlari: agent ulushi HEC
 xodim butun Registratura cheklarini ko'radi; tahrirlash/o'chirish tugmalari UMUMAN yo'q; admin tasdiqlaydi. Kod: `Role.REGISTRATURA`; `calculation.service.ts` `REGISTRATURA_AGENCY_NAME`, `isRegistraturaAgency`,
 `DealCalculationInput.agencyName` (calculateDeal: agent 0, ulush foydaga qo'shiladi); `access.service.ts` (`createdBy.role`); `deals.routes.ts` `dealWriteDenial` + POST (agentlik "Registratura", operator = xodimning Agent yozuvi, sotuvchi = xodim);
 `team.service.ts` `ensureRegistraturaRecord`; `routes/registratura.routes.ts` (`/api/registratura/staff` GET/POST/PUT, ADMIN); klient `pages/RegistraturaPage.tsx`, `dealUtils.ts` `isRegistratura`. Testlar 344/344.
-Ochiq: xodim "Sof foyda" / "Xarid xarajati" ustunlarini ko'radi (operator kabi) — yashirilsinmi, egasidan so'ralgan.
+**16.11 kech (egasi; JONLIDA):** Registratura xodimi Bitimlar sahifasida HAMMA cheklarni ko'radi (`deals.routes.ts` `scopedDealWhere` — faqat shu yerda keng; `dealScopeWhere` o'z jamoasi bo'lib qoladi: ombor/qarzdorlar/KPI ochilmaydi);
+pul ustunlaridan FAQAT yechilgan limit va xarid xarajati — qolgani serverdan 0 bo'lib ketadi (`maskDealForRole`, `maskTotalsForRole`, `financeHidden`); eksport va AI — 403. Klient: `DealsTable`/`DealsSummary`/`DealDetailModal` `hideFinance`. Testlar 346/346.
+Avvalgi "butun Registratura cheklarini ko'radi" qarori shu bilan ALMASHTIRILDI.
 **Anvar (16.11):** 14.11 dagi apply-team-sheet 8 chekni (operatori "Anvar" yozilgan, lekin sotuvchisi boshqa) Jahongir/Farida/Davlatbekdan Anvar agentligiga ko'chirgan edi — XATO (sellerName tekshirilmagan).
 Egasi 4 tasini qo'lda, qolgan 4 tasini `scripts/move-anvar-deals-back-1611.ts --apply` qaytardi (zaxira `db-raw-db-2026-11-16T09-42-13-869Z.json`): #3745→Jahongir/Muborak, #3748→Jahongir/Marjona, #8101→Jahongir/Shahlo, #8098→Farida/Farida. Anvarda 20 chek qoldi.
 

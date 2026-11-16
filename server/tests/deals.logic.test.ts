@@ -42,6 +42,8 @@ import {
   serializeDeal,
   tashkentYmd,
   toDeviceItemsJson,
+  maskDealForRole,
+  maskTotalsForRole,
 } from '../src/routes/deals.routes';
 
 const user = (role: string, id = 'u1') => ({ id, role, username: id, fullName: id }) as any;
@@ -75,6 +77,17 @@ describe("Ruxsat doirasi (dealScopeWhere)", () => {
   it("REGISTRATURA butun Registratura jamoasi kiritgan bitimlarni ko'radi (boshqalarnikini — yo'q)", async () => {
     expect(await dealScopeWhere(user('REGISTRATURA', 'reg1'))).toEqual({ createdBy: { role: 'REGISTRATURA' } });
     expect(isScopedRole('REGISTRATURA')).toBe(true);
+  });
+
+  it("REGISTRATURA Bitimlar ro'yxatida HAMMA cheklarni ko'radi, lekin moliyaviy maydonlar yashiriladi", async () => {
+    expect(await scopedDealWhere(user('REGISTRATURA', 'reg1'), { id: 'd1' })).toEqual({ AND: [{}, { id: 'd1' }] });
+    const dto = { id: 'd1', withdrawnLimit: 10, calculatedAmount: 7, profit: 3, agentAmount: 1, totalPurchaseCost: 8, marginPct: 0.3 };
+    expect(maskDealForRole(dto, 'REGISTRATURA')).toMatchObject({ withdrawnLimit: 10, totalPurchaseCost: 8, calculatedAmount: 0, profit: 0, agentAmount: 0, marginPct: 0, financeHidden: true });
+    expect(maskDealForRole(dto, 'ADMIN')).toBe(dto);
+    expect(maskDealForRole(dto, 'OPERATOR')).toBe(dto);
+    const totals = { dealCount: 2, totalWithdrawn: 20, totalPurchaseCost: 16, totalProfit: 6, totalAgentAmount: 2 };
+    expect(maskTotalsForRole(totals, 'REGISTRATURA')).toMatchObject({ dealCount: 2, totalWithdrawn: 20, totalPurchaseCost: 16, totalProfit: 0, totalAgentAmount: 0 });
+    expect(maskTotalsForRole(totals, 'ADMIN')).toBe(totals);
   });
 
   it("boshqa rollar uchun cheklov yo'q", async () => {

@@ -5,7 +5,7 @@ import { useTranslation } from '../../context/LanguageContext';
 import { formatDateTime, formatMoney, formatPercent } from '../../utils/format';
 import type { Deal, Role } from '../../types';
 import { ApprovalBadge, DealStatusBadge } from './DealBadges';
-import { cleanText, dealDateTime, dealItems, dealPermissions, dealPhones, isQodirStore } from './dealUtils';
+import { cleanText, dealDateTime, dealItems, dealPermissions, dealPhones, isQodirStore, isRegistratura } from './dealUtils';
 
 interface Props {
   deal: Deal;
@@ -49,6 +49,9 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
   const expense = deal.checkExpense;
   const qodir = isQodirStore(deal.store?.name);
   const hasActions = can.edit || can.approve || can.reject || can.remove;
+  // Registratura: mijozga to'lov, diskont, agent komissiyasi, foyda, sotuv narxi, Trust qarzi,
+  // chek xarajati va tovar narxi ko'rsatilmaydi — faqat yechilgan limit va xarid xarajati
+  const hideFinance = isRegistratura(role) || (deal as any).financeHidden === true;
 
   return (
     <Modal
@@ -154,6 +157,17 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
         </div>
 
         <Section title={t('dealsPage.section_amounts')}>
+          {hideFinance ? (
+            // Registratura: pul raqamlaridan faqat yechilgan limit va xarid xarajati
+            <Rows>
+              <Row label={t('common.withdrawn_limit')} numeric>
+                {formatMoney(deal.withdrawnLimit)}
+              </Row>
+              <Row label={t('common.purchase_cost')} numeric>
+                {formatMoney(deal.totalPurchaseCost)}
+              </Row>
+            </Rows>
+          ) : (
           <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2">
             <Rows>
               <Row label={t('dealsPage.customer_limit')} numeric>
@@ -184,6 +198,7 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
               </Row>
             </Rows>
           </div>
+          )}
         </Section>
 
         <Section title={t('dealsPage.items_title', { count: items.length })}>
@@ -199,7 +214,7 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
                     </p>
                     <p className="shrink-0 tabular-nums text-fg-secondary">
                       {t('common.items_count', { count: it.quantity })}
-                      {it.price > 0 && <span className="ml-2 font-medium text-fg">{formatMoney(it.price)}</span>}
+                      {!hideFinance && it.price > 0 && <span className="ml-2 font-medium text-fg">{formatMoney(it.price)}</span>}
                     </p>
                   </div>
                   <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-fg-muted">
@@ -243,11 +258,12 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
                 {deal.approvedAt && <span className="ml-2 tabular-nums text-fg-muted">{formatDateTime(deal.approvedAt)}</span>}
               </Row>
             )}
-            {trustDebt > 0 && (
+            {!hideFinance && trustDebt > 0 && (
               <Row label={t('dealsPage.trust_debt')} numeric>
                 {formatMoney(trustDebt)}
               </Row>
             )}
+            {!hideFinance && (
             <Row label={t('dealsPage.check_expense')}>
               {expense ? (
                 <span className="tabular-nums">
@@ -268,6 +284,7 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
                 <span className="text-fg-muted">{t('dealsPage.expense_none')}</span>
               )}
             </Row>
+            )}
             <Row label={t('dealsPage.created_by')}>
               {deal.createdBy ? (
                 <>

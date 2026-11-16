@@ -174,6 +174,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall
   const { t } = useTranslation();
 
   const userRole = user?.role || 'OPERATOR';
+  // Registratura: moliyaviy raqamlar yashirin — eksport va AI yordamchi ko'rsatilmaydi
+  const financeHidden = userRole === 'REGISTRATURA';
 
   // ADMIN: tasdiq kutayotgan bitimlar soni ("Bitimlar" yonidagi nishon). Xato bo'lsa nishon ko'rinmaydi.
   const isAdmin = user?.role === 'ADMIN';
@@ -298,7 +300,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall
 
         {/* Yordamchi amallar — faqat mobil menyuda (desktopda yuqori panelda bor) */}
         <div className="shrink-0 space-y-0.5 border-t border-white/10 px-3 py-2 lg:hidden">
-          {onOpenExport && (
+          {onOpenExport && !financeHidden && (
             <button
               type="button"
               onClick={() => {
@@ -311,6 +313,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall
               <span className="truncate">{t('header.export_full')}</span>
             </button>
           )}
+          {!financeHidden && (
           <button
             type="button"
             onClick={() => {
@@ -323,6 +326,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onOpenInstall
             <Bot className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
             <span className="truncate">{t('layout.ai_agent')}</span>
           </button>
+          )}
           {onOpenNotifications && (
             <button
               type="button"

@@ -508,6 +508,8 @@ const router = Router();
 
 // POST /api/ai/chat
 router.post('/chat', authenticateToken, async (req: AuthRequest, res: Response) => {
+  // Registratura: AI yordamchi kompaniya raqamlarini ko'rsatadi — bu rol uchun yopiq (egasi, 16.11.2026)
+  if (req.user?.role === Role.REGISTRATURA) return res.status(403).json({ error: "AI yordamchi uchun huquqingiz yetarli emas" });
   const lang = parseLang(req.body?.language);
   try {
     const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';

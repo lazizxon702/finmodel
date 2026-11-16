@@ -10,6 +10,8 @@ const router = Router();
 
 // GET /api/export/xlsx (Direct Download with live formulas)
 router.get('/xlsx', authenticateToken, async (req: AuthRequest, res: Response) => {
+  // Registratura: eksportda foyda/agent ustunlari bor — bu rol uchun yopiq (egasi, 16.11.2026)
+  if (req.user?.role === 'REGISTRATURA') return res.status(403).json({ error: "Eksport uchun huquqingiz yetarli emas" });
   try {
     const { startDate, endDate, sheets } = req.query as any;
 
