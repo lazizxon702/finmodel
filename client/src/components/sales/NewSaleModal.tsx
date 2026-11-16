@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, BadgeDollarSign, PackageOpen, Search, X } from 'lucide-react';
+import { AlertTriangle, BadgeDollarSign, ChevronDown, Minus, PackageOpen, Plus, Search, Warehouse, X } from 'lucide-react';
 import { formatMoney, todayYmd } from '../../utils/format';
 import { useTranslation } from '../../context/LanguageContext';
 import { AmountInput } from '../AmountInput';
@@ -10,6 +10,7 @@ import {
   SALE_PAYMENT_TYPES,
   SalePaymentType,
   StockRow,
+  groupStock,
   num,
   stockImeis,
   stockSearchText,
@@ -47,6 +48,8 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [stockSearch, setStockSearch] = useState('');
   const [stockStore, setStockStore] = useState('');
+  // IMEI ro'yxati ochilgan model guruhlari
+  const [openGroups, setOpenGroups] = useState<string[]>([]);
   const [form, setForm] = useState(emptyForm);
   // Foydalanuvchi narx/to'lovni qo'lda o'zgartirgan bo'lsa, avtomatik qayta hisoblanmaydi
   const [priceTouched, setPriceTouched] = useState(false);
@@ -62,6 +65,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
     setSelectedIds([]);
     setStockSearch('');
     setStockStore('');
+    setOpenGroups([]);
     setForm(emptyForm());
     setPriceTouched(false);
     setPaidTouched(false);
@@ -113,6 +117,27 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
       return true;
     });
   }, [stock, stockSearch, stockStore]);
+
+  // Model bo'yicha guruhlar: "A18 — omborda 5 ta, nechta sotasiz?"
+  const groups = useMemo(() => groupStock(visibleStock), [visibleStock]);
+
+  /** Guruhdan nechta sotilishini o'rnatadi: ko'paytirsa — eng eski tanlanmaganlar qo'shiladi, kamaytirsa — oxirgi tanlanganlar olinadi */
+  const setGroupQty = (rows: StockRow[], qty: number) => {
+    const ids = rows.map((r) => r.id);
+    const target = Math.max(0, Math.min(ids.length, Math.round(qty) || 0));
+    setSelectedIds((prev) => {
+      const inGroup = ids.filter((id) => prev.includes(id));
+      if (target === inGroup.length) return prev;
+      if (target > inGroup.length) {
+        const add = ids.filter((id) => !prev.includes(id)).slice(0, target - inGroup.length);
+        return [...prev, ...add];
+      }
+      const drop = new Set(inGroup.slice(target));
+      return prev.filter((id) => !drop.has(id));
+    });
+  };
+  const toggleGroupOpen = (key: string) =>
+    setOpenGroups((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
 
   const toggle = (id: string) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -174,7 +199,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
     <Modal
       open={open}
       onClose={onClose}
-      size="xl"
+      size="full"
       title={
         <span className="flex items-center gap-2">
           <BadgeDollarSign className="h-5 w-5 text-accent" />
@@ -194,11 +219,22 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
       }
     >
       <form id="sale-new-form" onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {/* Ombordan tanlash */}
-          <div className="min-w-0 space-y-2">
-            <div className="text-[13px] font-medium text-fg-secondary">
-              {t('sales.new.pickTitle')} <span className="text-danger" aria-hidden="true">*</span>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* Ombordagi tovarlar — model bo'yicha katta kartochkalar */}
+          <div className="min-w-0 space-y-3 lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-card bg-brand-soft text-accent">
+                  <Warehouse className="h-5 w-5" />
+                </span>
+                <div>
+                  <div className="text-base font-semibold leading-tight text-fg">
+                    {t('sales.new.stockTitle')} <span className="text-danger" aria-hidden="true">*</span>
+                  </div>
+                  <div className="text-xs text-fg-muted">{t('sales.new.stockHint')}</div>
+                </div>
+              </div>
+              <Badge tone="brand">{t('sales.new.stockTotal', { count: stock.length })}</Badge>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <div className="min-w-0 flex-1">
@@ -212,7 +248,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
                 />
               </div>
               {storeNames.length > 1 && (
-                <div className="sm:w-40">
+                <div className="sm:w-48">
                   <Select
                     value={stockStore}
                     onChange={(e) => setStockStore(e.target.value)}
@@ -229,48 +265,123 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
               )}
             </div>
 
-            <div className="max-h-64 overflow-y-auto overscroll-contain rounded-card border border-line bg-surface">
+            <div className="max-h-[26rem] overflow-y-auto overscroll-contain rounded-card border border-line bg-surface-2 p-2">
               {stock.length === 0 ? (
-                <div className="px-3 py-8 text-center text-sm text-fg-muted">{t('sales.form.noStock')}</div>
-              ) : visibleStock.length === 0 ? (
-                <div className="px-3 py-8 text-center text-sm text-fg-muted">{t('sales.new.nothingFound')}</div>
+                <div className="px-3 py-10 text-center text-sm text-fg-muted">{t('sales.form.noStock')}</div>
+              ) : groups.length === 0 ? (
+                <div className="px-3 py-10 text-center text-sm text-fg-muted">{t('sales.new.nothingFound')}</div>
               ) : (
-                <ul className="divide-y divide-line">
-                  {visibleStock.map((row) => {
-                    const checked = selectedIds.includes(row.id);
-                    const imeis = stockImeis(row);
+                <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {groups.map((g) => {
+                    const picked = g.rows.filter((r) => selectedIds.includes(r.id)).length;
+                    const isOpen = openGroups.includes(g.key);
+                    const cost = g.rows.reduce((sum, r) => sum + num(r.purchaseCost), 0);
                     return (
-                      <li key={row.id}>
-                        <label
-                          className={cn(
-                            'flex min-h-touch cursor-pointer items-start gap-2.5 px-3 py-2 transition-colors hover:bg-brand-soft/40',
-                            checked && 'bg-brand-soft/60'
-                          )}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggle(row.id)}
-                            className="mt-1 h-4 w-4 shrink-0 accent-[rgb(var(--brand))]"
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold text-fg">
-                              {row.productName || '—'}
-                              {num(row.quantity) > 1 && (
-                                <span className="ml-1 font-medium text-fg-muted">× {row.quantity}</span>
+                      <li
+                        key={g.key}
+                        className={cn(
+                          'rounded-card border bg-surface p-3 transition-colors',
+                          picked > 0 ? 'border-accent ring-1 ring-accent/40' : 'border-line'
+                        )}
+                      >
+                        <div className="line-clamp-2 text-[15px] font-semibold leading-snug text-fg">{g.label}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <Badge tone={picked > 0 ? 'brand' : 'neutral'} size="sm">
+                            {t('sales.new.inStock', { count: g.rows.length })}
+                          </Badge>
+                          <span className="whitespace-nowrap text-xs tabular-nums text-fg-muted">
+                            {t('sales.new.avgCost', { amount: formatMoney(cost / g.rows.length) })}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-fg-secondary">{t('sales.new.howMany')}</span>
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              size="icon"
+                              variant="secondary"
+                              onClick={() => setGroupQty(g.rows, picked - 1)}
+                              disabled={picked === 0}
+                              aria-label={t('sales.new.less')}
+                            >
+                              <Minus className="h-4 w-4" />
+                            </Button>
+                            <span
+                              className={cn(
+                                'min-w-[3.5rem] whitespace-nowrap rounded-card border px-2 py-1.5 text-center text-base font-bold tabular-nums',
+                                picked > 0 ? 'border-accent bg-brand-soft text-accent' : 'border-line bg-surface-2 text-fg-muted'
                               )}
+                              aria-live="polite"
+                            >
+                              {picked} / {g.rows.length}
                             </span>
-                            <span className="block truncate text-xs text-fg-muted">
-                              №{row.dealNumber ?? '—'} · {row.storeName || '—'}
-                            </span>
-                            <span className="block truncate font-mono text-xs tabular-nums text-fg-muted">
-                              IMEI: {imeis.length > 0 ? imeis.join(', ') : t('sales.form.noImei')}
-                            </span>
-                          </span>
-                          <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-fg-secondary">
-                            {formatMoney(row.purchaseCost)}
-                          </span>
-                        </label>
+                            <Button
+                              size="icon"
+                              variant="secondary"
+                              onClick={() => setGroupQty(g.rows, picked + 1)}
+                              disabled={picked >= g.rows.length}
+                              aria-label={t('sales.new.more')}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                            {g.rows.length > 1 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setGroupQty(g.rows, picked === g.rows.length ? 0 : g.rows.length)}
+                              >
+                                {picked === g.rows.length ? t('sales.new.none') : t('sales.new.all')}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleGroupOpen(g.key)}
+                          className="mt-2 flex w-full items-center justify-between gap-2 rounded-card px-1 py-1 text-xs font-medium text-fg-secondary hover:text-fg"
+                          aria-expanded={isOpen}
+                        >
+                          <span>{t('sales.new.pickByImei')}</span>
+                          <ChevronDown className={cn('h-4 w-4 transition-transform', isOpen && 'rotate-180')} />
+                        </button>
+                        {isOpen && (
+                          <ul className="mt-1 divide-y divide-line rounded-card border border-line">
+                            {g.rows.map((row) => {
+                              const checked = selectedIds.includes(row.id);
+                              const imeis = stockImeis(row);
+                              return (
+                                <li key={row.id}>
+                                  <label
+                                    className={cn(
+                                      'flex min-h-touch cursor-pointer items-start gap-2.5 px-2.5 py-2 transition-colors hover:bg-brand-soft/40',
+                                      checked && 'bg-brand-soft/60'
+                                    )}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggle(row.id)}
+                                      className="mt-1 h-4 w-4 shrink-0 accent-[rgb(var(--brand))]"
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-xs text-fg-secondary">
+                                        №{row.dealNumber ?? '—'} · {row.storeName || '—'}
+                                        {num(row.quantity) > 1 && <span className="ml-1 font-semibold">× {row.quantity}</span>}
+                                      </span>
+                                      <span className="block truncate font-mono text-xs tabular-nums text-fg-muted">
+                                        IMEI: {imeis.length > 0 ? imeis.join(', ') : t('sales.form.noImei')}
+                                      </span>
+                                    </span>
+                                    <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-fg-secondary">
+                                      {formatMoney(row.purchaseCost)}
+                                    </span>
+                                  </label>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
                       </li>
                     );
                   })}
@@ -301,7 +412,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
                   {t('sales.new.selectedEmpty')}
                 </div>
               ) : (
-                <ul className="max-h-56 divide-y divide-line overflow-y-auto overscroll-contain">
+                <ul className="max-h-[22rem] divide-y divide-line overflow-y-auto overscroll-contain">
                   {selectedRows.map((row) => (
                     <li key={row.id} className="flex items-center gap-2 px-3 py-1.5">
                       <span className="min-w-0 flex-1">

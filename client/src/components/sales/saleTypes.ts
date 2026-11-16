@@ -125,6 +125,38 @@ export function stockImeis(row: StockRow): string[] {
   ]);
 }
 
+/** Model nomi (ko'rsatish uchun): "1ta", "2 шт" kabi son qo'shimchalari olib tashlanadi */
+export function stockModelLabel(row: StockRow): string {
+  const raw = String(row.productName ?? '').replace(/\s+/g, ' ').trim();
+  const cleaned = raw.replace(/\b\d+\s*(ta|шт|sht|dona)\b\.?/gi, '').replace(/\s+/g, ' ').replace(/\s+\+\s+/g, ' + ').trim();
+  return cleaned || raw || '—';
+}
+
+/** Bir xil model qatorlarini bitta guruhga yig'ish kaliti (registr va bo'shliqlar farq qilmaydi) */
+export function stockModelKey(row: StockRow): string {
+  return stockModelLabel(row).toLowerCase().replace(/[^a-z0-9а-яёўқғҳ+]+/gi, '');
+}
+
+export interface StockGroup {
+  key: string;
+  label: string;
+  rows: StockRow[];
+}
+
+/** Ombor qatorlarini model bo'yicha guruhlaydi: ko'p donalisi birinchi, ichida — bitim № bo'yicha (eskisi oldin) */
+export function groupStock(rows: StockRow[]): StockGroup[] {
+  const map = new Map<string, StockGroup>();
+  for (const row of rows) {
+    const key = stockModelKey(row);
+    const g = map.get(key) || { key, label: stockModelLabel(row), rows: [] };
+    g.rows.push(row);
+    map.set(key, g);
+  }
+  const groups = Array.from(map.values());
+  for (const g of groups) g.rows.sort((a, b) => num(a.dealNumber) - num(b.dealNumber));
+  return groups.sort((a, b) => b.rows.length - a.rows.length || a.label.localeCompare(b.label));
+}
+
 /** Ombor qatori bo'yicha qidiruv matni: model, IMEI, bitim №, do'kon */
 export function stockSearchText(row: StockRow): string {
   const devices = Array.isArray(row.items) ? row.items : [];
