@@ -50,7 +50,7 @@ const ERROR_VIEW: Record<ErrorKind, { icon: LucideIcon; className: string }> = {
 };
 
 // OPERATOR va AGENT faqat o'z bitimlarini ko'radi — ularga moliya savollari taklif qilinmaydi
-const SCOPED_ROLES = ['OPERATOR', 'AGENT'];
+const SCOPED_ROLES = ['OPERATOR', 'AGENT', 'REGISTRATURA'];
 // Kassa va Trust raqamlarini ko'ra oladigan rollar (serverdagi FINANCE_ROLES bilan bir xil)
 const FINANCE_ROLES = ['ADMIN', 'MANAGER', 'CFO', 'COO', 'CASHIER', 'VIEWER'];
 

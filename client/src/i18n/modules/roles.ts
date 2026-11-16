@@ -16,6 +16,7 @@ export default defineModule({
     'roles.SELLER': 'Sotuvchi',
     'roles.HR_MANAGER': "HR mas'uli",
     'roles.AGENT': 'Agent',
+    'roles.REGISTRATURA': 'Registratura',
     'roles.unknown': 'Foydalanuvchi',
   },
   ru: {
@@ -32,6 +33,7 @@ export default defineModule({
     'roles.SELLER': 'Продавец',
     'roles.HR_MANAGER': 'HR-менеджер',
     'roles.AGENT': 'Агент',
+    'roles.REGISTRATURA': 'Регистратура',
     'roles.unknown': 'Пользователь',
   },
   en: {
@@ -48,6 +50,7 @@ export default defineModule({
     'roles.SELLER': 'Seller',
     'roles.HR_MANAGER': 'HR manager',
     'roles.AGENT': 'Agent',
+    'roles.REGISTRATURA': 'Front desk',
     'roles.unknown': 'User',
   },
 });

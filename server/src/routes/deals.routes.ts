@@ -14,7 +14,9 @@ import {
   isQodirStore,
   normalizeDealItems,
   tashkentDayRange,
+  REGISTRATURA_AGENCY_NAME,
 } from '../services/calculation.service';
+import { ensureRegistraturaRecord } from '../services/team.service';
 import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../services/access.service';
 import {
   LedgerError,
@@ -205,6 +207,12 @@ export function dealWriteDenial(
   role: Role | string,
   approvalStatus: ApprovalStatus | string
 ): string | null {
+  // Registratura: o'zgartirish va o'chirish umuman yo'q (egasi, 16.11.2026) — faqat kiritadi, admin tasdiqlaydi
+  if (role === Role.REGISTRATURA) {
+    return action === 'edit'
+      ? "Registratura bitimni tahrirlay olmaydi — administratorga murojaat qiling"
+      : "Registratura bitimni o'chira olmaydi — administratorga murojaat qiling";
+  }
   const scoped = isScopedRole(role);
   if (action === 'edit') {
     if (scoped && approvalStatus === 'APPROVED') {
@@ -1245,6 +1253,17 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
       });
       agencyId = me?.agencyId || me?.parentAgent?.agencyId || null;
     }
+    // Registratura: agentlik har doim "Registratura", operator — xodimning o'zi (formadan kelgani e'tiborga olinmaydi)
+    let agentId: string | null = body.agentId ? String(body.agentId) : null;
+    let agencyName: string | null = null;
+    if (user.role === Role.REGISTRATURA) {
+      const link = await ensureRegistraturaRecord(user.id);
+      agencyId = link.agencyId;
+      agentId = link.agentId;
+      agencyName = REGISTRATURA_AGENCY_NAME;
+    } else if (agencyId) {
+      agencyName = (await prisma.agency.findUnique({ where: { id: agencyId }, select: { name: true } }))?.name || null;
+    }
 
     const products = buildDealProducts(pickItemsInput(body), body);
 
@@ -1263,6 +1282,7 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
         receivedFromBuyer,
         status: initialStatus,
         date,
+        agencyName,
       },
       rules
     );
@@ -1284,7 +1304,8 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
           data: {
             dealNumber,
             date,
-            sellerName: strOrNull(body.sellerName) || user.fullName,
+            // Registratura: sotuvchi — har doim xodimning o'zi (formadagi standart qiymat emas)
+            sellerName: user.role === Role.REGISTRATURA ? user.fullName : strOrNull(body.sellerName) || user.fullName,
             createdById: user.id,
             providerId: provider.id,
             isDaftar: calcResult.isDaftar,
@@ -1317,7 +1338,7 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
             debtDueDate: body.debtDueDate ? new Date(body.debtDueDate) : null,
             status: calcResult.status,
             agencyId,
-            agentId: body.agentId ? String(body.agentId) : null,
+            agentId,
             extraDaftar: calcResult.extraDaftar,
             qodirDebt: calcResult.qodirDebt,
             qodirBalance: calcResult.qodirBalance,
@@ -1461,6 +1482,12 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
           storageGb: existing.storageGb,
         };
 
+    // Agentlik nomi hisobga ta'sir qiladi (Registratura: agent ulushi yo'q)
+    const putAgencyId = given('agencyId') ? (body.agencyId ? String(body.agencyId) : null) : existing.agencyId;
+    const putAgencyName = putAgencyId
+      ? (await prisma.agency.findUnique({ where: { id: putAgencyId }, select: { name: true } }))?.name || null
+      : null;
+
     const calcResult = CalculationService.calculateDeal(
       {
         customerLimit: Number(customerLimit),
@@ -1476,6 +1503,7 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
         receivedFromBuyer: Number(receivedFromBuyer),
         status: newStatus || existing.status,
         date,
+        agencyName: putAgencyName,
       },
       rules
     );

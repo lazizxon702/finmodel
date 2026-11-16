@@ -1,7 +1,14 @@
 import { Prisma, Role } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { generatePassword, hashPassword } from '../routes/auth.routes';
-import { calcOperatorShares, personNameKey, tashkentDayRange, transliterate, type OperatorShareRule } from './calculation.service';
+import {
+  REGISTRATURA_AGENCY_NAME,
+  calcOperatorShares,
+  personNameKey,
+  tashkentDayRange,
+  transliterate,
+  type OperatorShareRule,
+} from './calculation.service';
 
 /**
  * Agent jamoasi: spravochnikdagi operatorlar (Agent yozuvlari) uchun avtomatik login yaratish / bog'lash
@@ -359,4 +366,40 @@ export async function statsForOperators(
     date: r.date,
   }));
   return aggregateTeamStats(operators, deals, { shareRule, countFrom });
+}
+
+// ─────────────────────────── Registratura ───────────────────────────
+
+/**
+ * Registratura xodimi uchun spravochnik yozuvlari: "Registratura" agentligi (yo'q bo'lsa yaratiladi) va shu agentlik
+ * ichida xodimning o'z Agent yozuvi (User.agentId orqali bog'lanadi). Xodim kiritgan bitim shu ikkalasiga yoziladi —
+ * hisobotlarda kim urgani ko'rinadi, agent ulushi esa hisoblanmaydi (calculation.service: isRegistraturaAgency).
+ * Qayta chaqirish xavfsiz (idempotent).
+ */
+export async function ensureRegistraturaRecord(userId: string): Promise<{ agencyId: string; agentId: string }> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, fullName: true, role: true, agentId: true, agentRecord: { select: { id: true, agencyId: true } } },
+  });
+  if (!user || user.role !== Role.REGISTRATURA) throw new Error('Registratura xodimi topilmadi');
+
+  const agency =
+    (await prisma.agency.findUnique({ where: { name: REGISTRATURA_AGENCY_NAME } })) ||
+    (await prisma.agency.create({ data: { name: REGISTRATURA_AGENCY_NAME } }).catch(async (e) => {
+      // parallel so'rov yaratib ulgurgan bo'lsa (P2002) — o'shani olamiz
+      const again = await prisma.agency.findUnique({ where: { name: REGISTRATURA_AGENCY_NAME } });
+      if (!again) throw e;
+      return again;
+    }));
+
+  if (user.agentRecord && user.agentRecord.agencyId === agency.id) {
+    return { agencyId: agency.id, agentId: user.agentRecord.id };
+  }
+
+  // Shu agentlikda xuddi shu ismli, hech kimga bog'lanmagan yozuv bo'lsa — o'shani bog'laymiz
+  const free = await prisma.agent.findMany({ where: { agencyId: agency.id, user: null }, select: { id: true, name: true } });
+  const same = free.find((a) => personNameKey(a.name) === personNameKey(user.fullName));
+  const record = same || (await prisma.agent.create({ data: { agencyId: agency.id, name: user.fullName }, select: { id: true, name: true } }));
+  await prisma.user.update({ where: { id: user.id }, data: { agentId: record.id } });
+  return { agencyId: agency.id, agentId: record.id };
 }

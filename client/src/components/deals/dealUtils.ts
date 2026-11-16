@@ -109,7 +109,12 @@ export function productSummary(deal: Deal): { first: string; extra: number; imei
 // --- Ruxsatlar (server qoidalarining ko'zgusi; yakuniy tekshiruv baribir serverda) ---
 
 export function isScopedRole(role?: Role | string | null): boolean {
-  return role === 'OPERATOR' || role === 'AGENT';
+  return role === 'OPERATOR' || role === 'AGENT' || role === 'REGISTRATURA';
+}
+
+/** Registratura: chek kiritadi, lekin HECH QAYSI bitimni tahrirlay/o'chira olmaydi */
+export function isRegistratura(role?: Role | string | null): boolean {
+  return role === 'REGISTRATURA';
 }
 
 const EXPENSE_ROLES = ['ADMIN', 'MANAGER', 'CASHIER', 'CFO'];
@@ -127,6 +132,8 @@ export interface DealPermissions {
 }
 
 export function dealPermissions(role: Role | string | null | undefined, deal: Deal): DealPermissions {
+  // Registratura: holatidan qat'i nazar hech qanday amal yo'q (faqat ko'rish)
+  if (isRegistratura(role)) return { edit: false, remove: false, approve: false, reject: false, expense: false };
   const status = deal.approvalStatus || 'APPROVED';
   const scoped = isScopedRole(role);
   const admin = role === 'ADMIN';

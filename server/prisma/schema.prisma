@@ -21,6 +21,7 @@ enum Role {
   SELLER
   HR_MANAGER
   AGENT
+  REGISTRATURA
 }
 
 enum ApprovalStatus {

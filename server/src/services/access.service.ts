@@ -26,6 +26,10 @@ export async function dealScopeWhere(user: AuthUserLike): Promise<Prisma.DealWhe
     if (me?.agentId) return { OR: [{ createdById: user.id }, { agentId: me.agentId }] };
     return { createdById: user.id };
   }
+  // Registratura: butun Registratura jamoasi kiritgan bitimlarni ko'radi (boshqalarnikini — yo'q)
+  if (user.role === Role.REGISTRATURA) {
+    return { createdBy: { role: Role.REGISTRATURA } };
+  }
   if (user.role === Role.AGENT) {
     const [teamIds, me, teamRecords] = await Promise.all([
       getTeamUserIds(user.id),
@@ -51,7 +55,7 @@ export async function canAccessDeal(user: AuthUserLike, dealId: string): Promise
 
 /** Cheklangan rollar (o'z doirasidan tashqarini ko'rmaydi) */
 export function isScopedRole(role: Role | string): boolean {
-  return role === Role.OPERATOR || role === Role.AGENT;
+  return role === Role.OPERATOR || role === Role.AGENT || role === Role.REGISTRATURA;
 }
 
 /** Hisob-kitobga faqat tasdiqlangan bitimlar kiradi — yig'ma so'rovlar uchun WHERE bo'lagi */

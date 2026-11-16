@@ -570,3 +570,29 @@ describe('summarizeLedger: qarz qoldig\'i va depozit', () => {
     expect(summarizeLedger([{ type: 'PAYMENT', amount: '500000.50' }])).toMatchObject({ balance: -500_000.5, debtLeft: 0, deposit: 500_000.5 });
   });
 });
+
+describe('Registratura: agent ulushi hisoblanmaydi, kompaniyada qoladi (egasi, 16.11.2026)', () => {
+  const base = { customerLimit: 10_000_000, withdrawnLimit: 10_000_000, calculatedAmount: 7_000_000, storeName: 'Novza', providerName: 'Alif Offline', date: '2026-11-16T07:00:00.000Z' };
+
+  it('oddiy chek: limit 10 mln, diskont 30%, ulush 22% → agent 800 000, foyda 2 200 000', () => {
+    const r = CalculationService.calculateDeal({ ...base, agencyName: 'Jahongir' });
+    expect(Math.round(r.agentAmount)).toBe(800_000);
+    expect(Math.round(r.expectedProfit)).toBe(2_200_000);
+    expect(Math.round(r.totalPurchaseCost)).toBe(7_800_000);
+  });
+
+  it('Registratura cheki: agent 0, foyda 3 000 000 (800 000 kompaniyada qoladi)', () => {
+    for (const agencyName of ['Registratura', 'registratura', 'Регистратура']) {
+      const r = CalculationService.calculateDeal({ ...base, agencyName });
+      expect(r.agentAmount).toBe(0);
+      expect(r.agentPct).toBe(0);
+      expect(Math.round(r.expectedProfit)).toBe(3_000_000);
+      expect(Math.round(r.totalPurchaseCost)).toBe(7_000_000);
+    }
+  });
+
+  it("agentlik berilmasa hisob o'zgarmaydi", () => {
+    const r = CalculationService.calculateDeal(base);
+    expect(Math.round(r.agentAmount)).toBe(800_000);
+  });
+});

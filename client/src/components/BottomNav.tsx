@@ -65,6 +65,7 @@ function tabsForRole(role?: string): TabDef[] {
     case 'HR_MANAGER':
       return [TAB.hr, TAB.daily];
     case 'OPERATOR':
+    case 'REGISTRATURA':
       return [TAB.deals];
     case 'AGENT':
       return [TAB.deals, TAB.agents, TAB.team];

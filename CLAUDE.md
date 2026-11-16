@@ -24,6 +24,18 @@ SINXRONLASHNI QAYTA YOQMA — avval ustunlarni SARLAVHA bo'yicha o'qiydigan qil 
 O'qish skriptlari (xavfsiz): `report-db-diff.ts <zaxira>` (hamma jadval; DIQQAT — User jadvalida parol maydonlarini ham chiqaradi), `report-deal-diff.ts`, `report-deal-changes.ts`, `report-daftar.ts`, `report-trust-anvar.ts`.
 Daftar to'ldirish jadvali (egasi to'ldiradi): `1IZop4peXDJtrP3hqz77bNxDR1iuqYJ4tITVbNKtu8TA`. Trust: 34 chek, 8 tasi Anvarniki; DDS'da "Ишонч" so'zi bor (TX-1015, TX-1020) — "Ishonch" = Trustmi, egasidan so'ralgan, javob yo'q.
 
+**REGISTRATURA roli (egasi, 16.11; JONLIDA — zaxira `backups/db-raw-db-2026-11-16T09-58-58-963Z.json`, `prisma db push` (enum qiymati), server+klient deploy; jonlida login qilib tekshirilmagan):**
+o'zi kelgan mijozlarga chek uradigan xodimlar. Egasi qarorlari: agent ulushi HECH KIMGA — kompaniya foydasida qoladi; loginni FAQAT admin ochadi ("Registratura" sahifasi, `/registratura`);
+xodim butun Registratura cheklarini ko'radi; tahrirlash/o'chirish tugmalari UMUMAN yo'q; admin tasdiqlaydi. Kod: `Role.REGISTRATURA`; `calculation.service.ts` `REGISTRATURA_AGENCY_NAME`, `isRegistraturaAgency`,
+`DealCalculationInput.agencyName` (calculateDeal: agent 0, ulush foydaga qo'shiladi); `access.service.ts` (`createdBy.role`); `deals.routes.ts` `dealWriteDenial` + POST (agentlik "Registratura", operator = xodimning Agent yozuvi, sotuvchi = xodim);
+`team.service.ts` `ensureRegistraturaRecord`; `routes/registratura.routes.ts` (`/api/registratura/staff` GET/POST/PUT, ADMIN); klient `pages/RegistraturaPage.tsx`, `dealUtils.ts` `isRegistratura`. Testlar 344/344.
+Ochiq: xodim "Sof foyda" / "Xarid xarajati" ustunlarini ko'radi (operator kabi) — yashirilsinmi, egasidan so'ralgan.
+**Anvar (16.11):** 14.11 dagi apply-team-sheet 8 chekni (operatori "Anvar" yozilgan, lekin sotuvchisi boshqa) Jahongir/Farida/Davlatbekdan Anvar agentligiga ko'chirgan edi — XATO (sellerName tekshirilmagan).
+Egasi 4 tasini qo'lda, qolgan 4 tasini `scripts/move-anvar-deals-back-1611.ts --apply` qaytardi (zaxira `db-raw-db-2026-11-16T09-42-13-869Z.json`): #3745→Jahongir/Muborak, #3748→Jahongir/Marjona, #8101→Jahongir/Shahlo, #8098→Farida/Farida. Anvarda 20 chek qoldi.
+
+Shubhali cheklar hisoboti (16.11): `scripts/report-suspicious-deals.ts` → `backups/suspicious-deals-1611.txt`. Egasi: #3547/#3551 va #3614/#3625 (bir xil summa, bir operator) — HAQIQIY, takror emas, o'chirilmaydi.
+Javobsiz: 6 ta IMEI bir nechta chekda; Birzum ulushi (7 chek, agentga 20%, foyda 0); #8110, #8121 operatori; zarar bilan sotilgan #8107, #3729, #3654, #8115; "Sotildi" narxi 0: #3638, #3644.
+
 **Jonli bazadagi hozirgi holat (15.11 kech o'qilgan):**
 - **Umirzoq (xaridor):** 52 sotuv, jami 510 887 000, bergan puli 459 621 500, QARZI 51 265 500 (№58 sotuv 41 459 670; #8123 5 205 080; #8128 4 600 750).
   Yangi to'lov — DDS → "Yangi operatsiya" → Kirim → "Umirzoq" tugmasi (eng eski chekdan ayiradi, kassaga kirim yozadi).

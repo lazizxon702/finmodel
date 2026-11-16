@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { formatMoney, todayYmd, toYmdTashkent } from '../../utils/format';
 import type { Agency, Deal, Provider, Role, Store } from '../../types';
 import { DealItemsEditor, isItemRowFilled, newItemRow, type ItemRow } from './DealItemsEditor';
-import { ACCOUNT_CODES, DEAL_STATUSES, type AccountCode, apiError, canUseExpense, cleanText, dealItems, isQodirStore, isScopedRole } from './dealUtils';
+import { ACCOUNT_CODES, DEAL_STATUSES, type AccountCode, apiError, canUseExpense, cleanText, dealItems, isQodirStore, isRegistratura, isScopedRole } from './dealUtils';
 
 /** Lead sahifasidan kelgan boshlang'ich qiymatlar */
 export interface DealPrefill {
@@ -129,6 +129,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   const { user } = useAuth();
   const isEdit = Boolean(deal);
   const scoped = isScopedRole(role);
+  // Registratura: agentlik/agent tanlanmaydi (server o'zi qo'yadi), mavjud bitim tahrirlanmaydi
+  const registratura = isRegistratura(role);
 
   const [form, setForm] = useState<FormState>(() => initialForm(deal, prefill, stores, providers, agencies, user?.agencyId || ''));
   const [discountPercent, setDiscountPercent] = useState<number | string>(() => initialDiscount(deal));
@@ -179,6 +181,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
 
   const save = async () => {
     if (saving) return;
+    // Registratura mavjud bitimni hech qachon o'zgartira olmaydi (qo'shimcha himoya; asosiy tekshiruv serverda)
+    if (registratura && isEdit) return;
     setError('');
 
     if (!form.date) return setError(t('dealsPage.err_date'));
@@ -235,6 +239,11 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
           price: r.price,
         })),
       };
+      if (registratura) {
+        // Agentlik ("Registratura") va operatorni (kirgan xodim) server o'zi qo'yadi
+        delete payload.agencyId;
+        delete payload.agentId;
+      }
       if (deal) {
         payload.debtDueDate = deal.debtDueDate || '';
         payload.salePrice = Number(deal.salePrice) || 0;
@@ -277,7 +286,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         {scoped && (
           <div className="flex items-start gap-2 rounded-control bg-info-soft px-3 py-2.5 text-sm text-info">
             <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <p>{t('dealsPage.scoped_notice')}</p>
+            <p>{t(registratura ? 'dealsPage.registratura_notice' : 'dealsPage.scoped_notice')}</p>
           </div>
         )}
 
@@ -518,7 +527,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
           </Field>
         </div>
 
-        {/* Agentlik va agent */}
+        {/* Agentlik va agent — Registratura'ga ko'rsatilmaydi */}
+        {!registratura && (
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t('common.agency')}>
             <Select
@@ -548,6 +558,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
             </Select>
           </Field>
         </div>
+        )}
 
         <Field label={t('common.note')}>
           <Textarea rows={2} value={form.note} onChange={(e) => set({ note: e.target.value })} />

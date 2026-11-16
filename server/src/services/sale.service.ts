@@ -122,6 +122,7 @@ export async function computeDealProfitForStatus(dealId: string, status: DealSta
       receivedFromBuyer: true,
       store: { select: { name: true } },
       provider: { select: { name: true } },
+      agency: { select: { name: true } },
     },
   });
   if (!d) return null;
@@ -137,6 +138,7 @@ export async function computeDealProfitForStatus(dealId: string, status: DealSta
       receivedFromBuyer: Number(d.receivedFromBuyer),
       status,
       date: d.date,
+      agencyName: d.agency?.name,
     },
     await loadActiveCommissionRules(db)
   );
@@ -212,6 +214,7 @@ async function resetDealsToWarehouse(tx: Tx, where: Prisma.DealWhereInput) {
       imeiBarcode: true,
       store: { select: { name: true } },
       provider: { select: { name: true } },
+      agency: { select: { name: true } },
     },
   });
   if (!deals.length) return;
@@ -229,6 +232,7 @@ async function resetDealsToWarehouse(tx: Tx, where: Prisma.DealWhereInput) {
         quantity: d.quantity,
         imeiBarcode: d.imeiBarcode || undefined,
         date: d.date,
+        agencyName: d.agency?.name,
       },
       rules
     );

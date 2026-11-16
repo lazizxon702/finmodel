@@ -72,6 +72,11 @@ describe("Ruxsat doirasi (dealScopeWhere)", () => {
     expect(await dealScopeWhere(user('AGENT', 'agent1'))).toEqual({ OR: [{ createdById: { in: ['agent1'] } }] });
   });
 
+  it("REGISTRATURA butun Registratura jamoasi kiritgan bitimlarni ko'radi (boshqalarnikini — yo'q)", async () => {
+    expect(await dealScopeWhere(user('REGISTRATURA', 'reg1'))).toEqual({ createdBy: { role: 'REGISTRATURA' } });
+    expect(isScopedRole('REGISTRATURA')).toBe(true);
+  });
+
   it("boshqa rollar uchun cheklov yo'q", async () => {
     for (const role of ['ADMIN', 'MANAGER', 'CASHIER', 'CFO', 'COO', 'VIEWER', 'STOREKEEPER', 'SELLER']) {
       expect(await dealScopeWhere(user(role))).toEqual({});
@@ -100,6 +105,14 @@ describe("Yaratish / tahrirlash / o'chirish huquqi", () => {
     expect(initialApprovalStatus('AGENT')).toBe('PENDING_APPROVAL');
     for (const role of ['ADMIN', 'MANAGER', 'CASHIER', 'CFO', 'SELLER']) {
       expect(initialApprovalStatus(role)).toBe('APPROVED');
+    }
+  });
+
+  it("REGISTRATURA: bitimi tasdiq kutadi; tahrirlash va o'chirish HECH QAYSI holatda yo'q", () => {
+    expect(initialApprovalStatus('REGISTRATURA')).toBe('PENDING_APPROVAL');
+    for (const status of ['PENDING_APPROVAL', 'APPROVED', 'REJECTED']) {
+      expect(dealWriteDenial('edit', 'REGISTRATURA', status)).toBeTruthy();
+      expect(dealWriteDenial('delete', 'REGISTRATURA', status)).toBeTruthy();
     }
   });
 

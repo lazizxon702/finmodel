@@ -35,6 +35,7 @@ import { UsersPage } from './pages/UsersPage';
 import { LoginPage } from './pages/LoginPage';
 import { TrustPage } from './pages/TrustPage';
 import { TeamPage } from './pages/TeamPage';
+import { RegistraturaPage } from './pages/RegistraturaPage';
 import { StoresPage } from './pages/StoresPage';
 import { DaftarPage } from './pages/DaftarPage';
 import { StoreDetailPage } from './pages/StoreDetailPage';
@@ -72,6 +73,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     '/qodir-ledger': 'title.qodir_ledger',
     '/daftar': 'title.daftar',
     '/team': 'title.team',
+    '/registratura': 'title.registratura',
     '/balance': 'title.balance',
     '/daily': 'title.daily',
     '/finmodel': 'title.finmodel',
@@ -196,6 +198,7 @@ export const App: React.FC = () => {
                 <Route path="/qodir-ledger" element={<ProtectedRoute><StoreDetailPage qodir /></ProtectedRoute>} />
                 <Route path="/daftar" element={<ProtectedRoute><DaftarPage /></ProtectedRoute>} />
                 <Route path="/team" element={<ProtectedRoute><TeamPage /></ProtectedRoute>} />
+                <Route path="/registratura" element={<ProtectedRoute><RegistraturaPage /></ProtectedRoute>} />
                 <Route path="/balance" element={<ProtectedRoute><BalancePage /></ProtectedRoute>} />
                 <Route path="/daily" element={<ProtectedRoute><DailyAccountingPage /></ProtectedRoute>} />
                 <Route path="/finmodel" element={<ProtectedRoute><FinModelPage /></ProtectedRoute>} />

@@ -6,6 +6,7 @@ export default defineModule({
   uz: {
     // --- Sahifa ---
     'dealsPage.scoped_notice': "Bitim admin tasdiqlagandan keyin hisob-kitobga qo'shiladi.",
+    'dealsPage.registratura_notice': 'Chek Registratura nomidan kiritiladi va administrator tasdiqlagach hisobga olinadi.',
     'dealsPage.search_placeholder': 'Qidiruv: №, mijoz, telefon, mahsulot, IMEI',
     'dealsPage.daftar': 'Daftar',
     'dealsPage.daftar_all': 'Daftar: barchasi',
@@ -176,6 +177,7 @@ export default defineModule({
   },
   ru: {
     'dealsPage.scoped_notice': 'Сделка попадёт в расчёты после подтверждения администратором.',
+    'dealsPage.registratura_notice': 'Чек вносится от имени Регистратуры и учитывается после подтверждения администратором.',
     'dealsPage.search_placeholder': 'Поиск: №, клиент, телефон, товар, IMEI',
     'dealsPage.daftar': 'Дафтар',
     'dealsPage.daftar_all': 'Дафтар: все',
@@ -337,6 +339,7 @@ export default defineModule({
   },
   en: {
     'dealsPage.scoped_notice': 'A deal is included in the accounts after an admin approves it.',
+    'dealsPage.registratura_notice': 'The deal is entered on behalf of the Front desk and counted once an administrator approves it.',
     'dealsPage.search_placeholder': 'Search: №, customer, phone, product, IMEI',
     'dealsPage.daftar': 'Daftar',
     'dealsPage.daftar_all': 'Daftar: all',

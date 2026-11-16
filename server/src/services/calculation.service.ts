@@ -14,6 +14,8 @@ export interface DealCalculationInput {
   receivedFromBuyer?: number;
   status?: DealStatus;
   date?: Date | string | null;
+  /** Agentlik nomi — "Registratura" bo'lsa agent ulushi hisoblanmaydi (kompaniyada qoladi) */
+  agencyName?: string | null;
 }
 
 export interface CommissionRuleItem {
@@ -513,8 +515,18 @@ export function countsInTotals(approvalStatus?: string | null): boolean {
 }
 
 /** Kim kiritganiga qarab boshlang'ich tasdiqlash holati */
+/**
+ * Registratura (egasi, 16.11.2026): o'zi kelgan mijozlarga chek uradigan xodimlar jamoasi. Ularning cheklari shu nomli
+ * agentlikka yoziladi; agent ulushi HECH KIMGA hisoblanmaydi — kompaniya foydasiga qo'shiladi.
+ */
+export const REGISTRATURA_AGENCY_NAME = 'Registratura';
+export function isRegistraturaAgency(agencyName?: string | null): boolean {
+  const n = normalizeName(agencyName);
+  return n === 'registratura' || n === 'регистратура';
+}
+
 export function initialApprovalStatus(role?: string | null): 'PENDING_APPROVAL' | 'APPROVED' {
-  return role === 'OPERATOR' || role === 'AGENT' ? 'PENDING_APPROVAL' : 'APPROVED';
+  return role === 'OPERATOR' || role === 'AGENT' || role === 'REGISTRATURA' ? 'PENDING_APPROVAL' : 'APPROVED';
 }
 
 /** DDS yozuvi hisob qoldig'ini qanchaga o'zgartiradi: kirim → +, chiqim → − */
@@ -836,6 +848,7 @@ export class CalculationService {
   static calcCheckExpense = calcCheckExpense;
   static countsInTotals = countsInTotals;
   static initialApprovalStatus = initialApprovalStatus;
+  static isRegistraturaAgency = isRegistraturaAgency;
   static balanceDelta = balanceDelta;
   static summarizeTrustLedger = summarizeTrustLedger;
   static summarizeLedger = summarizeLedger;
@@ -905,9 +918,14 @@ export class CalculationService {
     const ruleRate = commission.rate;
 
     // Agent foydasi = limit × (diskont − kompaniya ulushi); diskont ulushdan kichik bo'lsa 0 (manfiy bo'lmaydi)
-    const agentAmount = Math.max(0, withdrawn * (purchaseDiscountPct - ruleRate));
+    const agentShare = Math.max(0, withdrawn * (purchaseDiscountPct - ruleRate));
+    // Registratura cheki: agent yo'q — uning ulushi kompaniyada qoladi (foydaga qo'shiladi)
+    const noAgent = isRegistraturaAgency(input.agencyName);
+    const agentAmount = noAgent ? 0 : agentShare;
     // Kutilayotgan foyda (holatga bog'liq emas): limit − mijozga berilgan − agent − hamkor ulushi
-    const expectedProfit = calcExpectedProfit(withdrawn, purchaseDiscountPct, ruleRate, commission.profitRate);
+    const expectedProfit = round2(
+      calcExpectedProfit(withdrawn, purchaseDiscountPct, ruleRate, commission.profitRate) + (noAgent ? agentShare : 0)
+    );
     const totalPurchaseCost = agentAmount + calculated;
     const agentPct = withdrawn > 0 ? agentAmount / withdrawn : 0;
     const remainingLimit = limit - withdrawn;

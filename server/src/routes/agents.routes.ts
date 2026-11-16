@@ -17,7 +17,7 @@ const router = Router();
 
 /** Agentlar bo'limi OPERATOR uchun yopiq (u faqat o'z bitimlarini "Bitimlar" sahifasida ko'radi) */
 function denyOperator(req: AuthRequest, res: Response, next: NextFunction) {
-  if (req.user?.role === Role.OPERATOR) {
+  if (req.user?.role === Role.OPERATOR || req.user?.role === Role.REGISTRATURA) {
     return res.status(403).json({ error: "Agentlar bo'limini ko'rish uchun huquqingiz yetarli emas" });
   }
   next();

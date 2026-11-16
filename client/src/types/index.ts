@@ -11,7 +11,8 @@ export type Role =
   | 'STOREKEEPER'
   | 'SELLER'
   | 'HR_MANAGER'
-  | 'AGENT';
+  | 'AGENT'
+  | 'REGISTRATURA';
 
 export type DealStatus =
   | 'IN_WAREHOUSE'

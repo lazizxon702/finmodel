@@ -42,7 +42,7 @@ import { DealFormModal, type DealPrefill } from '../components/deals/DealFormMod
 import { DealDetailModal } from '../components/deals/DealDetailModal';
 import { ApproveDealModal, DeleteDealModal, ExpenseDealModal, RejectDealModal } from '../components/deals/DealActionModals';
 import { SheetsSyncModal } from '../components/deals/SheetsSyncModal';
-import { DEAL_STATUSES, apiError, isScopedRole, type ApprovalFilter, type Notice } from '../components/deals/dealUtils';
+import { DEAL_STATUSES, apiError, isRegistratura, isScopedRole, type ApprovalFilter, type Notice } from '../components/deals/dealUtils';
 
 const PAGE_SIZE = 50;
 
@@ -59,6 +59,8 @@ export const DealsPage: React.FC = () => {
   const location = useLocation();
   const role = user?.role;
   const scoped = isScopedRole(role);
+  // Registratura: chek qo'shadi, lekin hech qaysi bitimni tahrirlay/o'chira olmaydi
+  const registratura = isRegistratura(role);
   const canSync = role === 'ADMIN' || role === 'MANAGER';
   // Kuzatuvchi (VIEWER) bitimlarni faqat ko'radi — yangi bitim tugmasi ko'rsatilmaydi
   const canCreate = role !== 'VIEWER';
@@ -280,8 +282,13 @@ export const DealsPage: React.FC = () => {
 
   const openCreate = () => setForm({ deal: null });
   const openEdit = (deal: Deal) => {
+    if (registratura) return; // tugma ko'rinmaydi; bu — ikkinchi himoya
     setDetailId(null);
     setForm({ deal });
+  };
+  const openDelete = (deal: Deal) => {
+    if (registratura) return;
+    setDeleteTarget(deal);
   };
 
   const resetFilters = () => {
@@ -371,7 +378,7 @@ export const DealsPage: React.FC = () => {
       {scoped && (
         <div className="flex items-start gap-2 rounded-card bg-info-soft px-4 py-3 text-sm text-info">
           <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <p>{t('dealsPage.scoped_notice')}</p>
+          <p>{t(registratura ? 'dealsPage.registratura_notice' : 'dealsPage.scoped_notice')}</p>
         </div>
       )}
 
@@ -393,7 +400,7 @@ export const DealsPage: React.FC = () => {
       )}
 
       {/* Yig'ma ko'rsatkichlar: bitta panel */}
-      <DealsSummary totals={totals} avgDiscount={kpiAvgDiscount} scoped={scoped} />
+      <DealsSummary totals={totals} avgDiscount={kpiAvgDiscount} scoped={scoped} hideAgent={registratura} />
 
       {/* Filtrlar */}
       <Card className="space-y-3">
@@ -476,7 +483,7 @@ export const DealsPage: React.FC = () => {
           onCreate={openCreate}
           onView={(d) => setDetailId(d.id)}
           onEdit={openEdit}
-          onDelete={setDeleteTarget}
+          onDelete={openDelete}
           onApprove={setApproveTarget}
           onReject={setRejectTarget}
           onExpense={setExpenseTarget}
@@ -506,11 +513,11 @@ export const DealsPage: React.FC = () => {
           onApprove={setApproveTarget}
           onReject={setRejectTarget}
           onExpense={setExpenseTarget}
-          onDelete={setDeleteTarget}
+          onDelete={openDelete}
         />
       )}
 
-      {form && (
+      {form && !(registratura && form.deal) && (
         <DealFormModal
           key={form.deal?.id || 'new'}
           deal={form.deal}

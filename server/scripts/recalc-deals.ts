@@ -79,6 +79,7 @@ async function main() {
       marginPct: true,
       store: { select: { name: true } },
       provider: { select: { name: true } },
+      agency: { select: { name: true } },
     },
   });
 
@@ -120,6 +121,7 @@ async function main() {
         receivedFromBuyer: Number(d.receivedFromBuyer),
         status: d.status,
         date: d.date,
+        agencyName: d.agency?.name,
       },
       rules
     );

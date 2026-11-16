@@ -22,6 +22,8 @@ interface Props {
   avgDiscount: number;
   /** OPERATOR / AGENT ko'rinishi: faqat chek soni, yechilgan limit va agent foydasi */
   scoped?: boolean;
+  /** Registratura: agent foydasi yo'q — o'ng panel ko'rsatilmaydi (faqat scoped ko'rinishda) */
+  hideAgent?: boolean;
   className?: string;
 }
 
@@ -32,7 +34,7 @@ const num = (v: unknown) => Number(v) || 0;
  * (mijozga to'lov / agent komissiyasi / qolgan farq) nisbat chizig'ida; o'ngda qolgan ko'rsatkichlar.
  * Faqat tasdiqlangan bitimlar bo'yicha.
  */
-export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, scoped, className }) => {
+export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, scoped, hideAgent, className }) => {
   const { t } = useTranslation();
 
   const count = num(totals?.dealCount);
@@ -66,7 +68,7 @@ export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, scoped, cla
         aria-label={t('dealsPage.kpi_label')}
         className={cn('overflow-hidden rounded-card border border-line bg-surface shadow-card', className)}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2">
+        <div className={cn('grid grid-cols-1', !hideAgent && 'sm:grid-cols-2')}>
           <div className="p-4 sm:p-6">
             <p className="text-sm text-fg-secondary">{t('dealsPage.sum_withdrawn')}</p>
             <p className="mt-1 text-3xl font-semibold tracking-tight text-fg tabular-nums">
@@ -74,6 +76,7 @@ export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, scoped, cla
             </p>
             <p className="mt-1 text-sm text-fg-muted">{t('dealsPage.sum_count_avg', { count, avg: formatMoney(avgCheck) })}</p>
           </div>
+          {!hideAgent && (
           <div className="border-t border-line bg-success-soft p-4 sm:border-l sm:border-t-0 sm:p-6">
             <p className="text-sm font-medium text-fg-secondary">{t(totals?.operatorShareRule ? 'dealsPage.sum_operator_share' : 'dealsPage.sum_agent')}</p>
             <p className="mt-1 text-3xl font-semibold tracking-tight text-success tabular-nums">
@@ -89,6 +92,7 @@ export const DealsSummary: React.FC<Props> = ({ totals, avgDiscount, scoped, cla
               </p>
             )}
           </div>
+          )}
         </div>
         <p className="border-t border-line px-4 py-2 text-xs text-fg-muted sm:px-6">{t('dealsPage.kpi_note')}</p>
       </section>

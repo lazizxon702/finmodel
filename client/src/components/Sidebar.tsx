@@ -27,6 +27,7 @@ import {
   Store,
   BookOpen,
   ClipboardList,
+  ClipboardPen,
   FileSpreadsheet,
   Bell,
   type LucideIcon,
@@ -51,6 +52,7 @@ export const ROLE_DEFAULT_HOME: Record<string, string> = {
   CALL_CENTER_AGENT: '/leads',
   OPERATOR: '/deals',
   AGENT: '/deals',
+  REGISTRATURA: '/deals',
   STOREKEEPER: '/warehouse',
   SELLER: '/sales',
   HR_MANAGER: '/hr',
@@ -64,7 +66,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     '/', '/leads', '/deals', '/warehouse', '/sales', '/debtors', '/agents',
     '/agents-swot', '/hr', '/dds', '/trust', '/balance', '/daily', '/finmodel',
     '/bot-deals', '/bot-payments', '/finances', '/references', '/users', '/team',
-    '/stores', '/qodir-ledger', '/daftar'
+    '/registratura', '/stores', '/qodir-ledger', '/daftar'
   ],
   CFO: [
     '/dds', '/trust', '/stores', '/qodir-ledger', '/daftar', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references'
@@ -86,6 +88,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
   // Agent: bitimlar, o'z kabineti (/agents) va operatorlarini boshqarish (/team)
   AGENT: [
     '/deals', '/agents', '/team'
+  ],
+  // Registratura: faqat bitimlar (chek kiritadi, tahrirlay/o'chira olmaydi)
+  REGISTRATURA: [
+    '/deals'
   ],
   STOREKEEPER: [
     '/warehouse', '/deals'
@@ -145,6 +151,7 @@ const MENU: MenuItem[] = [
   { to: '/agents', key: 'agents', icon: Users, group: 'team' },
   { to: '/agents-swot', key: 'agents_swot', icon: TrendingUp, group: 'team' },
   { to: '/team', key: 'team', icon: UsersRound, group: 'team' },
+  { to: '/registratura', key: 'registratura', icon: ClipboardPen, group: 'team' },
   { to: '/hr', key: 'hr', icon: UserCheck, group: 'team' },
 
   { to: '/references', key: 'references', icon: Settings2, group: 'settings' },
