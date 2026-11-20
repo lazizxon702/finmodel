@@ -185,7 +185,8 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
               <Th align="right" className="whitespace-normal leading-tight">{t('common.withdrawn_limit')}</Th>
               {!hideFinance && <Th align="right" className="whitespace-normal leading-tight">{t('common.customer_payment')}</Th>}
               {hideFinance ? (
-                <Th align="right" className="whitespace-normal leading-tight">{t('common.purchase_cost')}</Th>
+                // Registratura: mijozga to'lov (limit − diskont %) — xarid xarajati emas (unda agent ulushi bor)
+                <Th align="right" className="whitespace-normal leading-tight">{t('common.customer_payment')}</Th>
               ) : (
                 <Th align="right" className="whitespace-normal leading-tight">
                   {/* Ulush qoidasi bor jamoa operatori (Jahongir): agent komissiyasi o'rniga o'z ulushi */}
@@ -216,7 +217,7 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
               )}
               {hideFinance ? (
                 <Td align="right" numeric>
-                  {formatNumber(totals?.totalPurchaseCost)}
+                  {formatNumber(totals?.totalCalculatedAmount)}
                 </Td>
               ) : (
                 <Td align="right" numeric>
@@ -294,7 +295,10 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                   )}
                   {hideFinance ? (
                     <Td align="right" numeric>
-                      {formatNumber(d.totalPurchaseCost)}
+                      <p>{formatNumber(d.calculatedAmount)}</p>
+                      <p className="text-xs text-fg-muted" title={t('common.discount_pct')}>
+                        −{formatPercent(d.purchaseDiscountPct)}
+                      </p>
                     </Td>
                   ) : (
                     <Td align="right" numeric>
@@ -383,8 +387,11 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                   </div>
                   <div className="min-w-0">
                     {/* Registratura: mijozga to'lov o'rniga xarid xarajati */}
-                    <p className="text-xs text-fg-muted">{t(hideFinance ? 'common.purchase_cost' : 'common.customer_payment')}</p>
-                    <p className="font-medium tabular-nums text-fg">{formatMoney(hideFinance ? d.totalPurchaseCost : d.calculatedAmount)}</p>
+                    <p className="text-xs text-fg-muted">{t('common.customer_payment')}</p>
+                    <p className="font-medium tabular-nums text-fg">
+                      {formatMoney(d.calculatedAmount)}
+                      {hideFinance && <span className="ml-1 text-xs font-normal text-fg-muted">−{formatPercent(d.purchaseDiscountPct)}</span>}
+                    </p>
                   </div>
                 </div>
 

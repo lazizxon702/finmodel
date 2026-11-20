@@ -460,15 +460,17 @@ export function dealItemsView(deal: any) {
 }
 
 /**
- * Registratura xodimi pul ustunlaridan FAQAT yechilgan limit va xarid xarajatini ko'radi (egasi, 16.11.2026);
- * foyda, agent ulushi, mijozga berilgan summa va boshqalar yuborilmaydi (0).
+ * Registratura xodimi pul ustunlaridan FAQAT yechilgan limit va MIJOZGA TO'LOVNI (limit − diskont %) ko'radi.
+ * Egasi (20.11.2026): "28% dan urilgan chek 28% da hisoblanishi kerak" — ilgari "xarid xarajati" ko'rsatilardi, u esa
+ * mijozga to'lov + agent ulushi (Imanumda limit − 25%) bo'lgani uchun noto'g'ri foiz bo'lib ko'rinardi va agent ulushini oshkor qilardi.
+ * Foyda, agent ulushi, xarid xarajati va boshqalar yuborilmaydi (0).
  */
 const HIDDEN_FINANCE_FIELDS = [
-  'profit', 'marginPct', 'agentAmount', 'agentPct', 'calculatedAmount', 'purchaseDiscountPct', 'trustDebtAmount', 'differenceAmount',
+  'profit', 'marginPct', 'agentAmount', 'agentPct', 'totalPurchaseCost', 'trustDebtAmount',
   'qodirDebt', 'qodirBalance', 'greenBazarBalance', 'trustBalance', 'totalExtraBalance', 'extraDaftar', 'devicePurchaseAmount',
 ] as const;
 const HIDDEN_TOTALS_FIELDS = [
-  'totalAgentAmount', 'totalCalculatedAmount', 'totalProfit', 'totalDifference', 'totalDaftar', 'totalQodirDebt', 'totalQodirBalance',
+  'totalAgentAmount', 'totalPurchaseCost', 'totalProfit', 'totalDaftar', 'totalQodirDebt', 'totalQodirBalance',
   'totalGreenBazarBalance', 'totalTrustBalance', 'totalExtraBalance', 'warehouseCostSum', 'cogsSum', 'totalQodirChekExpense',
 ] as const;
 export function hidesDealFinance(role?: Role | string | null): boolean {

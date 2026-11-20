@@ -158,13 +158,16 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
 
         <Section title={t('dealsPage.section_amounts')}>
           {hideFinance ? (
-            // Registratura: pul raqamlaridan faqat yechilgan limit va xarid xarajati
+            // Registratura: pul raqamlaridan faqat yechilgan limit va mijozga to'lov (limit − diskont %)
             <Rows>
               <Row label={t('common.withdrawn_limit')} numeric>
                 {formatMoney(deal.withdrawnLimit)}
               </Row>
-              <Row label={t('common.purchase_cost')} numeric>
-                {formatMoney(deal.totalPurchaseCost)}
+              <Row label={t('common.customer_payment')} numeric>
+                {formatMoney(deal.calculatedAmount)}
+              </Row>
+              <Row label={t('common.discount_pct')} numeric>
+                {formatPercent(deal.purchaseDiscountPct)}
               </Row>
             </Rows>
           ) : (

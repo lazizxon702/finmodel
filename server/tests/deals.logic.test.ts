@@ -82,11 +82,11 @@ describe("Ruxsat doirasi (dealScopeWhere)", () => {
   it("REGISTRATURA Bitimlar ro'yxatida HAMMA cheklarni ko'radi, lekin moliyaviy maydonlar yashiriladi", async () => {
     expect(await scopedDealWhere(user('REGISTRATURA', 'reg1'), { id: 'd1' })).toEqual({ AND: [{}, { id: 'd1' }] });
     const dto = { id: 'd1', withdrawnLimit: 10, calculatedAmount: 7, profit: 3, agentAmount: 1, totalPurchaseCost: 8, marginPct: 0.3 };
-    expect(maskDealForRole(dto, 'REGISTRATURA')).toMatchObject({ withdrawnLimit: 10, totalPurchaseCost: 8, calculatedAmount: 0, profit: 0, agentAmount: 0, marginPct: 0, financeHidden: true });
+    expect(maskDealForRole(dto, 'REGISTRATURA')).toMatchObject({ withdrawnLimit: 10, calculatedAmount: 7, totalPurchaseCost: 0, profit: 0, agentAmount: 0, marginPct: 0, financeHidden: true });
     expect(maskDealForRole(dto, 'ADMIN')).toBe(dto);
     expect(maskDealForRole(dto, 'OPERATOR')).toBe(dto);
-    const totals = { dealCount: 2, totalWithdrawn: 20, totalPurchaseCost: 16, totalProfit: 6, totalAgentAmount: 2 };
-    expect(maskTotalsForRole(totals, 'REGISTRATURA')).toMatchObject({ dealCount: 2, totalWithdrawn: 20, totalPurchaseCost: 16, totalProfit: 0, totalAgentAmount: 0 });
+    const totals = { dealCount: 2, totalWithdrawn: 20, totalCalculatedAmount: 14, totalPurchaseCost: 16, totalProfit: 6, totalAgentAmount: 2 };
+    expect(maskTotalsForRole(totals, 'REGISTRATURA')).toMatchObject({ dealCount: 2, totalWithdrawn: 20, totalCalculatedAmount: 14, totalPurchaseCost: 0, totalProfit: 0, totalAgentAmount: 0 });
     expect(maskTotalsForRole(totals, 'ADMIN')).toBe(totals);
   });
 
