@@ -50,7 +50,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { t } = useTranslation();
   const tRef = useRef(t);
   tRef.current = t;
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(() => {
+    const saved = localStorage.getItem('token');
+    // MUHIM: sarlavha ILK renderdayoq o'rnatiladi. Keshdagi foydalanuvchi bilan sahifalar darhol ochiladi va ularning so'rovlari
+    // shu provayderning useEffect'idan OLDIN ketadi — sarlavha kech qo'yilsa ular tokensiz ketib 401 oladi va foydalanuvchi chiqib ketadi.
+    if (saved) axios.defaults.headers.common['Authorization'] = `Bearer ${saved}`;
+    return saved;
+  });
   // Token bor bo'lsa, keshdagi foydalanuvchi darhol ko'rsatiladi (server javobini kutmasdan)
   const [user, setUser] = useState<User | null>(() => (localStorage.getItem('token') ? readCachedUser() : null));
   const [isLoading, setIsLoading] = useState(() => Boolean(localStorage.getItem('token')) && !readCachedUser());
