@@ -65,6 +65,9 @@ Ochiq: operator o'zining kutilayotgan chekini TAHRIRLASA eski forma (agent/opera
 registratorga agent ulushi/foyda ko'rinmaydi. Bu 16.11 dagi "registrator cheki 'Registratura' agentligiga, agent ulushi kompaniyada qoladi" qoidasini ALMASHTIRADI (eski qoida kodi — `isRegistraturaAgency` — eski/qo'lda shunday yozilgan cheklar uchun qolgan;
 "Registratura" agentligi registrator formasidagi ro'yxatda ko'rsatilmaydi). `deals.routes.ts` POST: REGISTRATURA uchun `agencyId` bo'lmasa 400 "Agent tanlanishi shart"; `DealFormModal` `err_agency_required`.
 Ochiq: registrator "Xarid xarajati"ni ko'radi (= mijozga + agent ulushi) — farqdan agent ulushini chiqarib olishi mumkin; yashirilsinmi, egasidan so'ralgan.
+**20.11 — TELEFONDA AKKAUNTDAN CHIQIB KETISH TUZATILDI (egasi; JONLIDA, faqat klient):** sabab — `AuthContext.tsx` da `/api/auth/me` HAR QANDAY xatoda (internet uzilishi, 503, vaqt tugashi) `logout()` chaqirardi.
+Endi akkauntdan FAQAT server 401 qaytarsa chiqiladi (interceptor); boshqa xatoda keshdagi foydalanuvchi (`localStorage['finmodel_user']`) bilan ilova ochiq qoladi va `/me` fonda qayta so'raladi (2s → 30s).
+Token muddati 30 kun (`auth.routes.ts`). Lokalda sinalgan: server o'chiq holatda sahifa qayta ochilganda akkaunt ochiq qoldi. Yana chiqib ketsa — qurilma turi va brauzer/bosh ekran ilovasi ekanini so'ra (iPhone Safari 7 kunda sayt ma'lumotini o'chiradi).
 **Umirzoq hisoboti (egasi, 16.11 kech):** Google Sheets `1f0aFxEFuBR39z9saeYgGBKPGshQNRHVzyfmgVyXxSWM` — 6 varaq (Xulosa, Cheklar va tovarlar, Sotuvlar, Qarzi bor sotuvlar, To'lovlar, Modellar);
 `scripts/report-buyer-xlsx.ts <fayl.xlsx> [xaridor]` (faqat o'qiydi, istalgan xaridor uchun). 16.11: 52 sotuv, 61 chek, 80 dona; narx 510 887 000, bergan 459 621 500, qarz 51 265 500; tannarx 465 558 420, foyda 45 328 580.
 DDS'da Umirzoq nomi bilan kirimlar 462 622 100 — sotuvlarga yozilganidan 3 000 600 ko'p (TX-1031 3 000 000 + 600; egasidan so'ralgan, javob yo'q).

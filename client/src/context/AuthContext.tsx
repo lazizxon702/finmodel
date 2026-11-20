@@ -21,6 +21,25 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
 });
 
+// Oxirgi muvaffaqiyatli kirgan foydalanuvchi — internet/server vaqtincha ishlamasa ham ilova ochilib turishi uchun
+const USER_CACHE_KEY = 'finmodel_user';
+function readCachedUser(): User | null {
+  try {
+    const raw = localStorage.getItem(USER_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    return null;
+  }
+}
+function writeCachedUser(user: User | null) {
+  try {
+    if (user) localStorage.setItem(USER_CACHE_KEY, JSON.stringify(user));
+    else localStorage.removeItem(USER_CACHE_KEY);
+  } catch {
+    // localStorage yopiq bo'lishi mumkin
+  }
+}
+
 // Bir nechta parallel so'rov 401 USER_BLOCKED qaytarsa ham xabar bir marta chiqsin
 let blockedNoticeShown = false;
 
@@ -31,9 +50,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { t } = useTranslation();
   const tRef = useRef(t);
   tRef.current = t;
-  const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [isLoading, setIsLoading] = useState(true);
+  // Token bor bo'lsa, keshdagi foydalanuvchi darhol ko'rsatiladi (server javobini kutmasdan)
+  const [user, setUser] = useState<User | null>(() => (localStorage.getItem('token') ? readCachedUser() : null));
+  const [isLoading, setIsLoading] = useState(() => Boolean(localStorage.getItem('token')) && !readCachedUser());
 
   // Token muddati o'tsa yoki yaroqsiz bo'lsa — avtomatik chiqish va login sahifasiga qaytish
   useEffect(() => {
@@ -62,20 +82,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      axios
-        .get('/api/auth/me')
-        .then((res) => {
-          setUser(res.data);
-        })
-        .catch(() => {
-          logout();
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    } else {
-      setIsLoading(false);
+      // MUHIM (20.11.2026): akkauntdan FAQAT server 401 qaytarsa chiqiladi (token yaroqsiz / foydalanuvchi bloklangan) — buni yuqoridagi
+      // interceptor qiladi. Internet uzilishi, server bandligi (503) yoki vaqt tugashi chiqishga sabab EMAS: ilgari shunday holatda
+      // telefon foydalanuvchini tizimdan chiqarib yuborardi. Endi keshdagi foydalanuvchi bilan ishlayveradi va fonda qayta uriniladi.
+      let cancelled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const load = (attempt: number) => {
+        axios
+          .get('/api/auth/me')
+          .then((res) => {
+            if (cancelled) return;
+            setUser(res.data);
+            writeCachedUser(res.data);
+            setIsLoading(false);
+          })
+          .catch((error: any) => {
+            if (cancelled) return;
+            if (error?.response?.status === 401) return; // interceptor allaqachon chiqarib yuborgan
+            // Kesh bo'lsa — ilova ochiq turadi; bo'lmasa yuklanish ekranida qayta urinamiz
+            if (readCachedUser()) setIsLoading(false);
+            timer = setTimeout(() => load(attempt + 1), Math.min(30000, 2000 * 2 ** Math.min(attempt, 4)));
+          });
+      };
+      load(0);
+      return () => {
+        cancelled = true;
+        if (timer) clearTimeout(timer);
+      };
     }
+    setIsLoading(false);
+    return undefined;
   }, [token]);
 
   // Push: foydalanuvchi aniqlangach qurilmani ro'yxatdan o'tkazamiz (faqat native ilovada; vebda hech narsa qilmaydi)
@@ -93,6 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = (newToken: string, newUser: User) => {
     blockedNoticeShown = false;
     localStorage.setItem('token', newToken);
+    writeCachedUser(newUser);
     setToken(newToken);
     setUser(newUser);
     axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
@@ -103,6 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     removePushToken(localStorage.getItem('token'));
     removeWebPushSubscription(localStorage.getItem('token'));
     localStorage.removeItem('token');
+    writeCachedUser(null);
     delete axios.defaults.headers.common['Authorization'];
     setToken(null);
     setUser(null);
