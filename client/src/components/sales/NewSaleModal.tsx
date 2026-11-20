@@ -9,11 +9,12 @@ import {
   DEFAULT_MARKUP,
   SALE_PAYMENT_TYPES,
   SalePaymentType,
+  SaleUnit,
   StockRow,
+  buildSaleSelection,
+  buildSaleUnits,
   groupStock,
   num,
-  stockImeis,
-  stockSearchText,
 } from './saleTypes';
 
 interface NewSaleModalProps {
@@ -45,6 +46,7 @@ const emptyForm = () => ({
 export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock, onSaved, onStockStale }) => {
   const { t } = useTranslation();
 
+  // Tanlov BIRLIK kaliti bo'yicha: butun chek — dealId, chek qismi — dealId:itemId
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [stockSearch, setStockSearch] = useState('');
   const [stockStore, setStockStore] = useState('');
@@ -74,19 +76,27 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
     setExistingDebtNotice(0);
   }, [open]);
 
+  // Sotiladigan birliklar: butun chek yoki ko'p tovarli chekning bitta tovari
+  const units = useMemo(() => buildSaleUnits(stock), [stock]);
+
   // Ombor ro'yxati yangilansa — endi mavjud bo'lmagan tanlovlar olib tashlanadi
   useEffect(() => {
     setSelectedIds((prev) => {
-      const next = prev.filter((id) => stock.some((s) => s.id === id));
+      const next = prev.filter((id) => units.some((u) => u.key === id));
       return next.length === prev.length ? prev : next;
     });
-  }, [stock]);
+  }, [units]);
 
   const selectedRows = useMemo(
-    () => selectedIds.map((id) => stock.find((s) => s.id === id)).filter(Boolean) as StockRow[],
-    [selectedIds, stock]
+    () => selectedIds.map((id) => units.find((u) => u.key === id)).filter(Boolean) as SaleUnit[],
+    [selectedIds, units]
   );
-  const costSum = useMemo(() => selectedRows.reduce((sum, r) => sum + num(r.purchaseCost), 0), [selectedRows]);
+  const costSum = useMemo(() => selectedRows.reduce((sum, r) => sum + r.cost, 0), [selectedRows]);
+  // Qisman tanlangan (sotuvda bo'linadigan) cheklar
+  const splitDealIds = useMemo(
+    () => new Set(buildSaleSelection(units, selectedIds).partial.map((p) => p.dealId)),
+    [units, selectedIds]
+  );
 
   // Standart umumiy narx = Σ tannarx × 1.12 (tanlov o'zgarganda, agar qo'lda tahrirlanmagan bo'lsa)
   useEffect(() => {
@@ -111,19 +121,19 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
 
   const visibleStock = useMemo(() => {
     const q = stockSearch.trim().toLowerCase();
-    return stock.filter((row) => {
+    return units.filter((row) => {
       if (stockStore && row.storeName !== stockStore) return false;
-      if (q && !stockSearchText(row).includes(q)) return false;
+      if (q && !row.searchText.includes(q)) return false;
       return true;
     });
-  }, [stock, stockSearch, stockStore]);
+  }, [units, stockSearch, stockStore]);
 
   // Model bo'yicha guruhlar: "A18 — omborda 5 ta, nechta sotasiz?"
   const groups = useMemo(() => groupStock(visibleStock), [visibleStock]);
 
   /** Guruhdan nechta sotilishini o'rnatadi: ko'paytirsa — eng eski tanlanmaganlar qo'shiladi, kamaytirsa — oxirgi tanlanganlar olinadi */
-  const setGroupQty = (rows: StockRow[], qty: number) => {
-    const ids = rows.map((r) => r.id);
+  const setGroupQty = (rows: SaleUnit[], qty: number) => {
+    const ids = rows.map((r) => r.key);
     const target = Math.max(0, Math.min(ids.length, Math.round(qty) || 0));
     setSelectedIds((prev) => {
       const inGroup = ids.filter((id) => prev.includes(id));
@@ -165,8 +175,11 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
     try {
       setSubmitting(true);
       setError('');
+      // Chekning hamma tovari tanlangan bo'lsa — dealIds; bir qismi bo'lsa — partial (server chekni bo'ladi)
+      const { dealIds, partial } = buildSaleSelection(units, selectedIds);
       await axios.post('/api/sales', {
-        dealIds: selectedIds,
+        dealIds,
+        ...(partial.length > 0 ? { partial } : {}),
         totalPrice: form.totalPrice,
         buyerName: form.buyerName.trim(),
         paidAmount: isDebtType ? 0 : form.paidAmount,
@@ -234,7 +247,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
                   <div className="text-xs text-fg-muted">{t('sales.new.stockHint')}</div>
                 </div>
               </div>
-              <Badge tone="brand">{t('sales.new.stockTotal', { count: stock.length })}</Badge>
+              <Badge tone="brand">{t('sales.new.stockTotal', { count: units.length })}</Badge>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <div className="min-w-0 flex-1">
@@ -273,9 +286,9 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
               ) : (
                 <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {groups.map((g) => {
-                    const picked = g.rows.filter((r) => selectedIds.includes(r.id)).length;
+                    const picked = g.rows.filter((r) => selectedIds.includes(r.key)).length;
                     const isOpen = openGroups.includes(g.key);
-                    const cost = g.rows.reduce((sum, r) => sum + num(r.purchaseCost), 0);
+                    const cost = g.rows.reduce((sum, r) => sum + r.cost, 0);
                     return (
                       <li
                         key={g.key}
@@ -348,10 +361,10 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
                         {isOpen && (
                           <ul className="mt-1 divide-y divide-line rounded-card border border-line">
                             {g.rows.map((row) => {
-                              const checked = selectedIds.includes(row.id);
-                              const imeis = stockImeis(row);
+                              const checked = selectedIds.includes(row.key);
+                              const imeis = row.imeis;
                               return (
-                                <li key={row.id}>
+                                <li key={row.key}>
                                   <label
                                     className={cn(
                                       'flex min-h-touch cursor-pointer items-start gap-2.5 px-2.5 py-2 transition-colors hover:bg-brand-soft/40',
@@ -361,20 +374,32 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
                                     <input
                                       type="checkbox"
                                       checked={checked}
-                                      onChange={() => toggle(row.id)}
+                                      onChange={() => toggle(row.key)}
                                       className="mt-1 h-4 w-4 shrink-0 accent-[rgb(var(--brand))]"
                                     />
                                     <span className="min-w-0 flex-1">
                                       <span className="block truncate text-xs text-fg-secondary">
-                                        №{row.dealNumber ?? '—'} · {row.storeName || '—'}
-                                        {num(row.quantity) > 1 && <span className="ml-1 font-semibold">× {row.quantity}</span>}
+                                        {row.partOfCheck ? (
+                                          <span className="font-semibold text-accent">
+                                            {t('sales.new.fromCheck', { number: row.dealNumber ?? '—' })}
+                                          </span>
+                                        ) : (
+                                          <>№{row.dealNumber ?? '—'}</>
+                                        )}{' '}
+                                        · {row.storeName || '—'}
+                                        {row.quantity > 1 && <span className="ml-1 font-semibold">× {row.quantity}</span>}
                                       </span>
                                       <span className="block truncate font-mono text-xs tabular-nums text-fg-muted">
                                         IMEI: {imeis.length > 0 ? imeis.join(', ') : t('sales.form.noImei')}
                                       </span>
+                                      {row.costEstimated && (
+                                        <span className="block text-[11px] leading-snug text-warning">
+                                          {t('sales.new.costEstimated')}
+                                        </span>
+                                      )}
                                     </span>
                                     <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-fg-secondary">
-                                      {formatMoney(row.purchaseCost)}
+                                      {formatMoney(row.cost)}
                                     </span>
                                   </label>
                                 </li>
@@ -389,7 +414,7 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
               )}
             </div>
             <p className="text-xs text-fg-muted">
-              {t('sales.new.shownCount', { shown: visibleStock.length, total: stock.length })}
+              {t('sales.new.shownCount', { shown: visibleStock.length, total: units.length })}
             </p>
           </div>
 
@@ -414,21 +439,36 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({ open, onClose, stock
               ) : (
                 <ul className="max-h-[22rem] divide-y divide-line overflow-y-auto overscroll-contain">
                   {selectedRows.map((row) => (
-                    <li key={row.id} className="flex items-center gap-2 px-3 py-1.5">
+                    <li key={row.key} className="flex items-center gap-2 px-3 py-1.5">
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-fg">{row.productName || '—'}</span>
-                        <span className="block truncate text-xs text-fg-muted">
-                          №{row.dealNumber ?? '—'} · {row.storeName || '—'}
-                        </span>
+                        {row.partOfCheck ? (
+                          <span
+                            className="flex flex-wrap items-center gap-1.5 text-xs text-fg-muted"
+                            title={splitDealIds.has(row.dealId) ? t('sales.new.fromCheckHint') : undefined}
+                          >
+                            <Badge tone={splitDealIds.has(row.dealId) ? 'warning' : 'neutral'} size="sm">
+                              {t('sales.new.fromCheck', { number: row.dealNumber ?? '—' })}
+                            </Badge>
+                            <span className="truncate">{row.storeName || '—'}</span>
+                          </span>
+                        ) : (
+                          <span className="block truncate text-xs text-fg-muted">
+                            №{row.dealNumber ?? '—'} · {row.storeName || '—'}
+                          </span>
+                        )}
+                        {row.costEstimated && (
+                          <span className="block text-[11px] leading-snug text-warning">{t('sales.new.costEstimated')}</span>
+                        )}
                       </span>
                       <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-fg-secondary">
-                        {formatMoney(row.purchaseCost)}
+                        {formatMoney(row.cost)}
                       </span>
                       <Button
                         size="icon"
                         variant="ghost"
                         className="shrink-0 text-danger sm:min-h-[2rem] sm:min-w-[2rem]"
-                        onClick={() => toggle(row.id)}
+                        onClick={() => toggle(row.key)}
                         title={t('sales.new.remove')}
                         aria-label={t('sales.new.remove')}
                       >

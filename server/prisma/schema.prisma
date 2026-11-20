@@ -115,6 +115,7 @@ model User {
   operators        User[]           @relation("AgentTeam")
   telegramLinkCode String?          @unique
   dealsApproved    Deal[]           @relation("DealApprover")
+  dealsRegistered  Deal[]           @relation("DealRegistrator")
   deviceTokens     DeviceToken[]
   // OPERATOR: spravochnikdagi qaysi agent (Agency ichidagi Agent yozuvi) — shu yozuvga bog'langan bitimlarni ko'radi
   agentId          String?          @unique
@@ -283,6 +284,9 @@ model Deal {
   approvalStatus      ApprovalStatus    @default(APPROVED)
   approvedById        String?
   approvedBy          User?             @relation("DealApprover", fields: [approvedById], references: [id])
+  // Chekni rasmiylashtirgan registrator (REGISTRATURA foydalanuvchisi) — eski "sotuvchi" maydonining o'rniga
+  registratorId       String?
+  registrator         User?             @relation("DealRegistrator", fields: [registratorId], references: [id])
   approvedAt          DateTime?
   rejectReason        String?
   // Trust / Trust 1 bitimlari: Trust bizga qarzdor bo'lgan summa (yechilgan limit x 16%)
@@ -303,6 +307,7 @@ model Deal {
   @@index([saleId])
   @@index([approvalStatus])
   @@index([createdById])
+  @@index([registratorId])
   @@index([date])
 }
 

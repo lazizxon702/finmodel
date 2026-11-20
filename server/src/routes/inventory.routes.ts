@@ -23,6 +23,7 @@ import {
   parseApprovalFilter,
   toDeviceItemsJson,
 } from './deals.routes';
+import { splitItemCosts } from '../services/calculation.service';
 
 const router = Router();
 
@@ -163,7 +164,12 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
         imei2: deal.imei2 || '-',
         color: deal.color || '-',
         storageGb: deal.storageGb || '-',
-        items: dealItemsView(deal),
+        // Har tovarning tannarx ulushi (tovar narxlari nisbatida) — sotuv oynasida tovarlab sotish uchun
+        items: (() => {
+          const view = dealItemsView(deal);
+          const { shares, estimated } = splitItemCosts(view, purchaseCost);
+          return view.map((it: any, i: number) => ({ ...it, costShare: shares[i] ?? 0, costEstimated: estimated }));
+        })(),
         status: deal.status,
         statusChangeReason: deal.statusChangeReason || '-',
         purchaseCost,

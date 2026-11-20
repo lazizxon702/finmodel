@@ -242,8 +242,12 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
                   </Td>
                   <Td numeric className="max-w-[7rem]">
                     <p className="text-fg">{dealDateTime(d).split(' ')[0]}</p>
-                    <p className="truncate text-xs text-fg-muted" title={d.sellerName || undefined}>
-                      {dealDateTime(d).split(' ')[1] || ''} {d.sellerName}
+                    {/* Registrator (bo'lmasa eski erkin matnli sotuvchi) */}
+                    <p
+                      className="truncate text-xs text-fg-muted"
+                      title={d.registrator?.fullName || d.sellerName ? `${t('dealsPage.registrator')}: ${d.registrator?.fullName || d.sellerName}` : undefined}
+                    >
+                      {dealDateTime(d).split(' ')[1] || ''} {d.registrator?.fullName || d.sellerName}
                     </p>
                   </Td>
                   <Td className="max-w-[9rem]">

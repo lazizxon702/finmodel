@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Info, ShieldAlert } from 'lucide-react';
 import { Badge, Button, Field, Input, Modal, Select, Textarea, controlClass, cn } from '../ui';
@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { formatMoney, todayYmd, toYmdTashkent } from '../../utils/format';
 import type { Agency, Deal, Provider, Role, Store } from '../../types';
 import { DealItemsEditor, isItemRowFilled, newItemRow, type ItemRow } from './DealItemsEditor';
-import { ACCOUNT_CODES, DEAL_STATUSES, type AccountCode, apiError, canUseExpense, cleanText, dealItems, isQodirStore, isRegistratura, isScopedRole } from './dealUtils';
+import { ACCOUNT_CODES, DEAL_STATUSES, type AccountCode, apiError, cleanText, dealItems, isQodirStore, isRegistratura, isScopedRole } from './dealUtils';
 
 /** Lead sahifasidan kelgan boshlang'ich qiymatlar */
 export interface DealPrefill {
@@ -31,9 +31,29 @@ interface Props {
   onSaved: (saved: any, isEdit: boolean) => void;
 }
 
+/** GET /api/deals/my-defaults — kim kiritayotganiga qarab server beradigan avtomatik qiymatlar */
+interface MyDefaults {
+  agencyId: string | null;
+  agencyName: string | null;
+  agentId: string | null;
+  agentName: string | null;
+  registratorId: string | null;
+  registratorName: string | null;
+  lockAgency: boolean;
+  lockAgent: boolean;
+}
+
+/** GET /api/registratura/options — registratorlar ro'yxati (faqat ADMIN) */
+interface RegistratorOption {
+  id: string;
+  fullName: string;
+  username?: string;
+}
+
 interface FormState {
   date: string;
-  sellerName: string;
+  /** Faqat ADMIN tanlaydi; bo'sh = tanlanmagan */
+  registratorId: string;
   providerId: string;
   storeId: string;
   agencyId: string;
@@ -53,7 +73,6 @@ interface FormState {
   note: string;
 }
 
-const DEFAULT_SELLER = 'Durdona';
 const DISCOUNT_PRESETS = [20, 25, 28, 30, 33, 35, 40];
 
 const parsePct = (raw: number | string) => parseFloat(String(raw).replace(',', '.')) || 0;
@@ -63,7 +82,7 @@ function initialForm(deal: Deal | null, prefill: DealPrefill | null | undefined,
     return {
       // dateYmd — Toshkent kuni; toISOString().slice(0,10) UTC bo'yicha kesib, kunni bir kun orqaga siljitardi
       date: deal.dateYmd || (deal.date ? toYmdTashkent(deal.date) : todayYmd()),
-      sellerName: deal.sellerName || '',
+      registratorId: deal.registrator?.id || '',
       providerId: deal.providerId || '',
       storeId: deal.storeId || '',
       agencyId: deal.agencyId || '',
@@ -87,7 +106,7 @@ function initialForm(deal: Deal | null, prefill: DealPrefill | null | undefined,
   const withdrawn = prefill?.customerLimit ? Math.round(limit * 0.28) : 2800000;
   return {
     date: todayYmd(),
-    sellerName: DEFAULT_SELLER,
+    registratorId: '',
     providerId: providers[0]?.id || '',
     storeId: stores[0]?.id || '',
     // Agentlik oldindan ro'yxatdagi birinchisiga qo'yilmaydi (ilgari hamma bitim "Anvar" ga yozilib ketardi):
@@ -131,6 +150,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   const scoped = isScopedRole(role);
   // Registratura: agentlik/agent tanlanmaydi (server o'zi qo'yadi), mavjud bitim tahrirlanmaydi
   const registratura = isRegistratura(role);
+  const admin = role === 'ADMIN';
+  const operator = role === 'OPERATOR';
 
   const [form, setForm] = useState<FormState>(() => initialForm(deal, prefill, stores, providers, agencies, user?.agencyId || ''));
   const [discountPercent, setDiscountPercent] = useState<number | string>(() => initialDiscount(deal));
@@ -143,6 +164,48 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   const [error, setError] = useState('');
 
   const set = (updates: Partial<FormState>) => setForm((prev) => ({ ...prev, ...updates }));
+
+  // Yangi chek: agent/operator/registrator avtomatik qiymatlari (ADMIN uchun kerak emas)
+  const [defaults, setDefaults] = useState<MyDefaults | null>(null);
+  const [defaultsLoaded, setDefaultsLoaded] = useState(false);
+  // Registratorlar ro'yxati — faqat ADMIN (boshqalarga server 403 beradi)
+  const [registrators, setRegistrators] = useState<RegistratorOption[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    if (admin) {
+      axios
+        .get('/api/registratura/options')
+        .then((res) => alive && setRegistrators(Array.isArray(res.data) ? res.data : []))
+        .catch(() => undefined);
+    } else if (!isEdit) {
+      axios
+        .get('/api/deals/my-defaults')
+        .then((res) => {
+          if (!alive) return;
+          const d: MyDefaults | null = res.data || null;
+          setDefaults(d);
+          // AGENT: agentlik qat'iy — o'z agentligi; boshqa agentlikdagi operator qolib ketmasin
+          if (role === 'AGENT' && d?.lockAgency && d.agencyId) {
+            setForm((prev) => (prev.agencyId === d.agencyId ? prev : { ...prev, agencyId: d.agencyId as string, agentId: '' }));
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => alive && setDefaultsLoaded(true));
+    }
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Yangi chekda: OPERATOR agent/operatorni tanlamaydi; AGENT uchun agentlik qat'iy
+  const hideAgentPickers = registratura || (operator && !isEdit);
+  const lockedAgency = role === 'AGENT' && !isEdit && Boolean(defaults?.lockAgency && defaults.agencyId);
+  // Tovar holati: yangi chekda faqat ADMIN tanlaydi (boshqalarga server "Kutilmoqda" qo'yadi)
+  const canPickStatus = isEdit || admin;
+  // Tahrirda: registrator yo'q, lekin eski erkin matnli sotuvchi bor — admin ko'rib tursin
+  const oldSeller = isEdit && !deal!.registrator ? cleanText(deal!.sellerName) : '';
 
   // Daftar endi qo'lda tanlanmaydi: server o'zi qo'yadi (faqat Imanium + Denov/Jizzax). Bu yerda faqat ko'rsatiladi.
   const autoDaftar = (() => {
@@ -186,7 +249,6 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
     setError('');
 
     if (!form.date) return setError(t('dealsPage.err_date'));
-    if (!form.sellerName.trim()) return setError(t('dealsPage.err_seller'));
     if (!form.storeId || !form.providerId) return setError(t('dealsPage.err_store_provider'));
     if (!(form.withdrawnLimit > 0)) return setError(t('dealsPage.err_withdrawn'));
 
@@ -221,13 +283,13 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         ...form,
         // Sana "YYYY-MM-DD" — vaqtni server o'zi qo'yadi
         date: form.date,
-        sellerName: form.sellerName.trim(),
         // To'ldirgich ("Mijoz", "-") YUBORILMAYDI: bo'sh bo'lsa bo'sh satr
         customerName: form.customerName.trim(),
         customerPhone1: form.customerPhone1.trim(),
         customerPhone2: form.customerPhone2.trim(),
         isDaftar: Boolean(form.isDaftar),
-        autoDdsExpense: !scoped && Boolean(form.autoDdsExpense),
+        // "Rasxodga qo'shish" — faqat ADMIN, faqat yangi chekda
+        autoDdsExpense: admin && !isEdit && Boolean(form.autoDdsExpense),
         items: filled.map((r) => ({
           productName: r.productName.trim(),
           color: r.color.trim(),
@@ -239,10 +301,18 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
           price: r.price,
         })),
       };
-      if (registratura) {
-        // Agentlik ("Registratura") va operatorni (kirgan xodim) server o'zi qo'yadi
+      // Registrator: faqat ADMIN tanlaydi (bo'shatilsa null); boshqalarga server o'zi qo'yadi
+      if (admin) payload.registratorId = form.registratorId || null;
+      else delete payload.registratorId;
+      if (hideAgentPickers) {
+        // Registratura / operator: agentlik va operatorni server o'zi qo'yadi
         delete payload.agencyId;
         delete payload.agentId;
+      }
+      if (!canPickStatus) {
+        // Tovar holatini server o'zi "Kutilmoqda" qiladi
+        delete payload.status;
+        delete payload.statusChangeReason;
       }
       if (deal) {
         payload.debtDueDate = deal.debtDueDate || '';
@@ -283,7 +353,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
       }
     >
       <form noValidate onSubmit={(e) => e.preventDefault()} onKeyDown={blockEnterSubmit} className="space-y-5">
-        {scoped && (
+        {/* ADMIN'dan boshqa hamma kiritgan chek admin tasdig'ini kutadi */}
+        {(scoped || (!admin && !isEdit)) && (
           <div className="flex items-start gap-2 rounded-control bg-info-soft px-3 py-2.5 text-sm text-info">
             <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <p>{t(registratura ? 'dealsPage.registratura_notice' : 'dealsPage.scoped_notice')}</p>
@@ -295,9 +366,27 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
           <Field label={t('dealsPage.field_date')} required hint={t('dealsPage.field_date_hint')}>
             <Input type="date" className="tabular-nums" value={form.date} onChange={(e) => set({ date: e.target.value })} />
           </Field>
-          <Field label={t('common.seller')} required>
-            <Input value={form.sellerName} onChange={(e) => set({ sellerName: e.target.value })} />
-          </Field>
+          {/* Registrator: ADMIN tanlaydi, registratura o'z ismini ko'radi, qolganlarga ko'rsatilmaydi */}
+          {admin && (
+            <Field label={t('dealsPage.registrator')} hint={oldSeller ? t('dealsPage.old_seller', { name: oldSeller }) : undefined}>
+              <Select value={form.registratorId} onChange={(e) => set({ registratorId: e.target.value })}>
+                <option value="">{t('dealsPage.registrator_none')}</option>
+                {registrators.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.fullName}
+                  </option>
+                ))}
+                {form.registratorId && !registrators.some((r) => r.id === form.registratorId) && (
+                  <option value={form.registratorId}>{deal?.registrator?.fullName || form.registratorId}</option>
+                )}
+              </Select>
+            </Field>
+          )}
+          {registratura && (
+            <Field label={t('dealsPage.registrator')}>
+              <div className={cn(controlClass, 'flex items-center bg-surface-2')}>{defaults?.registratorName || user?.fullName || ''}</div>
+            </Field>
+          )}
           <Field label={t('common.provider')} required>
             <Select
               value={form.providerId}
@@ -475,7 +564,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
             </div>
           )}
 
-          {!scoped && canUseExpense(role) && !isEdit && (
+          {/* Rasxodga qo'shish — faqat ADMIN (boshqalarda xarajat admin tasdiqlaganda yoziladi) */}
+          {admin && !isEdit && (
             <div className="space-y-3 rounded-control border border-line bg-surface-2/50 p-3">
             <label className="flex cursor-pointer items-start gap-3">
               <input
@@ -514,6 +604,9 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         </section>
 
         {/* Holat */}
+        {!canPickStatus ? (
+          <p className="text-sm text-fg-muted">{t('dealsPage.goods_status_auto', { status: t('dealStatus.PENDING') })}</p>
+        ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t('dealsPage.goods_status')} required>
             <Select value={form.status} onChange={(e) => set({ status: e.target.value })}>
@@ -529,11 +622,26 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
             <Input value={form.statusChangeReason} onChange={(e) => set({ statusChangeReason: e.target.value })} />
           </Field>
         </div>
+        )}
 
-        {/* Agentlik va agent — Registratura'ga ko'rsatilmaydi */}
-        {!registratura && (
+        {/* Operator (yangi chek): agent va operator avtomatik — faqat ko'rsatiladi */}
+        {operator && !isEdit && defaultsLoaded && (
+          defaults?.agencyName ? (
+            <p className="rounded-control border border-line bg-surface-2/50 px-3 py-2.5 text-sm text-fg">
+              {t('dealsPage.own_agent_line', { agency: defaults.agencyName, agent: defaults.agentName || '—' })}
+            </p>
+          ) : (
+            <p className="text-sm text-fg-muted">{t('dealsPage.no_agency_assigned')}</p>
+          )
+        )}
+
+        {/* Agentlik va agent — Registratura va operatorga (yangi chek) ko'rsatilmaydi */}
+        {!hideAgentPickers && (
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t('common.agency')}>
+            {lockedAgency ? (
+              <div className={cn(controlClass, 'flex items-center bg-surface-2')}>{defaults?.agencyName || agency?.name || ''}</div>
+            ) : (
             <Select
               value={form.agencyId}
               onChange={(e) => {
@@ -549,6 +657,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
                 </option>
               ))}
             </Select>
+            )}
           </Field>
           <Field label={t('dealsPage.agent')}>
             <Select value={form.agentId} onChange={(e) => set({ agentId: e.target.value })} disabled={!agents.length}>

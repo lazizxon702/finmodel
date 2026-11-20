@@ -116,8 +116,10 @@ describe("Yaratish / tahrirlash / o'chirish huquqi", () => {
   it("yangi bitim holati: OPERATOR/AGENT → tasdiq kutadi, qolganlar → darhol tasdiqlangan", () => {
     expect(initialApprovalStatus('OPERATOR')).toBe('PENDING_APPROVAL');
     expect(initialApprovalStatus('AGENT')).toBe('PENDING_APPROVAL');
-    for (const role of ['ADMIN', 'MANAGER', 'CASHIER', 'CFO', 'SELLER']) {
-      expect(initialApprovalStatus(role)).toBe('APPROVED');
+    // Egasi (20.11.2026): admin'dan boshqa hamma rol — tasdiq kutadi
+    expect(initialApprovalStatus('ADMIN')).toBe('APPROVED');
+    for (const role of ['MANAGER', 'CASHIER', 'CFO', 'SELLER', 'COO', 'STOREKEEPER']) {
+      expect(initialApprovalStatus(role)).toBe('PENDING_APPROVAL');
     }
   });
 

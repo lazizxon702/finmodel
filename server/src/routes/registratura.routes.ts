@@ -109,6 +109,16 @@ router.get('/staff', ...adminOnly, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// GET /api/registratura/options — chek formasida registrator tanlash uchun qisqa ro'yxat (parolsiz)
+router.get('/options', ...adminOnly, async (_req: AuthRequest, res: Response) => {
+  try {
+    const users = await prisma.user.findMany({ where: { role: Role.REGISTRATURA, isActive: true }, select: { id: true, fullName: true, username: true }, orderBy: { fullName: 'asc' } });
+    return res.json(users);
+  } catch (error: any) {
+    return sendRouteError(res, error, "Registratorlar ro'yxatini yuklashda xatolik");
+  }
+});
+
 // POST /api/registratura/staff {fullName, username, password?}
 //   Parol berilmasa tasodifiy yaratiladi va javobda BIR MARTA `generatedPassword` bo'lib qaytadi.
 router.post('/staff', ...adminOnly, async (req: AuthRequest, res: Response) => {

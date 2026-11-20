@@ -161,6 +161,8 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
       await prisma.auditLog.deleteMany({ where: { OR: [{ userId: { in: userIds } }, { entityId: { in: dealIds } }] } });
       await prisma.user.deleteMany({ where: { id: { in: userIds }, parentAgentId: { not: null } } });
       await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+      // Operator chek kiritganda uning spravochnik yozuvi avtomatik yaratiladi — agentlikdan oldin o'chiriladi
+      await prisma.agent.deleteMany({ where: { agencyId: { in: createdRefs.agencies } } });
       await prisma.agency.deleteMany({ where: { id: { in: createdRefs.agencies } } });
       await prisma.store.deleteMany({ where: { id: { in: createdRefs.stores } } });
       await prisma.provider.deleteMany({ where: { id: { in: createdRefs.providers } } });

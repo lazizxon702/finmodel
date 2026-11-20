@@ -125,36 +125,152 @@ export function stockImeis(row: StockRow): string[] {
   ]);
 }
 
+/**
+ * Sotiladigan birlik: yoki butun chek, yoki ko'p tovarli chekning BITTA tovar qatori.
+ * Chekda 2+ tovar qatori bo'lib, hammasining id'si bo'lsa — har qator alohida birlik
+ * (tovarlar turli xaridorga sotilishi mumkin, server chekni o'zi bo'ladi).
+ */
+export interface SaleUnit {
+  /** Butun chek: dealId; chek qismi: dealId + ':' + itemId */
+  key: string;
+  dealId: string;
+  /** Chek qismi bo'lsa — DealItem id; butun chek bo'lsa — null */
+  itemId: string | null;
+  dealNumber?: number | string | null;
+  storeName?: string | null;
+  productName?: string | null;
+  color?: string | null;
+  storageGb?: number | string | null;
+  imeis: string[];
+  quantity: number;
+  /** Tannarx: butun chekda purchaseCost, chek qismida costShare */
+  cost: number;
+  /** true — ko'p tovarli chekning bir qismi (to'liq tanlanmasa chek bo'linadi) */
+  partOfCheck: boolean;
+  /** true — chekda tovar narxlari kiritilmagan, tannarx ulushi taxminiy */
+  costEstimated: boolean;
+  /** Qidiruv matni (kichik harflarda): tovar nomi, IMEI, chek №, do'kon */
+  searchText: string;
+}
+
+const clean = (v: unknown): string => {
+  const s = String(v ?? '').trim();
+  return s === '-' ? '' : s;
+};
+
+/** Ombor qatorlarini sotiladigan birliklarga yoyadi */
+export function buildSaleUnits(stock: StockRow[]): SaleUnit[] {
+  const units: SaleUnit[] = [];
+  for (const row of stock) {
+    const items: any[] = Array.isArray(row.items) ? row.items : [];
+    const dealTag = row.dealNumber != null ? `№${row.dealNumber} #${row.dealNumber}` : '';
+    const splittable = items.length >= 2 && items.every((it) => it && it.id != null && String(it.id) !== '');
+    if (!splittable) {
+      units.push({
+        key: row.id,
+        dealId: row.id,
+        itemId: null,
+        dealNumber: row.dealNumber,
+        storeName: row.storeName,
+        productName: row.productName,
+        color: row.color,
+        storageGb: row.storageGb,
+        imeis: stockImeis(row),
+        quantity: Math.max(1, num(row.quantity) || 1),
+        cost: num(row.purchaseCost),
+        partOfCheck: false,
+        costEstimated: false,
+        searchText: stockSearchText(row),
+      });
+      continue;
+    }
+    for (const it of items) {
+      const imeis = uniq([it.imei1, it.imei2, it.imei]);
+      const name = clean(it.productName) || clean(row.productName);
+      units.push({
+        key: `${row.id}:${it.id}`,
+        dealId: row.id,
+        itemId: String(it.id),
+        dealNumber: row.dealNumber,
+        storeName: row.storeName,
+        productName: name,
+        color: clean(it.color),
+        storageGb: clean(it.storageGb),
+        imeis,
+        quantity: Math.max(1, num(it.quantity) || 1),
+        cost: num(it.costShare),
+        partOfCheck: true,
+        costEstimated: Boolean(it.costEstimated),
+        searchText: [name, clean(it.color), clean(it.storageGb), row.storeName, dealTag, ...imeis]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase(),
+      });
+    }
+  }
+  return units;
+}
+
 /** Model nomi (ko'rsatish uchun): "1ta", "2 шт" kabi son qo'shimchalari olib tashlanadi */
-export function stockModelLabel(row: StockRow): string {
+export function stockModelLabel(row: { productName?: string | null }): string {
   const raw = String(row.productName ?? '').replace(/\s+/g, ' ').trim();
   const cleaned = raw.replace(/\b\d+\s*(ta|шт|sht|dona)\b\.?/gi, '').replace(/\s+/g, ' ').replace(/\s+\+\s+/g, ' + ').trim();
   return cleaned || raw || '—';
 }
 
 /** Bir xil model qatorlarini bitta guruhga yig'ish kaliti (registr va bo'shliqlar farq qilmaydi) */
-export function stockModelKey(row: StockRow): string {
+export function stockModelKey(row: { productName?: string | null }): string {
   return stockModelLabel(row).toLowerCase().replace(/[^a-z0-9а-яёўқғҳ+]+/gi, '');
 }
 
 export interface StockGroup {
   key: string;
   label: string;
-  rows: StockRow[];
+  rows: SaleUnit[];
 }
 
-/** Ombor qatorlarini model bo'yicha guruhlaydi: ko'p donalisi birinchi, ichida — bitim № bo'yicha (eskisi oldin) */
-export function groupStock(rows: StockRow[]): StockGroup[] {
+/** Birliklarni model bo'yicha guruhlaydi: ko'p donalisi birinchi, ichida — bitim № bo'yicha (eskisi oldin) */
+export function groupStock(units: SaleUnit[]): StockGroup[] {
   const map = new Map<string, StockGroup>();
-  for (const row of rows) {
-    const key = stockModelKey(row);
-    const g = map.get(key) || { key, label: stockModelLabel(row), rows: [] };
-    g.rows.push(row);
+  for (const unit of units) {
+    const key = stockModelKey(unit);
+    const g = map.get(key) || { key, label: stockModelLabel(unit), rows: [] };
+    g.rows.push(unit);
     map.set(key, g);
   }
   const groups = Array.from(map.values());
-  for (const g of groups) g.rows.sort((a, b) => num(a.dealNumber) - num(b.dealNumber));
+  // "+" avval butun (bitta tovarli) cheklarni oladi — ko'p tovarli chek keraksiz bo'linib ketmasin; keyin chek № bo'yicha
+  for (const g of groups)
+    g.rows.sort((a, b) => Number(Boolean((a as any).partOfCheck)) - Number(Boolean((b as any).partOfCheck)) || num(a.dealNumber) - num(b.dealNumber));
   return groups.sort((a, b) => b.rows.length - a.rows.length || a.label.localeCompare(b.label));
+}
+
+/**
+ * Tanlangan birliklardan POST /api/sales tanasidagi dealIds / partial ni tuzadi:
+ * chekning hamma birligi tanlangan (yoki chek bitta birlik) → dealIds; aks holda → partial { dealId, itemIds }.
+ */
+export function buildSaleSelection(
+  allUnits: SaleUnit[],
+  selectedKeys: string[]
+): { dealIds: string[]; partial: { dealId: string; itemIds: string[] }[] } {
+  const totalByDeal = new Map<string, number>();
+  for (const u of allUnits) totalByDeal.set(u.dealId, (totalByDeal.get(u.dealId) || 0) + 1);
+  const pickedByDeal = new Map<string, SaleUnit[]>();
+  for (const key of selectedKeys) {
+    const u = allUnits.find((x) => x.key === key);
+    if (!u) continue;
+    const list = pickedByDeal.get(u.dealId) || [];
+    list.push(u);
+    pickedByDeal.set(u.dealId, list);
+  }
+  const dealIds: string[] = [];
+  const partial: { dealId: string; itemIds: string[] }[] = [];
+  for (const [dealId, picked] of pickedByDeal) {
+    const whole = picked.some((u) => !u.itemId) || picked.length >= (totalByDeal.get(dealId) || 0);
+    if (whole) dealIds.push(dealId);
+    else partial.push({ dealId, itemIds: picked.map((u) => u.itemId as string) });
+  }
+  return { dealIds, partial };
 }
 
 /** Ombor qatori bo'yicha qidiruv matni: model, IMEI, bitim №, do'kon */

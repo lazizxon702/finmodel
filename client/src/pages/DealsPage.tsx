@@ -89,6 +89,8 @@ export const DealsPage: React.FC = () => {
   const [approvalFilter, setApprovalFilter] = useState<ApprovalFilter>('all');
   const [range, setRange] = useState<DateRangeValue>(() => defaultDateRange('all'));
   const [page, setPage] = useState(1);
+  // Registratura: "O'zimning cheklarim" (mine=1) yoki "Hamma bitimlar"; boshqa rollarda ishlatilmaydi
+  const [mineOnly, setMineOnly] = useState(true);
 
   // --- Oynalar ---
   const [form, setForm] = useState<{ deal: Deal | null; prefill?: DealPrefill | null } | null>(null);
@@ -136,6 +138,8 @@ export const DealsPage: React.FC = () => {
       daftar: daftarFilter || undefined,
       startDate: range.startDate || undefined,
       endDate: range.endDate || undefined,
+      // Registratura "O'zimning cheklarim": ro'yxat ham, yig'ma raqamlar ham faqat o'z cheklari
+      mine: registratura && mineOnly ? 1 : undefined,
     };
 
     const [dealsRes, totalsRes, pendingRes] = await Promise.allSettled([
@@ -168,7 +172,7 @@ export const DealsPage: React.FC = () => {
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter, providerFilter, storeFilter, daftarFilter, approvalFilter, range.startDate, range.endDate, page]);
+  }, [search, statusFilter, providerFilter, storeFilter, daftarFilter, approvalFilter, range.startDate, range.endDate, page, mineOnly]);
 
   useEffect(() => {
     (async () => {
@@ -463,6 +467,26 @@ export const DealsPage: React.FC = () => {
           )}
         </div>
       </Card>
+
+      {/* Registratura: o'z cheklari / hamma bitimlar */}
+      {registratura && (
+        <div role="group" aria-label={t('dealsPage.view_label')} className="inline-flex rounded-control border border-line-strong bg-surface p-1">
+          {[true, false].map((mine) => (
+            <button
+              key={String(mine)}
+              type="button"
+              aria-pressed={mineOnly === mine}
+              onClick={() => withPageReset(setMineOnly)(mine)}
+              className={cn(
+                'min-h-[2.25rem] rounded-control px-3.5 text-sm font-medium transition-colors',
+                mineOnly === mine ? 'bg-brand-soft text-accent' : 'text-fg-secondary hover:bg-surface-2'
+              )}
+            >
+              {t(mine ? 'dealsPage.view_mine' : 'dealsPage.view_all')}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Ro'yxat */}
       <Card padding="none" className="overflow-hidden">

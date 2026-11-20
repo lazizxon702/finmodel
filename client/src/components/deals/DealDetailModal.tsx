@@ -151,7 +151,7 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
               <Row label={t('common.provider')}>{deal.provider?.name || DASH}</Row>
               <Row label={t('common.agency')}>{deal.agency?.name || DASH}</Row>
               <Row label={t('dealsPage.agent')}>{deal.agent?.name || DASH}</Row>
-              <Row label={t('common.seller')}>{deal.sellerName || DASH}</Row>
+              <Row label={t('dealsPage.registrator')}>{deal.registrator?.fullName || deal.sellerName || DASH}</Row>
             </Rows>
           </Section>
         </div>

@@ -536,7 +536,9 @@ export function isRegistraturaAgency(agencyName?: string | null): boolean {
 }
 
 export function initialApprovalStatus(role?: string | null): 'PENDING_APPROVAL' | 'APPROVED' {
-  return role === 'OPERATOR' || role === 'AGENT' || role === 'REGISTRATURA' ? 'PENDING_APPROVAL' : 'APPROVED';
+  // Egasi (20.11.2026): admin'dan boshqa KIM kiritsa ham chek admin tasdig'ini kutadi (tasdiqlangach chek xarajati DDS'ga o'zi yoziladi).
+  // Rol berilmasa (ichki skriptlar) — avvalgidek darhol tasdiqlangan.
+  return !role || role === 'ADMIN' ? 'APPROVED' : 'PENDING_APPROVAL';
 }
 
 /** DDS yozuvi hisob qoldig'ini qanchaga o'zgartiradi: kirim → +, chiqim → − */
@@ -614,6 +616,36 @@ export function normalizeDealItems(items: DealItemInput[] | null | undefined) {
     color: first?.color || null,
     storageGb: first?.storageGb || null,
   };
+}
+
+/**
+ * Chek tannarxini tovarlarga bo'ladi (egasi, 18.11.2026: bitta chekda 2 ta har xil tovar bo'lsa narxlar to'g'ri taqsimlansin).
+ * Og'irlik = tovar narxi × soni (operator taxminiy kiritadi — yig'indi tannarxga teng bo'lishi shart emas, faqat NISBAT ishlatiladi).
+ *   • hamma tovarda narx bor  → narx nisbatida;
+ *   • hech birida narx yo'q   → soni nisbatida (teng), `estimated = true`;
+ *   • ba'zisida bor           → narxsiz tovarga kiritilganlarning o'rtacha dona narxi beriladi, `estimated = true`.
+ * Bo'laklar yig'indisi aniq `totalCost` ga teng (qoldiq tiyin oxirgi tovarga).
+ */
+export function splitItemCosts(
+  items: { price?: number | string | null; quantity?: number | string | null }[],
+  totalCost: number
+): { shares: number[]; estimated: boolean } {
+  const rows = (items || []).map((it) => ({ price: Math.max(0, Number(it.price) || 0), qty: Math.max(1, Math.floor(Number(it.quantity) || 1)) }));
+  if (!rows.length) return { shares: [], estimated: false };
+  const priced = rows.filter((r) => r.price > 0);
+  let weights: number[];
+  let estimated = false;
+  if (priced.length === rows.length) {
+    weights = rows.map((r) => r.price * r.qty);
+  } else if (!priced.length) {
+    weights = rows.map((r) => r.qty);
+    estimated = rows.length > 1;
+  } else {
+    const avg = priced.reduce((s, r) => s + r.price * r.qty, 0) / priced.reduce((s, r) => s + r.qty, 0);
+    weights = rows.map((r) => (r.price > 0 ? r.price : avg) * r.qty);
+    estimated = true;
+  }
+  return { shares: allocateProportional(totalCost, weights), estimated };
 }
 
 const TASHKENT_OFFSET_MS = 5 * 60 * 60 * 1000;

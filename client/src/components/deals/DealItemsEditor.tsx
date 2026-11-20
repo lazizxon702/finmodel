@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import { Button, Field, Input, controlClass, cn } from '../ui';
 import { PhoneSelector } from '../PhoneSelector';
 import { AmountInput } from '../AmountInput';
@@ -73,6 +73,15 @@ export const DealItemsEditor: React.FC<Props> = ({ rows, onChange }) => {
     }
   };
 
+  // Tovar narxlari: chekda 2+ tovar bo'lsa, chek tannarxi shu narxlar nisbatida bo'linadi.
+  // Bo'sh qatorlar (saqlashda tashlab yuboriladi) hisobga olinmaydi.
+  const priced = rows.filter(isItemRowFilled);
+  const multi = priced.length >= 2;
+  const weight = (r: ItemRow) => (Number(r.price) || 0) * Math.max(1, Number(r.quantity) || 1);
+  const missingPrice = multi && priced.some((r) => !(Number(r.price) > 0));
+  const totalWeight = priced.reduce((sum, r) => sum + weight(r), 0);
+  const showShares = multi && !missingPrice && totalWeight > 0;
+
   return (
     <div ref={containerRef} className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -82,7 +91,10 @@ export const DealItemsEditor: React.FC<Props> = ({ rows, onChange }) => {
         </div>
       </div>
 
-      {rows.map((row, idx) => (
+      {rows.map((row, idx) => {
+        const inSplit = multi && isItemRowFilled(row);
+        const priceEmpty = inSplit && !(Number(row.price) > 0);
+        return (
         <div key={row.key} className="space-y-3 rounded-card border border-line bg-surface p-3">
           <div className="flex items-center justify-between gap-2">
             <p className="min-w-0 truncate text-sm font-semibold text-fg">
@@ -147,17 +159,35 @@ export const DealItemsEditor: React.FC<Props> = ({ rows, onChange }) => {
                 onChange={(e) => update(row.key, { quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
               />
             </Field>
-            <Field label={`${t('common.price')} (${t('common.optional')})`}>
+            <Field
+              label={multi ? t('dealsPage.item_price') : `${t('dealsPage.item_price')} (${t('common.optional')})`}
+              hint={
+                priceEmpty
+                  ? <span className="font-medium text-warning">{t('dealsPage.item_price_missing')}</span>
+                  : showShares && inSplit
+                    ? t('dealsPage.item_price_share', { percent: Math.round((weight(row) / totalWeight) * 100) })
+                    : undefined
+              }
+            >
               <AmountInput
                 value={row.price}
                 onChange={(val) => update(row.key, { price: val })}
                 placeholder="0"
-                className={cn(controlClass, 'tabular-nums')}
+                className={cn(controlClass, 'tabular-nums', priceEmpty && 'border-warning ring-1 ring-warning/40')}
               />
             </Field>
           </div>
         </div>
-      ))}
+        );
+      })}
+
+      {missingPrice && (
+        <div role="status" className="flex items-start gap-2 rounded-control bg-warning-soft px-3 py-2.5 text-sm font-medium text-warning">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{t('dealsPage.items_price_warning')}</span>
+        </div>
+      )}
+      <p className="text-xs text-fg-muted">{t('dealsPage.items_price_hint')}</p>
 
       <Button variant="secondary" fullWidth leftIcon={<Plus className="h-4 w-4" />} onClick={add}>
         {t('dealsPage.add_item')}

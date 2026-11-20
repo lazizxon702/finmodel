@@ -19,6 +19,7 @@ import {
   updateSale,
 } from '../services/sale.service';
 import { HttpError, cleanCustomerText, dealDateTimeLabel, dealItemsView } from './deals.routes';
+import { DealSplitError, splitDealByItems } from '../services/dealSplit.service';
 
 /**
  * Sotuvlar (ko'p tovarli sotuv):
@@ -331,10 +332,21 @@ router.post('/', authenticateToken, requireRoles(SALE_ROLES), async (req: AuthRe
   try {
     const body = req.body || {};
 
-    if (!Array.isArray(body.dealIds) || body.dealIds.length === 0) {
+    // partial: [{ dealId, itemIds }] — chekdagi tovarlarning BIR QISMI sotiladi: chek avtomatik ikkiga bo'linadi (egasi, 18.11.2026)
+    const partial: { dealId: string; itemIds: string[] }[] = Array.isArray(body.partial)
+      ? body.partial
+          .filter((p: any) => p && typeof p.dealId === 'string' && Array.isArray(p.itemIds))
+          .map((p: any) => ({ dealId: p.dealId.trim(), itemIds: p.itemIds.filter((x: unknown) => typeof x === 'string' && x.trim()).map((x: string) => x.trim()) }))
+          .filter((p: any) => p.dealId && p.itemIds.length)
+      : [];
+    if (!Array.isArray(body.dealIds)) body.dealIds = [];
+    if (body.dealIds.length === 0 && partial.length === 0) {
       throw new HttpError(400, 'Sotiladigan tovarlar tanlanishi shart');
     }
-    if (body.dealIds.length > 50) throw new HttpError(400, "Bitta sotuvga ko'pi bilan 50 ta tovar qo'shiladi");
+    if (partial.some((p) => body.dealIds.includes(p.dealId)) || new Set(partial.map((p) => p.dealId)).size !== partial.length) {
+      throw new HttpError(400, "Bitta chek ham to'liq, ham qisman tanlangan");
+    }
+    if (body.dealIds.length + partial.length > 50) throw new HttpError(400, "Bitta sotuvga ko'pi bilan 50 ta tovar qo'shiladi");
     if (body.dealIds.some((x: unknown) => typeof x !== 'string' || !x.trim())) {
       throw new HttpError(400, "Tovarlar ro'yxati noto'g'ri");
     }
@@ -360,8 +372,23 @@ router.post('/', authenticateToken, requireRoles(SALE_ROLES), async (req: AuthRe
     const dueDate = isBlank(body.dueDate) ? null : parseDateInput(body.dueDate, "Qarz muddati");
     const note = parseNote(body.note);
 
-    // Tovarlar: doirada bormi va sotishga tayyormi (oldindan tekshiruv; yakuniy kafolat — tranzaksiyadagi shartli band qilish)
     const scope = await dealScopeWhere(req.user!);
+    // Qisman tanlangan cheklar: tanlangan tovarlar yangi chekka ajratiladi va o'sha yangi chek sotiladi
+    if (partial.length) {
+      const inScope = await prisma.deal.count({ where: { AND: [scope, { id: { in: partial.map((p) => p.dealId) } }] } });
+      if (inScope !== partial.length) throw new HttpError(404, 'Tovar topilmadi');
+      for (const p of partial) {
+        try {
+          const split = await splitDealByItems(p.dealId, p.itemIds, req.user?.id);
+          dealIds.push(split.newDealId);
+        } catch (e: any) {
+          if (e instanceof DealSplitError) throw new HttpError(e.status, e.message);
+          throw e;
+        }
+      }
+    }
+
+    // Tovarlar: doirada bormi va sotishga tayyormi (oldindan tekshiruv; yakuniy kafolat — tranzaksiyadagi shartli band qilish)
     const found = await prisma.deal.findMany({
       where: { AND: [scope, { id: { in: dealIds } }] },
       select: { id: true, dealNumber: true, status: true, approvalStatus: true, saleId: true },

@@ -117,6 +117,8 @@ export interface Deal {
   dealNumber: number;
   date: string;
   sellerName: string;
+  /** Registrator (Registratura xodimi); yo'q bo'lsa null — eski bitimlarda faqat sellerName bor */
+  registrator?: { id: string; fullName: string; username?: string } | null;
   providerId: string;
   provider?: Provider;
   isDaftar: boolean;

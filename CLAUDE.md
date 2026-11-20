@@ -51,6 +51,19 @@ recalc va do'kon daftari dry-run 0. Chek xarajati DDS yozuvi (#8107, 22 792 000)
 **Operator ulushi — yangi jamoalar (egasi, 16.11; JONLIDA, bazaga yozilmaydi):** Asadbek 1%, Nazirbek 1%, Davlatbek 0.7% — YECHILGAN LIMITDAN (egasi bazani aniq aytmagan, Jahongir bilan bir qatorda yozgan — shunday olindi),
 bonussiz (`monthlyLimitThreshold: 0`), agent foydasidan AYRILMAYDI (faqat ko'rsatiladi); Jahongir o'zgarmagan (0.5%, 500 mln dan oshsa 0.7%). `calculation.service.ts` `OPERATOR_SHARE_RULES`; izoh `team.share_hint_flat`;
 tekshiruv `scripts/report-operator-shares.ts`. Testlar 345/345. Bu 14.11 dagi "FAQAT Jahongir jamoasi" qarorini kengaytiradi.
+**20.11 — TOVAR NARXI VA TOVARLAB SOTISH (egasi; JONLIDA, bazaga yozilmaydi):** bitta chekda 2+ tovar bo'lsa har biriga narx yoziladi (`DealItem.price`, "Tovar narxi (tannarx)"); operator taxminiy kiritadi —
+sayt faqat NISBATNI oladi va chek tannarxini shu nisbatda bo'ladi (`calculation.service.ts` `splitItemCosts`; narxsiz — teng bo'linadi, `estimated`). Narx yo'q bo'lsa OGOHLANTIRADI, lekin saqlaydi (egasi tanlovi).
+Sotuv oynasida ko'p tovarli chek tovarlab chiqadi (`saleTypes.ts` `buildSaleUnits`, `buildSaleSelection`); bitta tovar sotilsa chek AVTOMATIK ikkiga bo'linadi (`services/dealSplit.service.ts` `splitDealByItems` — #8107/#8168 dagi qo'lda bo'lishning umumiy ko'rinishi;
+`POST /api/sales` `partial: [{dealId, itemIds}]`); ombor javobida `items[].costShare/costEstimated`. Cheklov: bitta qatorga yozilgan "A57 2ta" birga sotiladi; har bo'linishda cheklar soni +1. Eski cheklarda tovar narxlari yo'q.
+**20.11 — REGISTRATOR VA CHEK FORMASI (egasi; JONLIDA — zaxira `backups/db-raw-db-2026-11-20T09-51-21-022Z.json`, `prisma db push` (`Deal.registratorId`), server+klient deploy; jonlida login qilib tekshirilmagan):**
+"Sotuvchi" → "Registrator": registrator o'zi kiritsa avtomatik o'zi; operator/agent kiritsa maydon YO'Q (kerak emas); admin Registratura akkauntlaridan tanlaydi (`GET /api/registratura/options`, `registratorId`). Eski cheklarda `sellerName` matni qoladi.
+Registrator akkauntida "O'zimning cheklarim" (`?mine=1` — registratorId yoki createdById) va "Hamma bitimlar". ADMIN'DAN BOSHQA HAMMA ROL cheki endi PENDING_APPROVAL (`initialApprovalStatus`; menejer/kassir/omborchi ham) —
+admin tasdiqlaganda chek xarajati DDS'ga o'zi yoziladi; formadagi "rasxodga qo'shish" va "Tovar holati" tanlovi faqat adminda (boshqalarda holat majburan PENDING).
+Operator chek kiritganda agentlik va operator tanlanmaydi — o'z agenti va o'zi avtomatik (`team.service.ts` `ensureOperatorRecord`, `GET /api/deals/my-defaults`); agent — agentlik o'ziniki, operatorni o'z agentligidan tanlaydi. Testlar 352/352.
+Ochiq: operator o'zining kutilayotgan chekini TAHRIRLASA eski forma (agent/operator tanlovi bilan) ochiladi.
+**Umirzoq hisoboti (egasi, 16.11 kech):** Google Sheets `1f0aFxEFuBR39z9saeYgGBKPGshQNRHVzyfmgVyXxSWM` — 6 varaq (Xulosa, Cheklar va tovarlar, Sotuvlar, Qarzi bor sotuvlar, To'lovlar, Modellar);
+`scripts/report-buyer-xlsx.ts <fayl.xlsx> [xaridor]` (faqat o'qiydi, istalgan xaridor uchun). 16.11: 52 sotuv, 61 chek, 80 dona; narx 510 887 000, bergan 459 621 500, qarz 51 265 500; tannarx 465 558 420, foyda 45 328 580.
+DDS'da Umirzoq nomi bilan kirimlar 462 622 100 — sotuvlarga yozilganidan 3 000 600 ko'p (TX-1031 3 000 000 + 600; egasidan so'ralgan, javob yo'q).
 **UMUMIY HISOBOT — hammasi bitta faylda (egasi, 16.11):** Google Sheets `14KKcAD96HWbs4IvLDheG8VB0Ni2vooYzM-dLrR9kgqI` (20 varaq). Yangilash: uchta skript (`report-full-xlsx`, `report-finance-xlsx`, `report-stores-xlsx`) →
 `scripts/merge-xlsx.ts <chiqish> <a> <b> <c> --skip="Pul harakati" --first="Xulosa,..."` → Drive'ga YANGI fayl (mavjudini yangilab bo'lmaydi). Egasi hisobotlarni bitta faylda, alohida varaqlarda xohlaydi.
 **Moliyaviy hisobot (egasi, 16.11):** Google Sheets `1zTyj_Bv8PIwLCNyO8vhp1tE10d6wADGjvAI8GxX_1Fs` — P&L, Pul oqimi, Balans, Debitor/kreditor, DDS (kategoriya / kun / yozuvlar);

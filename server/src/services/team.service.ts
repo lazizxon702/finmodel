@@ -403,3 +403,36 @@ export async function ensureRegistraturaRecord(userId: string): Promise<{ agency
   await prisma.user.update({ where: { id: user.id }, data: { agentId: record.id } });
   return { agencyId: agency.id, agentId: record.id };
 }
+
+/**
+ * Operator chek kiritganda agentlik va operator AVTOMATIK qo'yiladi (egasi, 20.11.2026) — buning uchun operatorning
+ * o'z Agent yozuvi kerak. Yozuv bog'lanmagan bo'lsa: agentining agentligida shu ismli bo'sh yozuv topiladi yoki yaratiladi.
+ * Agentligi aniqlanmasa (agent agentlikka biriktirilmagan) — null qaytadi va chekda formadan kelgan qiymatlar qoladi.
+ */
+export async function ensureOperatorRecord(
+  userId: string
+): Promise<{ agencyId: string; agencyName: string; agentId: string; agentName: string } | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      fullName: true,
+      role: true,
+      agencyId: true,
+      agentRecord: { select: { id: true, name: true, agencyId: true, agency: { select: { name: true } } } },
+      parentAgent: { select: { agencyId: true, agency: { select: { id: true, name: true } } } },
+    },
+  });
+  if (!user || user.role !== Role.OPERATOR) return null;
+  if (user.agentRecord) {
+    return { agencyId: user.agentRecord.agencyId, agencyName: user.agentRecord.agency?.name || '', agentId: user.agentRecord.id, agentName: user.agentRecord.name };
+  }
+  const agencyId = user.parentAgent?.agencyId || user.agencyId || null;
+  if (!agencyId) return null;
+  const agency = user.parentAgent?.agency || (await prisma.agency.findUnique({ where: { id: agencyId }, select: { id: true, name: true } }));
+  const free = await prisma.agent.findMany({ where: { agencyId, user: null }, select: { id: true, name: true } });
+  const same = free.find((a) => personNameKey(a.name) === personNameKey(user.fullName));
+  const record = same || (await prisma.agent.create({ data: { agencyId, name: user.fullName }, select: { id: true, name: true } }));
+  await prisma.user.update({ where: { id: user.id }, data: { agentId: record.id } });
+  return { agencyId, agencyName: agency?.name || '', agentId: record.id, agentName: record.name };
+}

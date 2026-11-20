@@ -194,11 +194,15 @@ describe('Ko\'p mahsulotli bitim', () => {
 });
 
 describe('Tasdiqlash', () => {
-  it('operator/agent bitimi tasdiq kutadi, admin bitimi darhol tasdiqlangan', () => {
+  it("admin'dan boshqa HAMMA rol bitimi tasdiq kutadi (egasi, 20.11.2026); admin bitimi darhol tasdiqlangan", () => {
     expect(initialApprovalStatus('OPERATOR')).toBe('PENDING_APPROVAL');
     expect(initialApprovalStatus('AGENT')).toBe('PENDING_APPROVAL');
     expect(initialApprovalStatus('ADMIN')).toBe('APPROVED');
-    expect(initialApprovalStatus('MANAGER')).toBe('APPROVED');
+    for (const role of ['MANAGER', 'CASHIER', 'CFO', 'COO', 'SELLER', 'STOREKEEPER', 'REGISTRATURA', 'VIEWER']) {
+      expect(initialApprovalStatus(role), role).toBe('PENDING_APPROVAL');
+    }
+    // rol berilmasa (ichki skriptlar) — darhol tasdiqlangan
+    expect(initialApprovalStatus(undefined)).toBe('APPROVED');
   });
 
   it('faqat tasdiqlangan bitim hisob-kitobga kiradi', () => {
