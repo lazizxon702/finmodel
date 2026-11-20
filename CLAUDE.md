@@ -61,6 +61,10 @@ Registrator akkauntida "O'zimning cheklarim" (`?mine=1` — registratorId yoki c
 admin tasdiqlaganda chek xarajati DDS'ga o'zi yoziladi; formadagi "rasxodga qo'shish" va "Tovar holati" tanlovi faqat adminda (boshqalarda holat majburan PENDING).
 Operator chek kiritganda agentlik va operator tanlanmaydi — o'z agenti va o'zi avtomatik (`team.service.ts` `ensureOperatorRecord`, `GET /api/deals/my-defaults`); agent — agentlik o'ziniki, operatorni o'z agentligidan tanlaydi. Testlar 352/352.
 Ochiq: operator o'zining kutilayotgan chekini TAHRIRLASA eski forma (agent/operator tanlovi bilan) ochiladi.
+**20.11 kech (egasi; JONLIDA):** REGISTRATOR chek kiritganda AGENTNI MAJBURIY tanlaydi (operator — ixtiyoriy, shu agentlikdan); agent ulushi odatdagidek tanlangan agentga yoziladi, registraturaga ulush YO'Q,
+registratorga agent ulushi/foyda ko'rinmaydi. Bu 16.11 dagi "registrator cheki 'Registratura' agentligiga, agent ulushi kompaniyada qoladi" qoidasini ALMASHTIRADI (eski qoida kodi — `isRegistraturaAgency` — eski/qo'lda shunday yozilgan cheklar uchun qolgan;
+"Registratura" agentligi registrator formasidagi ro'yxatda ko'rsatilmaydi). `deals.routes.ts` POST: REGISTRATURA uchun `agencyId` bo'lmasa 400 "Agent tanlanishi shart"; `DealFormModal` `err_agency_required`.
+Ochiq: registrator "Xarid xarajati"ni ko'radi (= mijozga + agent ulushi) — farqdan agent ulushini chiqarib olishi mumkin; yashirilsinmi, egasidan so'ralgan.
 **Umirzoq hisoboti (egasi, 16.11 kech):** Google Sheets `1f0aFxEFuBR39z9saeYgGBKPGshQNRHVzyfmgVyXxSWM` — 6 varaq (Xulosa, Cheklar va tovarlar, Sotuvlar, Qarzi bor sotuvlar, To'lovlar, Modellar);
 `scripts/report-buyer-xlsx.ts <fayl.xlsx> [xaridor]` (faqat o'qiydi, istalgan xaridor uchun). 16.11: 52 sotuv, 61 chek, 80 dona; narx 510 887 000, bergan 459 621 500, qarz 51 265 500; tannarx 465 558 420, foyda 45 328 580.
 DDS'da Umirzoq nomi bilan kirimlar 462 622 100 — sotuvlarga yozilganidan 3 000 600 ko'p (TX-1031 3 000 000 + 600; egasidan so'ralgan, javob yo'q).

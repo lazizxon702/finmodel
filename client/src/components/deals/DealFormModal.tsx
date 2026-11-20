@@ -200,7 +200,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   }, []);
 
   // Yangi chekda: OPERATOR agent/operatorni tanlamaydi; AGENT uchun agentlik qat'iy
-  const hideAgentPickers = registratura || (operator && !isEdit);
+  // Registrator agent va operatorni O'ZI tanlaydi (agent majburiy — egasi, 20.11.2026); operatorga (yangi chek) ko'rsatilmaydi
+  const hideAgentPickers = operator && !isEdit;
   const lockedAgency = role === 'AGENT' && !isEdit && Boolean(defaults?.lockAgency && defaults.agencyId);
   // Tovar holati: yangi chekda faqat ADMIN tanlaydi (boshqalarga server "Kutilmoqda" qo'yadi)
   const canPickStatus = isEdit || admin;
@@ -259,6 +260,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
     if (filled.some((r) => !r.productName.trim())) return setError(t('dealsPage.err_product_name'));
 
     if (statusChanged && !form.statusChangeReason.trim()) return setError(t('dealsPage.err_status_reason'));
+    if (registratura && !isEdit && !form.agencyId) return setError(t('dealsPage.err_agency_required'));
 
     setSaving(true);
     try {
@@ -638,7 +640,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         {/* Agentlik va agent — Registratura va operatorga (yangi chek) ko'rsatilmaydi */}
         {!hideAgentPickers && (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t('common.agency')}>
+          <Field label={t('common.agency')} required={registratura}>
             {lockedAgency ? (
               <div className={cn(controlClass, 'flex items-center bg-surface-2')}>{defaults?.agencyName || agency?.name || ''}</div>
             ) : (
@@ -651,11 +653,14 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
               }}
             >
               <option value="">{t('dealsPage.no_agency')}</option>
-              {agencies.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
+              {/* Registrator haqiqiy agentni tanlaydi — "Registratura" (agentsiz) varianti unga ko'rsatilmaydi */}
+              {agencies
+                .filter((a) => !(registratura && /^registratura$/i.test((a.name || '').trim())))
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
             </Select>
             )}
           </Field>

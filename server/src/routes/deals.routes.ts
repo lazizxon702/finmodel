@@ -14,9 +14,8 @@ import {
   isQodirStore,
   normalizeDealItems,
   tashkentDayRange,
-  REGISTRATURA_AGENCY_NAME,
 } from '../services/calculation.service';
-import { ensureOperatorRecord, ensureRegistraturaRecord } from '../services/team.service';
+import { ensureOperatorRecord } from '../services/team.service';
 import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../services/access.service';
 import {
   LedgerError,
@@ -1244,10 +1243,8 @@ router.get('/my-defaults', authenticateToken, async (req: AuthRequest, res: Resp
       const me = await prisma.user.findUnique({ where: { id: user.id }, select: { agency: { select: { id: true, name: true } } } });
       if (me?.agency) Object.assign(out, { agencyId: me.agency.id, agencyName: me.agency.name, lockAgency: true });
     } else if (user.role === Role.REGISTRATURA) {
-      const link = await ensureRegistraturaRecord(user.id);
-      const rec = await prisma.agent.findUnique({ where: { id: link.agentId }, select: { name: true, agency: { select: { name: true } } } });
-      Object.assign(out, { agencyId: link.agencyId, agencyName: rec?.agency?.name || REGISTRATURA_AGENCY_NAME, agentId: link.agentId, agentName: rec?.name || user.fullName,
-        registratorId: user.id, registratorName: user.fullName, lockAgency: true, lockAgent: true });
+      // Registrator agent va operatorni o'zi tanlaydi (qulflanmaydi); registrator — o'zi
+      Object.assign(out, { registratorId: user.id, registratorName: user.fullName });
     }
     return res.json(out);
   } catch (error: any) {
@@ -1317,14 +1314,19 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
       });
       agencyId = me?.agencyId || me?.parentAgent?.agencyId || null;
     }
-    // Registratura: agentlik har doim "Registratura", operator — xodimning o'zi (formadan kelgani e'tiborga olinmaydi)
+    // Registrator (egasi, 20.11.2026): chek kiritganda AGENTNI MAJBURIY tanlaydi (operator — ixtiyoriy, shu agentlikdan);
+    // agent ulushi odatdagidek o'sha agentga hisoblanadi (registratorga ko'rsatilmaydi), registraturaga ulush yo'q.
     let agentId: string | null = body.agentId ? String(body.agentId) : null;
     let agencyName: string | null = null;
     if (user.role === Role.REGISTRATURA) {
-      const link = await ensureRegistraturaRecord(user.id);
-      agencyId = link.agencyId;
-      agentId = link.agentId;
-      agencyName = REGISTRATURA_AGENCY_NAME;
+      const picked = body.agencyId ? await prisma.agency.findUnique({ where: { id: String(body.agencyId) }, select: { id: true, name: true } }) : null;
+      if (!picked) return res.status(400).json({ error: 'Agent tanlanishi shart' });
+      agencyId = picked.id;
+      agencyName = picked.name;
+      if (agentId) {
+        const ok = await prisma.agent.findFirst({ where: { id: agentId, agencyId: picked.id }, select: { id: true } });
+        if (!ok) agentId = null;
+      }
     } else {
       if (user.role === Role.OPERATOR) {
         // Operator: agentlik va operator formadan tanlanmaydi — o'z agenti va o'zi avtomatik (egasi, 20.11.2026)
