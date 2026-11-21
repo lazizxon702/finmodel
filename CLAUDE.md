@@ -1,11 +1,31 @@
 # FinModel / Macmobi ERP — loyiha holati va ish qoidalari
 
-Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-16.
+Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-21.
 
-## ENG YANGI HOLAT — 2026-11-16 (yangi suhbat shu yerdan boshlasin)
-Hammasi JONLIDA (server oxirgi deploy 16.11, klient 15.11 kech). **16.11: hamma ish commit qilindi (`cda658a`) va egasi buyrug'i bilan GitHub'ga push qilindi** (`main`, teglarsiz).
-Repo hali PUBLIC — egasi ogohlantirildi, "ochiq bo'lsa ham push" dedi; Private qilish tavsiyasi kuchda. Pastdagi eski "commit qilinmagan" yozuvlari eskirgan.
-Batafsil tarix — pastdagi "YANGI SUHBAT UCHUN" bo'limidagi bandlarda; bu yerda faqat hozirgi raqamlar va ochiq ishlar.
+## ENG YANGI HOLAT — 2026-11-21 (yangi suhbat SHU YERDAN boshlasin)
+**Hammasi JONLIDA va GitHub'da** (`main`, oxirgi push 21.11). Server va klient oxirgi deploy 20.11 kech. Repo hali PUBLIC (egasi biladi).
+Pastdagi bandlar sana bo'yicha tarix; ziddiyat bo'lsa KEYINGI sanali band ustun. "Jonli bazadagi hozirgi holat (15.11)" va undan pastdagi raqamlar ESKIRGAN — raqam kerak bo'lsa bazadan qayta o'qi.
+
+**16–20.11 da qilingan asosiy ishlar (har birining tafsiloti pastda):** Qodir aka Alif 5% / Finsum 6%; Sheets sinxronlashi avariyasi tiklandi va bitim sinxronlashi O'CHIRILDI; Anvarga noto'g'ri ko'chgan cheklar qaytarildi;
+Trust = to'liq limit (16% bizning foyda); yangi sotuv oynasi (model kartochkalari); operator ulushi Asadbek/Nazirbek 1%, Davlatbek 0.7%; #8107 bo'lindi (kofe mashinka #8168);
+REGISTRATURA roli (hamma cheklarni ko'radi, faqat limit va mijozga to'lov, tahrir/o'chirish yo'q, agentni MAJBURIY tanlaydi); "Sotuvchi" → "Registrator"; admin'dan boshqa HAMMA rol cheki tasdiq kutadi;
+operator uchun agent/operator avtomatik; rasxod va tovar holati tanlovi faqat adminda; har tovarga narx + tovarlab sotish (chek avtomatik bo'linadi); telefonda akkauntdan chiqib ketish tuzatildi.
+Hisobotlar (Google Sheets, egasining Drive'ida): umumiy 20 varaq `14KKcAD96HWbs4IvLDheG8VB0Ni2vooYzM-dLrR9kgqI`, DDS `1iUlfIsPicFqqZhiu0y2iqtjpRrV5Nco1vQ6SSlj58bE`, Umirzoq `1f0aFxEFuBR39z9saeYgGBKPGshQNRHVzyfmgVyXxSWM`.
+
+**EGASIDAN JAVOB KUTILAYOTGAN ISHLAR (21.11 holatiga):**
+1. Daftar — to'ldirish jadvali `1IZop4peXDJtrP3hqz77bNxDR1iuqYJ4tITVbNKtu8TA` (19 chek: pul tushgani, qurilma narxi, sotuv narxi) hali to'ldirilmagan.
+2. Ombor A18 — egasi "omborda 5 ta bo'lishi kerak" dedi, saytda 4 ta; Umirzoqqa berilgan 14 telefon yoki qo'ldagi A18 larning IMEI'lari kerak (№58 sotuvda #8133 A18 IMEIsiz; 357245681543849 va …575262 hech bir chekda yo'q).
+3. Kiritilmagan xarajat/kirimlar va FAKT summalar (naqd, karta) — DDS'da naqd −177 950 450, karta −54 729 620 (boshlang'ich qoldiq va ko'p kirimlar yo'q). OPEX'dagi "Xasan" kategoriyasi (54 372 000) nimaligi.
+4. Anvar bilan nima hal qilinadi ("Ишончни ҳал қилиш, Анвар"); "Ishonch" = Trust deb olingan.
+5. Operator o'zining kutilayotgan chekini TAHRIRLASA eski forma (agent/operator tanlovi bilan) ochiladi — yopilsinmi.
+6. Eski: Qodir aka TX-1062/TX-1060; Umirzoq TX-1031 (3 000 000); Birzum ulushi; #8110/#8121 operatori; manfiy komissiyalar (#3640, #8094, #3730); eski 2 tovarli cheklarda tovar narxlari yo'q.
+**Tekshirilmagan (jonlida login qilib ko'rilmagan — parol kiritish menga taqiqlangan):** Registratura sahifasi va registrator akkaunti, admin formasidagi "Registrator" ro'yxati, tovarlab sotish, operator ulushi, token tuzatishi (egasi 20.11 kech "token xato" dedi → tuzatildi, tasdig'i kelmagan).
+**Ikkinchi qurilma (egasi, 21.11):** MacBook'ni ham ulamoqchi. Ko'rsatma berilgan: papkani fleshka/AirDrop bilan ko'chirish (`node_modules`siz; `.env*`, `backups/`, `.vercel`, `agent_logins.local.txt` git'da YO'Q), u yerda "yangi kompyuter (MacBook), loyihani sozlab ber" deydi.
+Mac'da: `npm install` (client, server), `git pull`, `backups/prod-env.sh` yo'llarini tekshir, Vercel/GitHub login, ixtiyoriy Postgres.app + lokal bazani tiklash; PowerShell yo'q — bash ishlat. claude.ai GitHub connector uchun repo: `lazizxon702/finmodel`.
+Qoida: bir qurilmada ish tugagach push, ikkinchisida boshlashdan oldin pull; jonli bazaga yozish — bitta asosiy qurilmadan.
+**Saboqlar (16–20.11):** (1) jonli ma'lumotni zaxiradan tiklashda DealItem va boshqa bog'liq jadvallardagi egasi o'zgarishlarini ham tekshir (16.11 da 3 ta omborga qabul yo'qoldi); (2) kirish/token kodini o'zgartirganda server YONIQ holatda sahifani qayta ochib 401 yo'qligini tekshir;
+(3) `npx vercel` natijasini yashirma — "Aliased" qatorini ko'r; (4) hisobot fayllari bir martalik surat — Drive'dagi mavjud faylni yangilab bo'lmaydi, har safar yangi fayl; (5) egasi hisobotlarni BITTA faylda, alohida varaqlarda xohlaydi;
+(6) bash'da `node -e "..."` ichiga teskari tirnoqli matn yozma — bash uni buyruq deb bajaradi; matnni Write bilan faylga yozib, o'sha faylni ishga tushir.
 
 **16.11 (egasi "Ha, 01.11 dan" va "Ha, yoz va chiqar" dedi; JONLIDA, commit yo'q):** Qodir aka do'konida ALIF orqali (online/offline/nasiya) bizning foyda 5%, Finsum va boshqalar 6%;
 ulush 22% va agent foydasi o'zgarmaydi. Kod: `calculation.service.ts` `QODIR_ALIF_PROFIT_RATE`, `qodirProfitRate` (resolveCommission ichida, spravochnik qoidasidan ham ustun — Spravochnikda ko'rinmaydi). Testlar 339/339.
