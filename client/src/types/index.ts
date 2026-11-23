@@ -194,6 +194,14 @@ export interface Deal {
   statusChangeReason?: string | null;
   debtDueDate?: string | null;
   createdAt?: string;
+  // --- 23.11.2026: registrator xatolariga qarshi ---
+  /** Provayderdagi shartnoma raqami (noyob) */
+  contractNumber?: string | null;
+  /** Mijozga FAKTIK berilgan summa (kassir yoki tasdiqlovchi) */
+  actualPaidAmount?: number | string | null;
+  /** "Kutilmoqda"/"Sotib olish kerak" 3 kundan ko'p — qizil */
+  isStale?: boolean;
+  attachmentCount?: number;
 }
 
 export interface DdsTransaction {

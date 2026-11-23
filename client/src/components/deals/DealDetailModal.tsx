@@ -6,6 +6,9 @@ import { formatDateTime, formatMoney, formatPercent } from '../../utils/format';
 import type { Deal, Role } from '../../types';
 import { ApprovalBadge, DealStatusBadge } from './DealBadges';
 import { DealHistory } from './DealHistory';
+import { DealAttachments } from './DealAttachments';
+import { ActualPaidEditor } from './ActualPaidEditor';
+import { useAuth } from '../../context/AuthContext';
 import { cleanText, dealDateTime, dealItems, dealPermissions, dealPhones, isQodirStore, isRegistratura } from './dealUtils';
 
 interface Props {
@@ -43,6 +46,8 @@ const DASH = '—';
 export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, onApprove, onReject, onExpense, onDelete }) => {
   const { t } = useTranslation();
   const can = dealPermissions(role, deal);
+  const { user } = useAuth();
+  const approvedNow = (deal.approvalStatus || 'APPROVED') === 'APPROVED';
   const items = dealItems(deal);
   const phones = dealPhones(deal);
   const status = deal.approvalStatus || 'APPROVED';
@@ -308,6 +313,15 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
             <p className="whitespace-pre-wrap break-words rounded-control border border-line px-3 py-2.5 text-sm text-fg-secondary">{deal.note}</p>
           </Section>
         )}
+
+        {/* Hujjatlar: chek doirasidagi har kim qo'shadi (tasdiqlangandan keyin — faqat admin); o'chirish — admin yoki yuklagan odam */}
+        <DealAttachments
+          dealId={deal.id}
+          canAdd={role !== 'VIEWER' && (!approvedNow || role === 'ADMIN')}
+          canDelete={(a) => role === 'ADMIN' || (!approvedNow && a.createdById === user?.id)}
+        />
+
+        {!hideFinance && <ActualPaidEditor deal={deal} role={role} />}
 
         <DealHistory dealId={deal.id} />
       </div>

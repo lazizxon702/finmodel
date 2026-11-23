@@ -237,7 +237,7 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
             {deals.map((d) => {
               const status = d.approvalStatus || 'APPROVED';
               return (
-                <Tr key={d.id} clickable onClick={() => onView(d)} className="group">
+                <Tr key={d.id} clickable onClick={() => onView(d)} className={cn('group', d.isStale && 'bg-danger-soft/60')} title={d.isStale ? t('dealsPage.stale_hint') : undefined}>
                   <Td numeric className="font-semibold text-accent">
                     {d.dealNumber}
                   </Td>
@@ -346,7 +346,7 @@ export const DealsTable: React.FC<Props> = ({ deals, loading, totals, role, filt
           const status = d.approvalStatus || 'APPROVED';
           const can = dealPermissions(role, d);
           return (
-            <li key={d.id} className="space-y-2.5 p-4">
+            <li key={d.id} className={cn('space-y-2.5 p-4', d.isStale && 'bg-danger-soft/60')}>
               <div
                 role="button"
                 tabIndex={0}

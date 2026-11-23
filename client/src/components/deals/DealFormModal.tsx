@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { formatMoney, todayYmd, toYmdTashkent } from '../../utils/format';
 import type { Agency, Deal, Provider, Role, Store } from '../../types';
 import { DealItemsEditor, isItemRowFilled, newItemRow, type ItemRow } from './DealItemsEditor';
+import { AttachmentPicker, uploadDealAttachment, type AttachmentKind } from './DealAttachments';
 import { ACCOUNT_CODES, DEAL_STATUSES, type AccountCode, apiError, cleanText, dealItems, isQodirStore, isRegistratura, isScopedRole } from './dealUtils';
 
 /** GET /api/deals/discount-rule — diskont chegarasi (ulushlarda: 0.35 = 35%) */
@@ -20,6 +21,11 @@ interface DiscountRule {
 }
 
 const pctLabel = (v: number) => String(Math.round(v * 1000) / 10);
+/** +998 XX XXX XX XX (server normalizeUzPhone bilan bir xil qoida) */
+const isUzPhone = (v: string) => {
+  const d = String(v || '').replace(/\D/g, '');
+  return (d.length === 12 && d.startsWith('998')) || d.length === 9;
+};
 const DISCOUNT_EPS = 0.0005;
 
 /** Server bilan bir xil qoida (calculation.service.ts discountViolation); buzilmasa '' */
@@ -86,6 +92,7 @@ interface FormState {
   customerName: string;
   customerPhone1: string;
   customerPhone2: string;
+  contractNumber: string;
   customerLimit: number;
   withdrawnLimit: number;
   calculatedAmount: number;
@@ -115,6 +122,7 @@ function initialForm(deal: Deal | null, prefill: DealPrefill | null | undefined,
       customerName: cleanText(deal.customerName),
       customerPhone1: cleanText(deal.customerPhone1),
       customerPhone2: cleanText(deal.customerPhone2),
+      contractNumber: deal.contractNumber || '',
       customerLimit: Number(deal.customerLimit) || 0,
       withdrawnLimit: Number(deal.withdrawnLimit) || 0,
       calculatedAmount: Number(deal.calculatedAmount) || 0,
@@ -141,6 +149,7 @@ function initialForm(deal: Deal | null, prefill: DealPrefill | null | undefined,
     customerName: prefill?.customerName || '',
     customerPhone1: prefill?.customerPhone1 || '',
     customerPhone2: prefill?.customerPhone2 || '',
+    contractNumber: '',
     customerLimit: limit,
     withdrawnLimit: withdrawn,
     calculatedAmount: Math.round(withdrawn * 0.7),
@@ -192,6 +201,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   // Admin qoidadan chetlab o'tishi sababi (bitim tarixiga yoziladi)
   const [overrideReason, setOverrideReason] = useState('');
   const [serverRuleError, setServerRuleError] = useState(false);
+  // Yangi chek hujjatlari: chek saqlangach yuklanadi (egasi, 23.11.2026)
+  const [pendingFiles, setPendingFiles] = useState<{ kind: AttachmentKind; file: File }[]>([]);
 
   const set = (updates: Partial<FormState>) => setForm((prev) => ({ ...prev, ...updates }));
 
@@ -321,6 +332,12 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
     if (statusChanged && !form.statusChangeReason.trim()) return setError(t('dealsPage.err_status_reason'));
     if (registratura && !isEdit && !form.agencyId) return setError(t('dealsPage.err_agency_required'));
     if (discountError && !admin) return setError(discountError);
+    // Majburiy maydonlar (server ham tekshiradi; admin sabab bilan o'tkazadi)
+    if (!isEdit && !admin) {
+      if (!form.customerName.trim()) return setError(t('dealsPage.err_customer_name'));
+      if (!isUzPhone(form.customerPhone1)) return setError(t('dealsPage.err_phone_format'));
+      if (!form.contractNumber.trim()) return setError(t('dealsPage.err_contract_number'));
+    }
     if (needsReason && overrideReason.trim().length < 5) return setError(discountError ? `${discountError} ${t('dealsPage.err_override_reason')}` : t('dealsPage.err_override_reason'));
 
     setSaving(true);
@@ -388,10 +405,22 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
       }
 
       const res = deal ? await axios.put(`/api/deals/${deal.id}`, payload) : await axios.post('/api/deals', payload);
+      // Yangi chek: tanlangan hujjatlar endi yuklanadi; xato bo'lsa chek baribir saqlangan — Batafsil'dan qayta qo'shiladi
+      if (!deal && res.data?.id && pendingFiles.length) {
+        const failed: string[] = [];
+        for (const p of pendingFiles) {
+          try {
+            await uploadDealAttachment(res.data.id, p.kind, p.file);
+          } catch {
+            failed.push(p.file.name);
+          }
+        }
+        if (failed.length) window.alert(t('dealsPage.att_upload_failed', { names: failed.join(', ') }));
+      }
       onSaved(res.data, isEdit);
     } catch (err: any) {
       // Diskont qoidasi buzildi (server): admin sabab yozib qayta saqlashi mumkin
-      if (['DISCOUNT_RULE', 'EDIT_REASON'].includes(err?.response?.data?.code) && err.response.data.overridable) setServerRuleError(true);
+      if (err?.response?.data?.overridable) setServerRuleError(true);
       setError(apiError(err, t));
     } finally {
       setSaving(false);
@@ -496,7 +525,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         <section className="space-y-3">
           <h3 className={sectionTitle}>{t('common.customer')}</h3>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label={t('dealsPage.customer_name')}>
+            <Field label={t('dealsPage.customer_name')} required>
               <Input
                 value={form.customerName}
                 autoComplete="off"
@@ -504,7 +533,11 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
                 onBlur={(e) => checkCustomerDebt(e.target.value)}
               />
             </Field>
-            <Field label={t('dealsPage.phone1')}>
+            <Field
+              label={t('dealsPage.phone1')}
+              required
+              hint={form.customerPhone1 && !isUzPhone(form.customerPhone1) ? t('dealsPage.err_phone_format') : undefined}
+            >
               <Input
                 type="tel"
                 inputMode="tel"
@@ -527,6 +560,35 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
               />
             </Field>
           </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label={t('dealsPage.contract_number')} required hint={t('dealsPage.contract_number_hint')}>
+              <Input value={form.contractNumber} autoComplete="off" onChange={(e) => set({ contractNumber: e.target.value })} />
+            </Field>
+          </div>
+
+          {/* Hujjat: shartnoma surati, ilova skrini yoki tasdiq xati — kamida bittasisiz chek tasdiqlanmaydi */}
+          {!isEdit && (
+            <div className="space-y-2 rounded-control border border-line bg-surface-2/50 p-3">
+              <p className="text-sm font-medium text-fg">{t('dealsPage.att_title')}</p>
+              <p className="text-xs text-fg-muted">{t('dealsPage.att_form_hint')}</p>
+              {pendingFiles.length > 0 && (
+                <ul className="space-y-1 text-sm">
+                  {pendingFiles.map((p, i) => (
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate">
+                        {t(`dealsPage.att_kind_${p.kind}`)} · {p.file.name}
+                      </span>
+                      <button type="button" className="text-xs text-danger" onClick={() => setPendingFiles((x) => x.filter((_, j) => j !== i))}>
+                        {t('common.delete')}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <AttachmentPicker onPick={(kind, file) => setPendingFiles((x) => [...x, { kind, file }])} />
+            </div>
+          )}
 
           {debtAlert?.hasDebt && (
             <div className="space-y-2 rounded-control bg-warning-soft p-3">

@@ -7,6 +7,9 @@ import { useTranslation } from '../../context/LanguageContext';
 import { formatDateTime, formatMoney } from '../../utils/format';
 import type { Deal } from '../../types';
 import { ACCOUNT_CODES, type AccountCode, apiError, cleanText, isQodirStore } from './dealUtils';
+import { AmountInput } from '../AmountInput';
+import { DealAttachments } from './DealAttachments';
+import { Input, controlClass } from '../ui';
 
 interface BaseProps {
   deal: Deal;
@@ -69,16 +72,32 @@ export const ApproveDealModal: React.FC<BaseProps & { onApproved: (deal?: Deal) 
   const [error, setError] = useState('');
   const [result, setResult] = useState<ApproveResult | null>(null);
   const qodir = isQodirStore(deal.store?.name);
+  // Faktik berilgan summa (egasi, 23.11.2026): kassir kiritgani yoki hisoblangan summa
+  const calculated = Number(deal.calculatedAmount) || 0;
+  const [actual, setActual] = useState<number>(deal.actualPaidAmount != null ? Number(deal.actualPaidAmount) : calculated);
+  const [reason, setReason] = useState('');
+  const [needReason, setNeedReason] = useState(false);
+  const diff = actual - calculated;
 
   const approve = async () => {
     if (busy) return;
+    if (needReason && reason.trim().length < 5) {
+      setError(t('dealsPage.err_override_reason'));
+      return;
+    }
     setBusy(true);
     setError('');
     try {
-      const res = await axios.post(`/api/deals/${deal.id}/approve`, { account });
+      const res = await axios.post(`/api/deals/${deal.id}/approve`, {
+        account,
+        actualPaidAmount: actual,
+        ...(needReason ? { overrideReason: reason.trim() } : {}),
+      });
       setResult(res.data || {});
       onApproved(res.data?.deal);
-    } catch (err) {
+    } catch (err: any) {
+      // Hujjat yo'q yoki faktik summa farqi katta — admin sabab yozib qayta tasdiqlaydi
+      if (err?.response?.data?.overridable) setNeedReason(true);
       setError(apiError(err, t));
     } finally {
       setBusy(false);
@@ -147,6 +166,20 @@ export const ApproveDealModal: React.FC<BaseProps & { onApproved: (deal?: Deal) 
           ) : (
             <Field label={t('dealsPage.approve_account')} hint={t('dealsPage.approve_account_hint')}>
               <AccountSelect value={account} onChange={setAccount} disabled={busy} />
+            </Field>
+          )}
+          <Field label={t('dealsPage.actual_paid')} hint={t('dealsPage.actual_paid_hint', { amount: formatMoney(calculated) })}>
+            <AmountInput value={actual} onChange={(v) => setActual(Number(v) || 0)} className={controlClass + ' tabular-nums'} />
+          </Field>
+          {diff !== 0 && (
+            <p className="text-xs tabular-nums text-warning">
+              {t('dealsPage.actual_paid_diff', { amount: (diff > 0 ? '+' : '−') + formatMoney(Math.abs(diff)) })}
+            </p>
+          )}
+          <DealAttachments dealId={deal.id} canAdd canDelete={() => true} />
+          {needReason && (
+            <Field label={t('dealsPage.override_reason')} required hint={t('dealsPage.override_reason_hint')}>
+              <Input value={reason} autoComplete="off" onChange={(e) => setReason(e.target.value)} />
             </Field>
           )}
           <p className="text-xs leading-relaxed text-fg-muted">{t('dealsPage.approve_effect')}</p>
