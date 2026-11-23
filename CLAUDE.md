@@ -2,6 +2,20 @@
 
 Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-21.
 
+## 23.11 — REGISTRATOR XATOLARIGA QARSHI 9 BLOKLI VAZIFA (egasi spetsifikatsiyasi; ish davom etmoqda)
+**Bajarildi va JONLIDA (server+klient deploy 23.11; commit'lar 0707343, e3c58f8, b690cee; GitHub'ga push QILINMAGAN):**
+- **1-blok diskont chegarasi:** `calculation.service.ts` `discountLimitsFor`, `discountViolation`, `MAX_DISCOUNT_PCT` 45%, Green Bazar — diskont ANIQ ulush+5% (35%; men shunday tushundim, egasi savolga javob bermagan);
+  `deals.routes.ts` `checkDiscount` (POST va PUT — PUT da faqat pul/do'kon/provayder o'zgarsa), `GET /api/deals/discount-rule`. Foiz spravochnikdan; qoida yo'q provayder → saqlanmaydi.
+  Birzum 20% — `DEFAULT_COMMISSION_RULES` da faqat 23.11 dan (spravochnikka yozilmagan; eski 7 chek o'zgarmagan). Admin `overrideReason` (≥5 belgi) bilan o'tkazadi → AuditLog `OVERRIDE`.
+- **5-blok:** tasdiqlangan chekni FAQAT ADMIN o'zgartiradi/o'chiradi (menejer/kassir ham yo'q), admin — `editReason` majburiy (400 `EDIT_REASON`); tarix `GET /api/deals/:id/history` (AuditLog'dan diff, `HISTORY_FIELDS`),
+  klient `DealHistory.tsx` ("Batafsil"); pul maydoni o'zgarsa `notification.service.ts` `notifyAdmins` (Telegram/push — haqiqiy yuborish sinalmagan).
+- **8-blok JONLI BAZAGA YOZILDI** (zaxira `backups/db-raw-db-2026-11-23T07-02-11-337Z.json`, `scripts/fix-block8-1123.ts --apply`, BIR MARTALIK; qayta dry-run 0, store/trust ledger dry-run 0):
+  #8171 → Trust / Trust 1 (agent 2 800 000, foyda 4 480 000, Trust daftari +28 000 000, Novza qarzi o'chdi); Qodir aka qoldig'i 292 212 260 → 9 537 960:
+  07.11 PAYMENT 179 081 300 ("07.11 gacha hisob-kitob", DDS'siz), TX-1075 57 692 000 to'lovga bog'landi (14.11 dagi "investitsiya" qarori bekor), 10.11 18 350 000 + 18 562 000 va 12.11 8 989 000 — DDS'da YO'Q, faqat daftarga (DDS'siz). Depozit 119 500 000 hisobga kirmaydi.
+**Qolgan bloklar (boshlanmagan):** 3 (majburiy maydonlar, telefon formati, shartnoma raqami noyob, hujjat ilovasi, IMEI Luhn/noyob omborga qabulda, 3 kundan ortiq kutish — qizil + Telegram), 4 ("Faktik berilgan summa", "Yaxlitlash farqi", 100 000 bardosh),
+2 (do'kon↔provayder juftlari — avval 01.11 dan tasdiqlangan cheklardan ro'yxat egasiga ko'rsatiladi), 6 (registrator xatolari statistikasi), 7 (do'kon bo'yicha kutilayotgan tovar hisoboti), 9 (provayder bilan sverka akti).
+Deploy buyrug'i avtomatik ruxsat tizimida to'xtashi mumkin — egasidan aniq "chiqar" so'raladi. Jonli Neon ba'zan birinchi ulanishda "Can't reach" beradi — qayta urin.
+
 ## ENG YANGI HOLAT — 2026-11-21 (yangi suhbat SHU YERDAN boshlasin)
 **Hammasi JONLIDA va GitHub'da** (`main`, oxirgi push 21.11). Server va klient oxirgi deploy 20.11 kech. Repo hali PUBLIC (egasi biladi).
 Pastdagi bandlar sana bo'yicha tarix; ziddiyat bo'lsa KEYINGI sanali band ustun. "Jonli bazadagi hozirgi holat (15.11)" va undan pastdagi raqamlar ESKIRGAN — raqam kerak bo'lsa bazadan qayta o'qi.
