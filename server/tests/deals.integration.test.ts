@@ -449,6 +449,35 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     }
   });
 
+  it('sverka akti: qo\'lda summa va CSV vipiska bilan solishtirish', async () => {
+    const created = await api('admin', 'POST', '/api/deals', dealBody({ contractNumber: `${TAG}-recon` }));
+    expect(created.status).toBe(201);
+    const day = String(DAY_MARKER).slice(0, 10);
+    expect((await api('opA', 'POST', '/api/control/recon', {})).status).toBe(403);
+    expect((await api('admin', 'POST', '/api/control/recon', { providerId: provider.id, startDate: day, endDate: day })).status).toBe(400);
+
+    const manual = await api('admin', 'POST', '/api/control/recon', { providerId: provider.id, startDate: day, endDate: day, providerTotal: 1_000 });
+    expect(manual.status).toBe(201);
+    expect(manual.data.result.compared).toBe(false);
+    expect(manual.data.result.ourDeals.some((d: any) => d.dealNumber === created.data.dealNumber)).toBe(true);
+
+    const csv = `Sana;Summa;Shartnoma\n${day.split('-').reverse().join('.')};5 000 000;${TAG}-recon\n${day.split('-').reverse().join('.')};777;X-1\n`;
+    const dataBase64 = Buffer.from(csv).toString('base64');
+    const parsed = await api('admin', 'POST', '/api/control/recon/parse', { fileName: 'v.csv', dataBase64 });
+    expect(parsed.data.guess).toMatchObject({ date: 0, amount: 1, contract: 2 });
+    const run = await api('admin', 'POST', '/api/control/recon', {
+      providerId: provider.id, startDate: day, endDate: day, file: { fileName: 'v.csv', mimeType: 'text/csv', dataBase64 }, mapping: parsed.data.guess,
+    });
+    expect(run.status).toBe(201);
+    expect(run.data.result.compared).toBe(true);
+    expect(run.data.result.matched).toEqual(expect.arrayContaining([expect.objectContaining({ dealNumber: created.data.dealNumber, by: 'contract' })]));
+    expect(run.data.result.providerOnly).toEqual([expect.objectContaining({ providerAmount: 777 })]);
+    expect((await api('admin', 'GET', `/api/control/recon/${run.data.id}/file`)).status).toBe(200);
+    expect((await api('admin', 'GET', '/api/control/recon')).data.length).toBeGreaterThanOrEqual(2);
+    await prisma.reconciliationAct.deleteMany({ where: { id: { in: [manual.data.id, run.data.id] } } });
+    expect((await api('admin', 'DELETE', `/api/deals/${created.data.id}`)).status).toBe(200);
+  });
+
   it('nazorat hisobotlari: tovar kutish va registrator xatolari', async () => {
     const aw = await api('admin', 'GET', '/api/control/awaiting-goods');
     expect(aw.status).toBe(200);

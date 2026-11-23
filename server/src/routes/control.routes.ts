@@ -12,7 +12,8 @@ import { DealStatus, Role } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { AuthRequest, authenticateToken, requireRoles } from '../middleware/auth.middleware';
 import { STALE_DEAL_DAYS, isStaleDeal, tashkentDayRange } from '../services/calculation.service';
-import { STORE_PROVIDER_CHECK_KEY, isStoreProviderCheckOn } from '../services/dealChecks.service';
+import { STORE_PROVIDER_CHECK_KEY, collectDealImeis, isStoreProviderCheckOn } from '../services/dealChecks.service';
+import { type OurDeal, matchStatement, parseStatement, toStatementRows } from '../services/reconciliation.service';
 
 const router = Router();
 const VIEW_ROLES: Role[] = [Role.ADMIN, Role.MANAGER, Role.CFO, Role.COO, Role.VIEWER];
@@ -206,6 +207,117 @@ router.post('/pairs/check', authenticateToken, requireRoles([Role.ADMIN]), async
     console.error('pairs check:', error);
     return res.status(500).json({ error: 'Sozlamani saqlab bo\'lmadi' });
   }
+});
+
+// ─────────────── 9-blok: provayder bilan sverka akti ───────────────
+const RECON_ROLES: Role[] = [Role.ADMIN, Role.CFO, Role.MANAGER];
+const RECON_MAX_BYTES = 8 * 1024 * 1024;
+const decodeFile = (b64: unknown) => Buffer.from(String(b64 || '').replace(/^data:[^;]+;base64,/, ''), 'base64');
+
+// POST /api/control/recon/parse { fileName, dataBase64 } — Excel/CSV vipiskani o'qib, sarlavhalar va ustun taxminini qaytaradi
+router.post('/recon/parse', authenticateToken, requireRoles(RECON_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const data = decodeFile(req.body?.dataBase64);
+    if (!data.length) return res.status(400).json({ error: "Fayl bo'sh" });
+    if (data.length > RECON_MAX_BYTES) return res.status(400).json({ error: "Fayl 8 MB dan katta bo'lmasin" });
+    const parsed = await parseStatement(String(req.body?.fileName || ''), data);
+    return res.json({ headers: parsed.headers, sample: parsed.rows.slice(0, 5), rowCount: parsed.rows.length, guess: parsed.guess });
+  } catch (error: any) {
+    return res.status(400).json({ error: "Faylni o'qib bo'lmadi — Excel (.xlsx) yoki CSV yuklang" });
+  }
+});
+
+// POST /api/control/recon { providerId, startDate, endDate, providerTotal?, note?, file?: {fileName, mimeType, dataBase64}, mapping? }
+router.post('/recon', authenticateToken, requireRoles(RECON_ROLES), async (req: AuthRequest, res: Response) => {
+  try {
+    const b = req.body || {};
+    const provider = b.providerId ? await prisma.provider.findUnique({ where: { id: String(b.providerId) } }) : null;
+    if (!provider) return res.status(400).json({ error: 'Provayder tanlanmagan' });
+    const { start, end } = tashkentDayRange(String(b.startDate || ''), String(b.endDate || ''));
+    if (!start || !end || start > end) return res.status(400).json({ error: "Davr noto'g'ri" });
+
+    const deals = await prisma.deal.findMany({
+      where: { providerId: provider.id, approvalStatus: 'APPROVED', date: { gte: start, lte: end } },
+      select: { id: true, dealNumber: true, date: true, withdrawnLimit: true, contractNumber: true, imeiBarcode: true, imei2: true, customerName: true, items: { select: { imei1: true, imei2: true } } },
+      orderBy: { date: 'asc' },
+    });
+    const ours: OurDeal[] = deals.map((d) => ({
+      id: d.id, dealNumber: d.dealNumber, date: d.date, amount: n(d.withdrawnLimit), contractNumber: d.contractNumber,
+      imeis: collectDealImeis(d), customerName: d.customerName,
+    }));
+    const ourTotal = ours.reduce((s, d) => s + d.amount, 0);
+
+    let file: { name: string; mime: string; data: Buffer } | null = null;
+    if (b.file?.dataBase64) {
+      const data = decodeFile(b.file.dataBase64);
+      if (data.length > RECON_MAX_BYTES) return res.status(400).json({ error: "Fayl 8 MB dan katta bo'lmasin" });
+      file = { name: String(b.file.fileName || 'vipiska').slice(0, 200), mime: String(b.file.mimeType || 'application/octet-stream'), data };
+    }
+
+    // Vipiska (Excel/CSV) + ustunlar tanlangan bo'lsa — qatorma-qator solishtirish; aks holda faqat jami summa
+    let comparison: ReturnType<typeof matchStatement> | null = null;
+    let statementTotal: number | null = null;
+    const isSheet = file && /\.(xlsx|csv|txt)$/i.test(file.name);
+    if (isSheet && b.mapping && b.mapping.amount !== undefined) {
+      const parsed = await parseStatement(file!.name, file!.data);
+      const rows = toStatementRows(parsed.rows, b.mapping);
+      statementTotal = rows.reduce((s, r) => s + (r.amount || 0), 0);
+      comparison = matchStatement(rows, ours);
+    }
+    const manualTotal = b.providerTotal !== undefined && b.providerTotal !== null && b.providerTotal !== '' ? Number(b.providerTotal) : null;
+    if (manualTotal !== null && !(manualTotal >= 0)) return res.status(400).json({ error: "Provayder summasi noto'g'ri" });
+    const providerTotal = manualTotal ?? statementTotal;
+    if (providerTotal === null) return res.status(400).json({ error: 'Provayder summasini kiriting yoki vipiska yuklang' });
+
+    const result = {
+      ourDeals: ours.map((d) => ({ dealId: d.id, dealNumber: d.dealNumber, date: d.date, amount: d.amount, contractNumber: d.contractNumber, customerName: d.customerName })),
+      statementTotal,
+      diff: Math.round((providerTotal - ourTotal) * 100) / 100,
+      ...(comparison || {}),
+      compared: !!comparison,
+    };
+    const act = await prisma.reconciliationAct.create({
+      data: {
+        providerId: provider.id, periodStart: start, periodEnd: end, providerTotal, ourTotal, ourCount: ours.length,
+        fileName: file?.name || null, mimeType: file?.mime || null, fileData: file?.data || null,
+        result: JSON.parse(JSON.stringify(result)), note: b.note ? String(b.note).slice(0, 1000) : null, createdById: req.user!.id,
+      },
+      select: { id: true },
+    });
+    return res.status(201).json({ id: act.id, providerName: provider.name, providerTotal, ourTotal, ourCount: ours.length, result });
+  } catch (error: any) {
+    console.error('recon:', error);
+    return res.status(500).json({ error: 'Sverka qilishda xatolik' });
+  }
+});
+
+// GET /api/control/recon — sverka aktlari ro'yxati
+router.get('/recon', authenticateToken, requireRoles(RECON_ROLES), async (_req: AuthRequest, res: Response) => {
+  const list = await prisma.reconciliationAct.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+    select: { id: true, periodStart: true, periodEnd: true, providerTotal: true, ourTotal: true, ourCount: true, fileName: true, note: true, createdAt: true, provider: { select: { name: true } } },
+  });
+  return res.json(list.map((a) => ({ ...a, providerName: a.provider.name, providerTotal: a.providerTotal === null ? null : n(a.providerTotal), ourTotal: n(a.ourTotal) })));
+});
+
+// GET /api/control/recon/:id — bitta akt natijasi bilan
+router.get('/recon/:id', authenticateToken, requireRoles(RECON_ROLES), async (req: AuthRequest, res: Response) => {
+  const a = await prisma.reconciliationAct.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, periodStart: true, periodEnd: true, providerTotal: true, ourTotal: true, ourCount: true, fileName: true, note: true, result: true, createdAt: true, provider: { select: { name: true } } },
+  });
+  if (!a) return res.status(404).json({ error: 'Akt topilmadi' });
+  return res.json({ ...a, providerName: a.provider.name, providerTotal: a.providerTotal === null ? null : n(a.providerTotal), ourTotal: n(a.ourTotal) });
+});
+
+// GET /api/control/recon/:id/file — biriktirilgan vipiska/skrin
+router.get('/recon/:id/file', authenticateToken, requireRoles(RECON_ROLES), async (req: AuthRequest, res: Response) => {
+  const a = await prisma.reconciliationAct.findUnique({ where: { id: req.params.id }, select: { fileName: true, mimeType: true, fileData: true } });
+  if (!a?.fileData) return res.status(404).json({ error: 'Fayl yo\'q' });
+  res.setHeader('Content-Type', a.mimeType || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(a.fileName || 'fayl')}"`);
+  return res.send(Buffer.from(a.fileData));
 });
 
 export default router;

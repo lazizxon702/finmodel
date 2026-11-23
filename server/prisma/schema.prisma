@@ -160,6 +160,7 @@ model Provider {
   deals           Deal[]
   commissionRules CommissionRule[]
   storePairs      StoreProviderPair[]
+  reconciliations ReconciliationAct[]
 }
 
 model CommissionRule {
@@ -792,4 +793,27 @@ model StoreProviderPair {
   createdAt   DateTime @default(now())
 
   @@unique([storeId, providerId])
+}
+
+// Provayder bilan sverka akti (egasi, 23.11.2026, 9-blok): davr, provayder ma'lumoti bo'yicha summa, ilova (vipiska/skrin),
+// va solishtirish natijasi (mos / summasi farq / provayderda bor-bizda yo'q / bizda bor-provayderda yo'q).
+model ReconciliationAct {
+  id            String   @id @default(uuid())
+  providerId    String
+  provider      Provider @relation(fields: [providerId], references: [id])
+  periodStart   DateTime
+  periodEnd     DateTime
+  // Provayder aytgan jami (qo'lda kiritilgan yoki vipiska qatorlari yig'indisi)
+  providerTotal Decimal?
+  ourTotal      Decimal  @default(0)
+  ourCount      Int      @default(0)
+  fileName      String?
+  mimeType      String?
+  fileData      Bytes?
+  result        Json?
+  note          String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  @@index([providerId, periodStart])
 }
