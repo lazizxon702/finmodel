@@ -11,6 +11,7 @@ import { prisma } from '../lib/prisma';
 import { emitRealtime } from '../lib/realtime';
 import {
   CHECK_EXPENSE_CATEGORY,
+  ROUNDING_CATEGORY,
   QODIR_PAYMENT_CATEGORY,
   STORE_INCOME_CATEGORY,
   STORE_LEDGER_START_YMD,
@@ -619,16 +620,25 @@ export async function applyPendingCheckExpenses(
 export async function approveDeal(
   dealId: string,
   admin: { id: string; fullName?: string },
-  opts: { account?: AccountType | string } = {}
+  opts: { account?: AccountType | string; actualPaidAmount?: number | null } = {}
 ) {
   const result = await prisma.$transaction(async (tx) => {
     const deal = await tx.deal.findUnique({ where: { id: dealId } });
     if (!deal) throw new LedgerError('Bitim topilmadi', 404);
     if (deal.approvalStatus === 'APPROVED') throw new LedgerError('Bitim allaqachon tasdiqlangan', 409);
 
+    // Faktik berilgan summa (egasi, 23.11.2026): berilmasa — avval kassir kiritgani, u ham bo'lmasa hisoblangan summa
+    const hasActual = opts.actualPaidAmount !== undefined && opts.actualPaidAmount !== null;
+    const now = new Date();
     const updated = await tx.deal.update({
       where: { id: dealId },
-      data: { approvalStatus: 'APPROVED', approvedById: admin.id, approvedAt: new Date(), rejectReason: null },
+      data: {
+        approvalStatus: 'APPROVED',
+        approvedById: admin.id,
+        approvedAt: now,
+        rejectReason: null,
+        ...(hasActual ? { actualPaidAmount: Number(opts.actualPaidAmount), actualPaidAt: now, actualPaidById: admin.id } : {}),
+      },
     });
     const trustDebt = await syncTrustDebtForDeal(tx, dealId);
     const storeDebt = await syncStoreDebtForDeal(tx, dealId);
@@ -637,7 +647,29 @@ export async function approveDeal(
       createdById: admin.id,
       sourcePerson: admin.fullName,
     });
-    return { deal: updated, trustDebt, storeDebt, check };
+    // Chek xarajati — hisoblangan summa; faktik farq alohida "Yaxlitlash farqi" qatori (jami chiqim = faktik berilgan summa)
+    let rounding: { amount: number; type: 'EXPENSE' | 'INCOME' } | null = null;
+    const actual = updated.actualPaidAmount === null ? null : Number(updated.actualPaidAmount);
+    if (check.created && actual !== null) {
+      const diff = Math.round((actual - Number(updated.calculatedAmount)) * 100) / 100;
+      if (diff !== 0) {
+        rounding = { amount: Math.abs(diff), type: diff > 0 ? 'EXPENSE' : 'INCOME' };
+        await createDdsInTx(tx, {
+          dateTime: now,
+          type: rounding.type,
+          account: check.transaction!.account,
+          expenseType: diff > 0 ? ExpenseCategoryType.COGS : ExpenseCategoryType.INCOME_TRANSFER,
+          categoryName: ROUNDING_CATEGORY,
+          sourcePerson: admin.fullName || updated.sellerName,
+          amount: rounding.amount,
+          description: `Bitim #${updated.dealNumber}: faktik berilgan ${Math.round(actual)} − hisoblangan ${Math.round(Number(updated.calculatedAmount))}`,
+          createdById: admin.id,
+          dealId,
+          source: DdsSource.DEAL_ROUNDING,
+        });
+      }
+    }
+    return { deal: updated, trustDebt, storeDebt, check, rounding };
   });
 
   emitRealtime('deals:updated', { id: dealId, approvalStatus: 'APPROVED' });

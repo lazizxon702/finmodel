@@ -43,6 +43,7 @@ enum DdsSource {
   QODIR_PAYMENT // Qodir akaga to'lov (chiqim) — uning daftaridagi qarzimizni kamaytiradi
   STORE_PAYMENT // Do'kondan tushum (kirim) — do'konning bizga qarzini kamaytiradi
   SALE_PAYMENT // Ko'p tovarli sotuv bo'yicha xaridor to'lovi (kirim) yoki qaytarilgan pul (chiqim)
+  DEAL_ROUNDING // Chek: faktik berilgan summa − hisoblangan summa ("Yaxlitlash farqi", 23.11.2026)
 }
 
 // Sotuvdagi to'lov turi. DEBT = nasiya (to'lovsiz, to'liq qarzga)
@@ -295,6 +296,15 @@ model Deal {
   daftarMoneyAt       DateTime?
   devicePurchaseAmount Decimal?
   devicePurchasedAt   DateTime?
+  // Provayderdagi shartnoma raqami (23.11.2026: yangi chekda majburiy, takrorlanmaydi; normallashtirilgan — katta harf, bo'shliqsiz)
+  contractNumber      String?           @unique
+  // Mijozga FAKTIK berilgan summa (kassir yoki tasdiqlovchi kiritadi); farq DDS'ga "Yaxlitlash farqi" bo'lib yoziladi
+  actualPaidAmount    Decimal?
+  actualPaidAt        DateTime?
+  actualPaidById      String?
+  // "Kutilmoqda"/"Sotib olish kerak" 3 kundan oshganda egasiga xabar yuborilgan vaqt (takror yubormaslik uchun)
+  staleNotifiedAt     DateTime?
+  attachments         DealAttachment[]
   items               DealItem[]
   ddsTransactions     DdsTransaction[]
   trustEntry          TrustLedgerEntry?
@@ -309,6 +319,23 @@ model Deal {
   @@index([createdById])
   @@index([registratorId])
   @@index([date])
+}
+
+// Chekka biriktirilgan hujjat (23.11.2026): shartnoma surati, provayder ilovasidan skrin yoki tasdiq xati.
+// Fayl bazada saqlanadi (Vercel'da disk yo'q); rasm klientda siqib yuboriladi.
+model DealAttachment {
+  id          String   @id @default(uuid())
+  dealId      String
+  deal        Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  kind        String // CONTRACT | APP_SCREENSHOT | CONFIRMATION
+  fileName    String
+  mimeType    String
+  size        Int
+  data        Bytes
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([dealId])
 }
 
 // Bitta bitim/chekka biriktirilgan mahsulot (qurilma). Deal.deviceItems (Json) bilan sinxron saqlanadi.

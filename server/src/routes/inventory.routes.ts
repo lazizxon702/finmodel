@@ -24,6 +24,27 @@ import {
   toDeviceItemsJson,
 } from './deals.routes';
 import { splitItemCosts } from '../services/calculation.service';
+import { warehouseImeiProblem } from '../services/dealChecks.service';
+import { overrideReasonOf } from './deals.routes';
+
+/**
+ * Omborga qabulda IMEI qoidasi (egasi, 23.11.2026): 15 raqam + Luhn, takrorlanmaydi. Admin sabab bilan o'tkazishi mumkin.
+ * Xato bo'lsa 400 (HttpError); admin o'tkazsa — sabab AuditLog'ga yoziladi.
+ */
+async function enforceWarehouseImei(
+  user: AuthUser,
+  body: any,
+  dealId: string,
+  items: { productName?: string | null; imei1?: string | null; imei2?: string | null }[]
+) {
+  const problem = await warehouseImeiProblem(prisma, dealId, items);
+  if (!problem) return;
+  const reason = overrideReasonOf(user.role, body);
+  if (!reason) throw new HttpError(400, problem + (user.role === 'ADMIN' ? " (admin sabab yozib o'tkazishi mumkin)" : ''));
+  await prisma.auditLog
+    .create({ data: { userId: user.id, entity: 'Deal', entityId: dealId, action: 'OVERRIDE', newValues: { rule: problem, reason } } })
+    .catch(() => undefined);
+}
 
 const router = Router();
 
@@ -229,6 +250,13 @@ router.put('/:id/receive', authenticateToken, async (req: AuthRequest, res: Resp
       storageGb: storageGb?.trim() || deal.storageGb,
     };
 
+    // Skanerlangan IMEI birinchi tovarga yoziladi — qolgan tovarlarda ham IMEI bo'lishi shart
+    const curItems = await prisma.dealItem.findMany({ where: { dealId: id }, orderBy: { position: 'asc' } });
+    const checkItems = curItems.length
+      ? curItems.map((it, i) => (i === 0 ? { productName: it.productName, imei1: next.imeiBarcode, imei2: next.imei2 } : it))
+      : [{ productName: deal.productName, imei1: next.imeiBarcode, imei2: next.imei2 }];
+    await enforceWarehouseImei(req.user!, req.body, id, checkItems);
+
     // Yozuv shartli (saleId: null): tekshiruvdan keyin parallel sotuvga kirgan tovar o'zgartirilmaydi (409, hammasi bekor bo'ladi)
     const updated = await guardDealNotClaimed(id, () => prisma.$transaction(async (tx) => {
       // Birinchi mahsulot qatori (DealItem) va deviceItems (Json) eski yagona maydonlar bilan sinxron qoladi
@@ -305,9 +333,13 @@ router.put('/:id/status', authenticateToken, async (req: AuthRequest, res: Respo
       return res.status(400).json({ error: "Holatni o'zgartirish sababi (izoh) kiritilishi shart!" });
     }
 
-    const deal = await findScoped(req.user!, id);
+    const deal = await findScoped(req.user!, id, { items: { orderBy: { position: 'asc' as const } } });
     if (!deal) return res.status(404).json({ error: 'Tovar topilmadi' });
     await assertDealNotInSale(deal.saleId);
+    if (status === DealStatus.IN_WAREHOUSE && deal.status !== DealStatus.IN_WAREHOUSE) {
+      const items = deal.items.length ? deal.items : [{ productName: deal.productName, imei1: deal.imeiBarcode, imei2: deal.imei2 }];
+      await enforceWarehouseImei(req.user!, req.body, id, items);
+    }
 
     // Foyda holatga bog'liq (daftar bitimida "Pul tushdi" bo'lguncha 0) — holat bilan birga qayta hisoblanadi
     const profitFields = (await computeDealProfitForStatus(id, status as DealStatus)) || {};

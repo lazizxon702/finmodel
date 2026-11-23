@@ -72,7 +72,10 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     return { status: res.status, data };
   }
 
+  // Shartnoma raqami har chekda noyob (egasi, 23.11.2026)
+  let contractSeq = 0;
   const dealBody = (extra: Record<string, unknown> = {}) => ({
+    contractNumber: `${TAG}-${++contractSeq}`,
     date: DAY_MARKER,
     storeId: store.id,
     providerId: provider.id,
@@ -194,8 +197,8 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(d.approvedById).toBeNull();
     expect(d.dealNumber).not.toBe(1);
     expect(d.customerName).toBe('Test Mijozov');
-    expect(d.customerPhone1).toBe('+998900000001');
-    expect(d.customerPhone2).toBe('+998900000002');
+    expect(d.customerPhone1).toBe('+998 90 000 00 01');
+    expect(d.customerPhone2).toBe('+998 90 000 00 02');
     expect(d.createdBy).toMatchObject({ id: users.opA.id, role: 'OPERATOR' });
     expect(d.dateYmd).toBe(DAY);
     expect(d.dateTimeLabel.startsWith('03.02.2001 ')).toBe(true);
@@ -206,13 +209,17 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
   });
 
   it("to'ldirgichlar (\"Mijoz\", \"-\") bazaga yozilmaydi", async () => {
-    const r = await api('opA', 'POST', '/api/deals', dealBody({ customerName: 'Mijoz', customerPhone1: '-', customerPhone2: '' }));
+    // 23.11.2026: ism va telefon majburiy — operatorga 400; admin sabab bilan saqlaydi, to'ldirgichlar baribir yozilmaydi
+    const bad = await api('opA', 'POST', '/api/deals', dealBody({ customerName: 'Mijoz', customerPhone1: '-', customerPhone2: '' }));
+    expect(bad.status).toBe(400);
+    expect(bad.data.code).toBe('REQUIRED_FIELDS');
+    const r = await api('admin', 'POST', '/api/deals', dealBody({ customerName: 'Mijoz', customerPhone1: '-', customerPhone2: '' }));
     expect(r.status).toBe(201);
     const row = await prisma.deal.findUnique({ where: { id: r.data.id } });
     expect(row?.customerName).toBeNull();
     expect(row?.customerPhone1).toBeNull();
     expect(row?.customerPhone2).toBeNull();
-    expect((await api('opA', 'DELETE', `/api/deals/${r.data.id}`)).status).toBe(200);
+    expect((await api('admin', 'DELETE', `/api/deals/${r.data.id}`)).status).toBe(200);
   });
 
   it("boshqa operator bu bitimni ko'rmaydi (404 / bo'sh ro'yxat) va o'zgartira olmaydi", async () => {
@@ -246,26 +253,50 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(swotBefore.summary.totalDeals).toBe(0);
 
     // faqat ADMIN tasdiqlaydi
-    expect((await api('opA', 'POST', `/api/deals/${id}/approve`, {})).status).toBe(403);
-    expect((await api('cashier', 'POST', `/api/deals/${id}/approve`, {})).status).toBe(403);
+    expect((await api('opA', 'POST', `/api/deals/${id}/approve`, { overrideReason: 'integratsion sinov' })).status).toBe(403);
+    expect((await api('cashier', 'POST', `/api/deals/${id}/approve`, { overrideReason: 'integratsion sinov' })).status).toBe(403);
     // tasdiqlanmagan bitimga xarajat yozilmaydi
     expect((await api('admin', 'POST', `/api/deals/${id}/expense-to-dds`, { amount: 3_500_000, account: 'CASH' })).status).toBe(409);
     // noto'g'ri hisob turi → 400, bitim tasdiqlanmay qoladi
     expect((await api('admin', 'POST', `/api/deals/${id}/approve`, { account: 'KASSA' })).status).toBe(400);
 
+    // hujjatsiz tasdiqlanmaydi (egasi, 23.11.2026)
+    const noDoc = await api('admin', 'POST', `/api/deals/${id}/approve`, { account: 'BANK_CARD' });
+    expect(noDoc.status).toBe(400);
+    expect(noDoc.data.code).toBe('NO_ATTACHMENT');
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    expect((await api('opA', 'POST', `/api/deals/${id}/attachments`, { kind: 'BOSHQA', fileName: 'a.png', mimeType: 'image/png', dataBase64: png })).status).toBe(400);
+    expect((await api('opA', 'POST', `/api/deals/${id}/attachments`, { kind: 'CONTRACT', fileName: 'a.exe', mimeType: 'application/x-msdownload', dataBase64: png })).status).toBe(400);
+    const att = await api('opA', 'POST', `/api/deals/${id}/attachments`, { kind: 'CONTRACT', fileName: 'shartnoma.png', mimeType: 'image/png', dataBase64: png });
+    expect(att.status).toBe(201);
+    expect((await api('opB', 'GET', `/api/deals/${id}/attachments`)).status).toBe(404);
+    const list = await api('admin', 'GET', `/api/deals/${id}/attachments`);
+    expect(list.data).toHaveLength(1);
+
+    // faktik summa farqi bardoshdan (100 000) katta — sababsiz o'tmaydi
+    const far = await api('admin', 'POST', `/api/deals/${id}/approve`, { account: 'BANK_CARD', actualPaidAmount: 3_700_000 });
+    expect(far.status).toBe(400);
+    expect(far.data.code).toBe('PAYOUT_DIFF');
+
     const balBefore = await ledger.getAccountBalances();
-    const ok = await api('admin', 'POST', `/api/deals/${id}/approve`, { account: 'BANK_CARD' });
+    // 3 500 000 o'rniga 3 501 000 berildi → chek 3 500 000 + "Yaxlitlash farqi" 1 000 (jami chiqim faktik summa)
+    const ok = await api('admin', 'POST', `/api/deals/${id}/approve`, { account: 'BANK_CARD', actualPaidAmount: 3_501_000 });
     expect(ok.status).toBe(200);
+    const rnd = await prisma.ddsTransaction.findFirst({ where: { dealId: id, source: 'DEAL_ROUNDING' } });
+    expect(rnd).toMatchObject({ type: 'EXPENSE', account: 'BANK_CARD', categoryName: 'Yaxlitlash farqi' });
+    expect(Number(rnd!.amount)).toBe(1_000);
+    expect(Number(ok.data.deal.actualPaidAmount)).toBe(3_501_000);
+    await ledger.deleteDds(rnd!.id); // quyidagi qoldiq tekshiruvi faqat chekni hisoblaydi
     expect(ok.data.deal.approvalStatus).toBe('APPROVED');
     expect(ok.data.deal.approvedBy.id).toBe(users.admin.id);
     expect(ok.data.check.created).toBe(true);
     expect(Number(ok.data.check.transaction.amount)).toBe(3_500_000);
     expect(ok.data.check.transaction).toMatchObject({ type: 'EXPENSE', account: 'BANK_CARD', source: 'DEAL_CHECK', dealId: id });
-    expect(ok.data.balances.BANK_CARD).toBe(balBefore.BANK_CARD - 3_500_000);
+    expect(ok.data.balances.BANK_CARD).toBe(balBefore.BANK_CARD - 3_501_000);
     expect(ok.data.deal.checkExpense).toMatchObject({ amount: 3_500_000, account: 'BANK_CARD' });
 
     // ikkinchi marta tasdiqlash → 409
-    expect((await api('admin', 'POST', `/api/deals/${id}/approve`, {})).status).toBe(409);
+    expect((await api('admin', 'POST', `/api/deals/${id}/approve`, { overrideReason: 'integratsion sinov' })).status).toBe(409);
 
     const after = await totalsFor('admin', store.id);
     expect(after.dealCount).toBe(1);
@@ -364,7 +395,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     const r = await api('opA', 'POST', '/api/deals', dealBody());
     expect(r.status).toBe(201);
     const id = r.data.id;
-    expect((await api('admin', 'POST', `/api/deals/${id}/approve`, {})).status).toBe(200);
+    expect((await api('admin', 'POST', `/api/deals/${id}/approve`, { overrideReason: 'integratsion sinov' })).status).toBe(200);
 
     // kassir (avval mumkin edi) va operator — 403
     expect((await api('cashier', 'PUT', `/api/deals/${id}`, { note: 'x' })).status).toBe(403);
@@ -393,6 +424,35 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect((await api('admin', 'DELETE', `/api/deals/${id}`)).status).toBe(200);
   });
 
+  it("omborga qabul: IMEI majburiy (15 raqam, Luhn, takrorlanmaydi); shartnoma raqami takrorlanmaydi", async () => {
+    const a = await api('opA', 'POST', '/api/deals', dealBody({ contractNumber: `${TAG}-imei-a` }));
+    expect(a.status).toBe(201);
+    // shu shartnoma raqami bilan ikkinchi chek — 400 (bo'shliq/harf farqi ham bir xil hisoblanadi)
+    const dup = await api('opA', 'POST', '/api/deals', dealBody({ contractNumber: ` ${TAG}-IMEI-A `.toLowerCase() }));
+    expect(dup.status).toBe(400);
+    expect(dup.data.code).toBe('CONTRACT_DUPLICATE');
+
+    const toWh = (body: Record<string, unknown>) =>
+      api('admin', 'PUT', `/api/deals/${a.data.id}`, { status: 'IN_WAREHOUSE', statusChangeReason: 'qabul', ...body });
+    const noImei = await toWh({});
+    expect(noImei.status).toBe(400);
+    expect(noImei.data.code).toBe('IMEI_RULE');
+    const badLuhn = await toWh({ items: [{ productName: 'Test telefon', imei1: '490154203237519' }] });
+    expect(badLuhn.data.error).toMatch(/nazorat raqami/);
+    const ok = await toWh({ items: [{ productName: 'Test telefon', imei1: '490154203237518' }] });
+    expect(ok.status).toBe(200);
+
+    const b = await api('opA', 'POST', '/api/deals', dealBody({ contractNumber: `${TAG}-imei-b` }));
+    const again = await api('admin', 'PUT', `/api/deals/${b.data.id}`, {
+      status: 'IN_WAREHOUSE',
+      statusChangeReason: 'qabul',
+      items: [{ productName: 'Test telefon', imei1: '490154203237518' }],
+    });
+    expect(again.status).toBe(400);
+    expect(again.data.error).toMatch(/allaqachon/);
+    for (const id of [a.data.id, b.data.id]) expect((await api('admin', 'DELETE', `/api/deals/${id}`)).status).toBe(200);
+  });
+
   it("Trust bitimi: tasdiqlangach Trust daftariga DEBT (to'liq limit) tushadi; trustDebtAmount (daromad) 16%, limit o'zgarsa yangilanadi, o'chirilsa yo'qoladi", async () => {
     const r = await api('opA', 'POST', '/api/deals', dealBody({ storeId: trustStore.id, providerId: trustProvider.id, withdrawnLimit: 10_000_000, calculatedAmount: 8_000_000 }));
     expect(r.status).toBe(201);
@@ -400,7 +460,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(Number(r.data.trustDebtAmount)).toBe(1_600_000);
     expect(await prisma.trustLedgerEntry.count({ where: { dealId: id } })).toBe(0);
 
-    const ok = await api('admin', 'POST', `/api/deals/${id}/approve`, {});
+    const ok = await api('admin', 'POST', `/api/deals/${id}/approve`, { overrideReason: 'integratsion sinov' });
     expect(ok.status).toBe(200);
     expect(ok.data.trustDebt).toBe(10_000_000);
     let entry = await prisma.trustLedgerEntry.findUnique({ where: { dealId: id } });
@@ -539,7 +599,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     const crm = await api('agent', 'GET', '/api/agents/deals');
     expect(crm.status).toBe(200);
     expect(crm.data.items.map((i: any) => i.id)).toEqual([byAdmin.data.id]);
-    expect(crm.data.items[0]).toMatchObject({ customerName: 'Test Mijozov', customerPhone1: '+998900000001', customerPhone2: '+998900000002' });
+    expect(crm.data.items[0]).toMatchObject({ customerName: 'Test Mijozov', customerPhone1: '+998 90 000 00 01', customerPhone2: '+998 90 000 00 02' });
     expect(crm.data.totals.dealCount).toBe(1);
     const crmAll = await api('agent', 'GET', '/api/agents/deals?approvalStatus=all');
     expect(crmAll.data.items).toHaveLength(3);
@@ -553,7 +613,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(adminInv.data.items.length).toBeGreaterThan(0);
     expect(adminInv.data.items.every((i: any) => i.approvalStatus === 'APPROVED')).toBe(true);
     const sample = adminInv.data.items.find((i: any) => i.customerName);
-    expect(sample).toMatchObject({ customerName: 'Test Mijozov', customerPhone1: '+998900000001', customerPhone2: '+998900000002' });
+    expect(sample).toMatchObject({ customerName: 'Test Mijozov', customerPhone1: '+998 90 000 00 01', customerPhone2: '+998 90 000 00 02' });
     expect(typeof sample.dateTimeLabel).toBe('string');
 
     // opB ning barcha bitimlari kutilmoqda → omborda ko'rinmaydi; approvalStatus=all bilan faqat o'ziniki
@@ -593,8 +653,8 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
       debtorName: buyer,
       buyerName: buyer,
       customerName: 'Asl Mijoz',
-      customerPhone1: '+998900000001',
-      customerPhone2: '+998900000002',
+      customerPhone1: '+998 90 000 00 01',
+      customerPhone2: '+998 90 000 00 02',
       debtRemainder: 2_000_000,
     });
     expect(debtors.data.totalDebtSum).toBe(2_000_000);

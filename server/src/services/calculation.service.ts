@@ -348,6 +348,66 @@ export const DEFAULT_COMMISSION_RULES: DefaultRule[] = [
   { kind: 'provider', keys: ['birzum'], name: 'Birzum', ratePercent: 0.2, validFromYmd: '2026-11-23' },
 ];
 
+// ───────────────────────── Chek ma'lumotlari tekshiruvi (egasi, 23.11.2026) ─────────────────────────
+
+/**
+ * O'zbekiston telefon raqami → "+998 90 123 45 67". Noto'g'ri bo'lsa null.
+ * Qabul qilinadi: "+998901234567", "998 90 123-45-67", "90 123 45 67" (9 raqam).
+ */
+export function normalizeUzPhone(value: unknown): string | null {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  const local = digits.length === 12 && digits.startsWith('998') ? digits.slice(3) : digits.length === 9 ? digits : null;
+  if (!local) return null;
+  return `+998 ${local.slice(0, 2)} ${local.slice(2, 5)} ${local.slice(5, 7)} ${local.slice(7, 9)}`;
+}
+
+/** Shartnoma raqami: bo'shliqsiz, katta harf ("ab 12-34" → "AB12-34"); bo'sh bo'lsa null */
+export function normalizeContractNumber(value: unknown): string | null {
+  const s = String(value ?? '').replace(/\s+/g, '').toUpperCase();
+  return s ? s : null;
+}
+
+/** Luhn nazorat yig'indisi (IMEI'ning 15-raqami) */
+export function luhnValid(digits: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < digits.length; i++) {
+    let d = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+
+/** IMEI xatosi (o'zbekcha) yoki null: aniq 15 raqam va Luhn nazorat raqami to'g'ri */
+export function imeiProblem(value: unknown): string | null {
+  const s = String(value ?? '').trim();
+  if (!s) return "IMEI kiritilmagan";
+  if (!/^\d{15}$/.test(s)) return `IMEI "${s}" — aniq 15 ta raqam bo'lishi kerak`;
+  if (!luhnValid(s)) return `IMEI ${s} — nazorat raqami xato (noto'g'ri terilgan bo'lishi mumkin)`;
+  return null;
+}
+
+/** Chek ilovalari turlari: shartnoma surati, provayder ilovasidan skrin, tasdiq xati */
+export const DEAL_ATTACHMENT_KINDS = ['CONTRACT', 'APP_SCREENSHOT', 'CONFIRMATION'] as const;
+export type DealAttachmentKind = (typeof DEAL_ATTACHMENT_KINDS)[number];
+
+/** "Kutilmoqda" / "Sotib olish kerak" holatida necha kundan keyin chek qizil bo'ladi va egasiga xabar ketadi */
+export const STALE_DEAL_DAYS = 3;
+const STALE_STATUSES = new Set<string>([DealStatus.PENDING, DealStatus.NEED_TO_BUY]);
+/** Chek uzoq kutib qoldimi: holati PENDING/NEED_TO_BUY va sanasidan 3 kundan ko'p o'tgan */
+export function isStaleDeal(status: string | null | undefined, date: Date | string | null | undefined, now: Date = new Date()): boolean {
+  if (!status || !STALE_STATUSES.has(status) || !date) return false;
+  const t = new Date(date).getTime();
+  return Number.isFinite(t) && now.getTime() - t > STALE_DEAL_DAYS * 24 * 60 * 60 * 1000;
+}
+
+/** Faktik berilgan summa farqi DDS kategoriyasi va standart bardosh (AppSetting "payout_tolerance" bilan almashtiriladi) */
+export const ROUNDING_CATEGORY = 'Yaxlitlash farqi';
+export const DEFAULT_PAYOUT_TOLERANCE = 100_000;
+
 // ───────────────────────── Diskont chegaralari (egasi, 23.11.2026) ─────────────────────────
 
 /** Maksimal diskont — undan yuqorisi faqat admin, sabab bilan */

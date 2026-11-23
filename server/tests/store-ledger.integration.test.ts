@@ -229,7 +229,7 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
       d1 = await mkDeal(1, s1.id, 3_500_000, { profit: 400_000 });
       expect(await debtEntry(d1.id)).toBeNull();
 
-      const r = await api('POST', `/api/deals/${d1.id}/approve`, 'ADMIN', {});
+      const r = await api('POST', `/api/deals/${d1.id}/approve`, 'ADMIN', { overrideReason: 'integratsion sinov' });
       expect(r.status).toBe(200);
 
       const e = await debtEntry(d1.id);
@@ -244,7 +244,7 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
 
     it('Qodir aka: tasdiqlanganda DEBT yoziladi (U bizga qarzdor: chek + agent ulushi + 6% foyda), chek DDS chiqimiga tushmaydi', async () => {
       d2 = await mkDeal(2, qodirStore.id, 2_000_000, { profit: 250_000 });
-      const r = await api('POST', `/api/deals/${d2.id}/approve`, 'ADMIN', {});
+      const r = await api('POST', `/api/deals/${d2.id}/approve`, 'ADMIN', { overrideReason: 'integratsion sinov' });
       expect(r.status).toBe(200);
 
       // Hisob (standart qoida: Qodir aka 22%, bizniki 6%; bitim: yechilgan 5 000 000, berilgan 2 000 000, diskont 60%):
@@ -300,11 +300,11 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
 
     it(`daftar boshlanishidan (${STORE_LEDGER_START_YMD}) oldingi bitim va Trust do'koni bitimi — yozuv yo'q`, async () => {
       d4 = await mkDeal(4, s1.id, 900_000, { date: OLD_DATE, profit: 70_000 });
-      expect((await api('POST', `/api/deals/${d4.id}/approve`, 'ADMIN', {})).status).toBe(200);
+      expect((await api('POST', `/api/deals/${d4.id}/approve`, 'ADMIN', { overrideReason: 'integratsion sinov' })).status).toBe(200);
       expect(await debtEntry(d4.id)).toBeNull();
 
       d5 = await mkDeal(5, trustStore.id, 1_000_000, { profit: 800_000 });
-      expect((await api('POST', `/api/deals/${d5.id}/approve`, 'ADMIN', {})).status).toBe(200);
+      expect((await api('POST', `/api/deals/${d5.id}/approve`, 'ADMIN', { overrideReason: 'integratsion sinov' })).status).toBe(200);
       expect(await debtEntry(d5.id)).toBeNull();
       // Trust bitimi o'z (Trust) daftariga yoziladi — ikki marta hisoblanmaydi
       expect(await prisma.trustLedgerEntry.count({ where: { dealId: d5.id } })).toBe(1);

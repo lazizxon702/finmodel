@@ -16,8 +16,13 @@ import {
   tashkentDayRange,
   discountLimitsFor,
   discountViolation,
+  normalizeContractNumber,
+  DEAL_ATTACHMENT_KINDS,
+  isStaleDeal,
+  normalizeUzPhone,
   type CommissionRuleItem,
 } from '../services/calculation.service';
+import { getPayoutTolerance, notifyStaleDealsOncePerDay, warehouseImeiProblem } from '../services/dealChecks.service';
 import { ensureOperatorRecord } from '../services/team.service';
 import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../services/access.service';
 import {
@@ -507,6 +512,9 @@ export function serializeDeal(deal: any) {
     items: dealItemsView(deal),
     dateYmd: tashkentYmd(deal.date),
     dateTimeLabel: dealDateTimeLabel(deal),
+    // "Kutilmoqda"/"Sotib olish kerak" 3 kundan ko'p — jadvalda qizil (egasi, 23.11.2026)
+    isStale: isStaleDeal(deal.status, deal.date),
+    attachmentCount: deal._count?.attachments ?? undefined,
     ...(ddsTransactions !== undefined
       ? {
           checkExpense: check
@@ -553,6 +561,7 @@ const DEAL_INCLUDE = {
   createdBy: { select: { id: true, fullName: true, username: true, role: true } },
   registrator: { select: { id: true, fullName: true, username: true } },
   approvedBy: { select: { id: true, fullName: true, role: true } },
+  _count: { select: { attachments: true } },
   ddsTransactions: {
     where: { source: DdsSource.DEAL_CHECK },
     select: { id: true, txNumber: true, amount: true, account: true, dateTime: true },
@@ -566,6 +575,16 @@ async function findScopedDeal(user: AuthUser, id: string) {
 
 /** Faol komissiya qoidalari — sotuvni omborga qaytarish ham aynan shu yuklagichni ishlatadi (sale.service) */
 const getActiveRules = () => loadActiveCommissionRules();
+
+/** Yangi chekda to'ldirilmagan majburiy maydonlar matni yoki null (egasi, 23.11.2026) */
+export function requiredFieldsMissing(input: { customerName: unknown; phone1: string | null; contractNumber: string | null; hasProduct: boolean }): string | null {
+  const missing: string[] = [];
+  if (!cleanCustomerText(input.customerName)) missing.push('mijoz F.I.Sh.');
+  if (!input.phone1) missing.push('telefon (+998 XX XXX XX XX)');
+  if (!input.contractNumber) missing.push('shartnoma raqami');
+  if (!input.hasProduct) missing.push('tovar');
+  return missing.length ? `To'ldirilmagan yoki noto'g'ri: ${missing.join(', ')}` : null;
+}
 
 /** Admin qoidani chetlab o'tganda yoziladigan sabab — kamida 5 belgi */
 export function overrideReasonOf(role: Role | string, body: any): string | null {
@@ -587,6 +606,8 @@ export const HISTORY_FIELDS: { key: string; label: string; money?: boolean; pick
   { key: 'profit', label: 'Foyda' },
   { key: 'agency', label: 'Agent', pick: (v) => v?.agency?.name ?? null },
   { key: 'agent', label: 'Operator', pick: (v) => v?.agent?.name ?? null },
+  { key: 'contractNumber', label: 'Shartnoma raqami' },
+  { key: 'actualPaidAmount', label: 'Faktik berilgan', money: true },
   { key: 'customerName', label: 'Mijoz' },
   { key: 'customerPhone1', label: 'Telefon' },
   { key: 'productName', label: 'Tovar' },
@@ -624,7 +645,7 @@ export function diffDealViews(oldV: any, newV: any) {
 export function fmtHistory(field: string, v: string | number | null): string {
   if (v === null || v === undefined) return '—';
   if (field === 'purchaseDiscountPct') return `${Math.round(Number(v) * 1000) / 10}%`;
-  if (['customerLimit', 'withdrawnLimit', 'calculatedAmount', 'agentAmount', 'profit'].includes(field)) {
+  if (['customerLimit', 'withdrawnLimit', 'calculatedAmount', 'agentAmount', 'profit', 'actualPaidAmount'].includes(field)) {
     return Math.round(Number(v)).toLocaleString('ru-RU').replace(/ /g, ' ');
   }
   return String(v);
@@ -821,6 +842,8 @@ function kpiPeriodWhere(scope: Prisma.DealWhereInput, q: any): Prisma.DealWhereI
 // GET /api/deals — doiradagi BARCHA bitimlar (tasdiqlanmaganlari ham), approvalStatus bilan
 router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    // Kuniga bir marta: 3 kundan ko'p tovar kutayotgan cheklar haqida egasiga xabar (egasi, 23.11.2026)
+    await notifyStaleDealsOncePerDay();
     const q = req.query as any;
     const pageNum = Math.max(1, parseInt(q.page, 10) || 1);
     const limitNum = Math.min(5000, Math.max(1, parseInt(q.limit, 10) || 50));
@@ -1360,6 +1383,126 @@ router.get('/my-defaults', authenticateToken, async (req: AuthRequest, res: Resp
   }
 });
 
+// ─────────────── Chek hujjatlari (egasi, 23.11.2026) ───────────────
+const ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024;
+const ATTACHMENT_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf']);
+
+// GET /api/deals/:id/attachments — ro'yxat (fayl mazmunisiz)
+router.get('/:id/attachments', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const deal = await findScopedDeal(req.user!, req.params.id);
+    if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
+    const list = await prisma.dealAttachment.findMany({
+      where: { dealId: deal.id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, kind: true, fileName: true, mimeType: true, size: true, createdAt: true, createdById: true },
+    });
+    return res.json(list);
+  } catch (error: any) {
+    return sendError(res, error, "Hujjatlarni olishda xatolik");
+  }
+});
+
+// GET /api/deals/:id/attachments/:attId — fayl mazmuni
+router.get('/:id/attachments/:attId', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const deal = await findScopedDeal(req.user!, req.params.id);
+    if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
+    const att = await prisma.dealAttachment.findFirst({ where: { id: req.params.attId, dealId: deal.id } });
+    if (!att) return res.status(404).json({ error: 'Hujjat topilmadi' });
+    res.setHeader('Content-Type', att.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(att.fileName)}"`);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    return res.send(Buffer.from(att.data));
+  } catch (error: any) {
+    return sendError(res, error, 'Hujjatni olishda xatolik');
+  }
+});
+
+// POST /api/deals/:id/attachments { kind, fileName, mimeType, dataBase64 } — chek doirasidagi har kim (tasdiqlangandan keyin — faqat ADMIN)
+router.post('/:id/attachments', authenticateToken, denyViewer, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const deal = await findScopedDeal(user, req.params.id);
+    if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
+    if (deal.approvalStatus === 'APPROVED' && user.role !== Role.ADMIN) {
+      return res.status(403).json({ error: "Tasdiqlangan chekka hujjatni faqat administrator qo'sha oladi" });
+    }
+    const { kind, fileName, mimeType, dataBase64 } = req.body || {};
+    if (!(DEAL_ATTACHMENT_KINDS as readonly string[]).includes(String(kind))) return res.status(400).json({ error: "Hujjat turi noto'g'ri" });
+    const mime = String(mimeType || '').toLowerCase();
+    if (!ATTACHMENT_MIME.has(mime)) return res.status(400).json({ error: 'Faqat rasm (JPG, PNG, WEBP, HEIC) yoki PDF yuklash mumkin' });
+    const b64 = String(dataBase64 || '').replace(/^data:[^;]+;base64,/, '');
+    const data = Buffer.from(b64, 'base64');
+    if (!data.length) return res.status(400).json({ error: "Fayl bo'sh" });
+    if (data.length > ATTACHMENT_MAX_BYTES) return res.status(400).json({ error: 'Fayl 3 MB dan katta bo\'lmasin' });
+    const created = await prisma.dealAttachment.create({
+      data: {
+        dealId: deal.id,
+        kind: String(kind),
+        fileName: String(fileName || 'hujjat').slice(0, 200),
+        mimeType: mime,
+        size: data.length,
+        data,
+        createdById: user.id,
+      },
+      select: { id: true, kind: true, fileName: true, mimeType: true, size: true, createdAt: true, createdById: true },
+    });
+    await writeAudit(user.id, deal.id, 'ATTACH', undefined, { kind: created.kind, fileName: created.fileName });
+    emitRealtime('deals:updated', { id: deal.id, action: 'attachment' });
+    return res.status(201).json(created);
+  } catch (error: any) {
+    return sendError(res, error, 'Hujjatni yuklashda xatolik');
+  }
+});
+
+// DELETE /api/deals/:id/attachments/:attId — ADMIN, yoki yuklagan odam chek tasdiqlanmaguncha
+router.delete('/:id/attachments/:attId', authenticateToken, denyViewer, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const deal = await findScopedDeal(user, req.params.id);
+    if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
+    const att = await prisma.dealAttachment.findFirst({ where: { id: req.params.attId, dealId: deal.id }, select: { id: true, createdById: true, fileName: true } });
+    if (!att) return res.status(404).json({ error: 'Hujjat topilmadi' });
+    const own = att.createdById === user.id && deal.approvalStatus !== 'APPROVED';
+    if (user.role !== Role.ADMIN && !own) return res.status(403).json({ error: "Hujjatni o'chirishga huquq yo'q" });
+    await prisma.dealAttachment.delete({ where: { id: att.id } });
+    await writeAudit(user.id, deal.id, 'DETACH', undefined, { fileName: att.fileName });
+    return res.json({ success: true });
+  } catch (error: any) {
+    return sendError(res, error, "Hujjatni o'chirishda xatolik");
+  }
+});
+
+// POST /api/deals/:id/actual-paid { amount } — mijozga FAKTIK berilgan summa (kassir / admin; chek tasdiqlanmaguncha)
+router.post(
+  '/:id/actual-paid',
+  authenticateToken,
+  requireRoles([Role.ADMIN, Role.CASHIER, Role.MANAGER, Role.CFO]),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const user = req.user!;
+      const deal = await findScopedDeal(user, req.params.id);
+      if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
+      if (deal.approvalStatus === 'APPROVED') {
+        return res.status(409).json({ error: "Chek tasdiqlangan — faktik summa tasdiqlash paytida yozilgan" });
+      }
+      const amount = toAmount(req.body?.amount, 'Faktik berilgan summa');
+      if (!(amount > 0)) return res.status(400).json({ error: "Faktik berilgan summani kiriting" });
+      const updated = await prisma.deal.update({
+        where: { id: deal.id },
+        data: { actualPaidAmount: amount, actualPaidAt: new Date(), actualPaidById: user.id },
+        include: DEAL_INCLUDE,
+      });
+      await writeAudit(user.id, deal.id, 'ACTUAL_PAID', { actualPaidAmount: deal.actualPaidAmount }, { actualPaidAmount: amount });
+      emitRealtime('deals:updated', { id: deal.id, action: 'actual-paid' });
+      return res.json(serializeDeal(updated));
+    } catch (error: any) {
+      return sendError(res, error, 'Faktik summani saqlashda xatolik');
+    }
+  }
+);
+
 // GET /api/deals/:id/history — chek tarixi: kim, qachon, qaysi maydon, eski → yangi, sabab (egasi, 23.11.2026)
 router.get('/:id/history', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
@@ -1516,6 +1659,28 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
 
     const products = buildDealProducts(pickItemsInput(body), body);
 
+    // Majburiy maydonlar (egasi, 23.11.2026): mijoz F.I.Sh., telefon +998 XX XXX XX XX, shartnoma raqami, tovar.
+    // Admin sabab bilan o'tkazishi mumkin (sabab tarixga yoziladi).
+    const overrides: { rule: string; reason: string }[] = [];
+    const contractNumber = normalizeContractNumber(body.contractNumber);
+    const phone1 = normalizeUzPhone(body.customerPhone1);
+    const phone2 = normalizeUzPhone(body.customerPhone2);
+    const missing = requiredFieldsMissing({
+      customerName: body.customerName,
+      phone1,
+      contractNumber,
+      hasProduct: products.items.length > 0 && Boolean(products.productName),
+    });
+    if (missing) {
+      const reason = overrideReasonOf(user.role, body);
+      if (!reason) return res.status(400).json({ error: missing, code: 'REQUIRED_FIELDS', overridable: user.role === Role.ADMIN });
+      overrides.push({ rule: missing, reason });
+    }
+    if (contractNumber) {
+      const dup = await prisma.deal.findUnique({ where: { contractNumber }, select: { dealNumber: true } });
+      if (dup) return res.status(400).json({ error: `Shartnoma raqami ${contractNumber} #${dup.dealNumber} chekda allaqachon bor`, code: 'CONTRACT_DUPLICATE' });
+    }
+
     const discountCheck = checkDiscount(
       user.role,
       body,
@@ -1524,6 +1689,17 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
     );
     if ('error' in discountCheck) {
       return res.status(400).json({ error: discountCheck.error, code: 'DISCOUNT_RULE', overridable: discountCheck.overridable });
+    }
+    if (discountCheck.override) overrides.push(discountCheck.override);
+
+    // Admin chekni darhol "Omborda" holatida kiritsa — IMEI majburiy (15 raqam, Luhn, takrorlanmaydi)
+    if (initialStatus === DealStatus.IN_WAREHOUSE) {
+      const imeiErr = await warehouseImeiProblem(prisma, null, products.items);
+      if (imeiErr) {
+        const reason = overrideReasonOf(user.role, body);
+        if (!reason) return res.status(400).json({ error: imeiErr, code: 'IMEI_RULE', overridable: user.role === Role.ADMIN });
+        overrides.push({ rule: imeiErr, reason });
+      }
     }
 
     const calcResult = CalculationService.calculateDeal(
@@ -1571,8 +1747,9 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
             providerId: provider.id,
             isDaftar: calcResult.isDaftar,
             customerName: cleanCustomerText(body.customerName),
-            customerPhone1: cleanCustomerText(body.customerPhone1),
-            customerPhone2: cleanCustomerText(body.customerPhone2),
+            customerPhone1: phone1 || cleanCustomerText(body.customerPhone1),
+            customerPhone2: phone2 || cleanCustomerText(body.customerPhone2),
+            contractNumber,
             contractUrl: strOrNull(body.contractUrl),
             passportPhotoUrl: strOrNull(body.passportPhotoUrl),
             storeId: store.id,
@@ -1627,7 +1804,11 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
           },
         });
       } catch (e) {
-        if (isPrismaCode(e, 'P2002')) throw new DealNumberConflict();
+        if (isPrismaCode(e, 'P2002')) {
+          const target = String((e as any)?.meta?.target ?? '');
+          if (target.includes('contractNumber')) throw new HttpError(400, "Bu shartnoma raqami boshqa chekda allaqachon bor");
+          throw new DealNumberConflict();
+        }
         throw e;
       }
 
@@ -1658,7 +1839,7 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
     const view = serializeDeal(newDeal);
 
     await writeAudit(user.id, result.id, 'CREATE', undefined, view);
-    if (discountCheck.override) await writeAudit(user.id, result.id, 'OVERRIDE', undefined, discountCheck.override);
+    for (const o of overrides) await writeAudit(user.id, result.id, 'OVERRIDE', undefined, o);
 
     emitRealtime('deals:updated', { id: result.id, action: 'created', approvalStatus });
     if (result.check?.created) emitRealtime('dds:updated', {});
@@ -1784,6 +1965,40 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
     if ('error' in discountCheck) {
       return res.status(400).json({ error: discountCheck.error, code: 'DISCOUNT_RULE', overridable: discountCheck.overridable });
     }
+    const putOverrides: { rule: string; reason: string }[] = discountCheck.override ? [discountCheck.override] : [];
+
+    // Shartnoma raqami (takrorlanmaydi) va telefon formati (egasi, 23.11.2026)
+    const putContract = given('contractNumber') ? normalizeContractNumber(body.contractNumber) : existing.contractNumber;
+    if (putContract && putContract !== existing.contractNumber) {
+      const dup = await prisma.deal.findFirst({ where: { contractNumber: putContract, id: { not: id } }, select: { dealNumber: true } });
+      if (dup) return res.status(400).json({ error: `Shartnoma raqami ${putContract} #${dup.dealNumber} chekda allaqachon bor`, code: 'CONTRACT_DUPLICATE' });
+    }
+    let putPhone1: string | null = existing.customerPhone1;
+    if (given('customerPhone1')) {
+      const raw = cleanCustomerText(body.customerPhone1);
+      putPhone1 = raw ? normalizeUzPhone(raw) : null;
+      if (raw && !putPhone1) {
+        const msg = `Telefon "${raw}" noto'g'ri — +998 XX XXX XX XX ko'rinishida kiriting`;
+        const reason = overrideReasonOf(user.role, body);
+        if (!reason) return res.status(400).json({ error: msg, code: 'REQUIRED_FIELDS', overridable: user.role === Role.ADMIN });
+        putOverrides.push({ rule: msg, reason });
+        putPhone1 = raw;
+      }
+    }
+    const putPhone2 = given('customerPhone2')
+      ? normalizeUzPhone(body.customerPhone2) || cleanCustomerText(body.customerPhone2)
+      : existing.customerPhone2;
+
+    // Omborga qabul (holat "Omborda" bo'lsa yoki omborda turgan chekning tovarlari almashsa): IMEI majburiy
+    const finalStatus = existing.saleId ? existing.status : newStatus || existing.status;
+    if (finalStatus === DealStatus.IN_WAREHOUSE && (existing.status !== DealStatus.IN_WAREHOUSE || products.items)) {
+      const imeiErr = await warehouseImeiProblem(prisma, id, products.items || existing.items);
+      if (imeiErr) {
+        const reason = overrideReasonOf(user.role, body);
+        if (!reason) return res.status(400).json({ error: imeiErr, code: 'IMEI_RULE', overridable: user.role === Role.ADMIN });
+        putOverrides.push({ rule: imeiErr, reason });
+      }
+    }
 
     const calcResult = CalculationService.calculateDeal(
       {
@@ -1817,8 +2032,9 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
       providerId,
       isDaftar: calcResult.isDaftar,
       customerName: given('customerName') ? cleanCustomerText(body.customerName) : existing.customerName,
-      customerPhone1: given('customerPhone1') ? cleanCustomerText(body.customerPhone1) : existing.customerPhone1,
-      customerPhone2: given('customerPhone2') ? cleanCustomerText(body.customerPhone2) : existing.customerPhone2,
+      customerPhone1: putPhone1,
+      customerPhone2: putPhone2,
+      contractNumber: putContract,
       contractUrl: given('contractUrl') ? strOrNull(body.contractUrl) : existing.contractUrl,
       passportPhotoUrl: given('passportPhotoUrl') ? strOrNull(body.passportPhotoUrl) : existing.passportPhotoUrl,
       storeId,
@@ -1932,7 +2148,7 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
 
     const oldView = serializeDeal(existing);
     await writeAudit(user.id, id, 'UPDATE', oldView, { ...view, _reason: editReason || discountCheck.override?.reason || null });
-    if (discountCheck.override) await writeAudit(user.id, id, 'OVERRIDE', undefined, discountCheck.override);
+    for (const o of putOverrides) await writeAudit(user.id, id, 'OVERRIDE', undefined, o);
     // Tasdiqlangan chekda pul maydoni o'zgarsa — egasiga (adminlarga) Telegram/push (egasi, 23.11.2026)
     if (existing.approvalStatus === 'APPROVED') {
       const moneyChanges = diffDealViews(oldView, view).filter((c) => c.money);
@@ -1967,9 +2183,38 @@ router.post('/:id/approve', authenticateToken, requireRoles([Role.ADMIN]), async
     const user = req.user!;
     const account = parseAccount(req.body?.account);
 
+    const deal0 = await prisma.deal.findUnique({
+      where: { id },
+      select: { calculatedAmount: true, actualPaidAmount: true, approvalStatus: true, _count: { select: { attachments: true } } },
+    });
+    if (!deal0) return res.status(404).json({ error: 'Bitim topilmadi' });
+    const overrides: { rule: string; reason: string }[] = [];
+    const reason = overrideReasonOf(user.role, req.body);
+    // Hujjatsiz chek tasdiqlanmaydi (egasi, 23.11.2026): shartnoma surati, ilova skrini yoki tasdiq xati — kamida bittasi
+    if (deal0.approvalStatus !== 'APPROVED' && deal0._count.attachments === 0) {
+      const msg = "Chekka hujjat biriktirilmagan (shartnoma surati, provayder ilovasidan skrin yoki tasdiq xati) — tasdiqlab bo'lmaydi";
+      if (!reason) return res.status(400).json({ error: msg, code: 'NO_ATTACHMENT', overridable: true });
+      overrides.push({ rule: msg, reason });
+    }
+    // Faktik berilgan summa: so'rovdan → kassir kiritgani → hisoblangan summa
+    const rawActual = req.body?.actualPaidAmount;
+    const actualPaidAmount =
+      rawActual !== undefined && rawActual !== null && rawActual !== ''
+        ? toAmount(rawActual, 'Faktik berilgan summa')
+        : deal0.actualPaidAmount !== null
+          ? Number(deal0.actualPaidAmount)
+          : Number(deal0.calculatedAmount);
+    const payoutDiff = actualPaidAmount - Number(deal0.calculatedAmount);
+    const tolerance = await getPayoutTolerance();
+    if (Math.abs(payoutDiff) > tolerance) {
+      const msg = `Faktik berilgan summa hisoblangandan ${Math.round(Math.abs(payoutDiff)).toLocaleString('ru-RU').replace(/ /g, ' ')} so'm farq qiladi (ruxsat: ${Math.round(tolerance).toLocaleString('ru-RU').replace(/ /g, ' ')})`;
+      if (!reason) return res.status(400).json({ error: msg, code: 'PAYOUT_DIFF', overridable: true });
+      overrides.push({ rule: msg, reason });
+    }
+
     let result;
     try {
-      result = await approveDeal(id, { id: user.id, fullName: user.fullName }, { account });
+      result = await approveDeal(id, { id: user.id, fullName: user.fullName }, { account, actualPaidAmount });
     } catch (e) {
       // Bir vaqtda ikki marta bosilgan: ikkinchi so'rov chek xarajatining noyoblik cheklovi (dealId+source) ga uriladi
       if (isPrismaCode(e, 'P2002')) throw new HttpError(409, 'Bitim allaqachon tasdiqlangan');
@@ -1980,7 +2225,8 @@ router.post('/:id/approve', authenticateToken, requireRoles([Role.ADMIN]), async
       prisma.deal.findUnique({ where: { id }, include: DEAL_INCLUDE }),
       getAccountBalances(),
     ]);
-    await writeAudit(user.id, id, 'APPROVE', undefined, { approvalStatus: 'APPROVED', account });
+    await writeAudit(user.id, id, 'APPROVE', undefined, { approvalStatus: 'APPROVED', account, actualPaidAmount, rounding: result.rounding });
+    for (const o of overrides) await writeAudit(user.id, id, 'OVERRIDE', undefined, o);
     pushToSheetsIfApproved(deal);
 
     return res.json({
