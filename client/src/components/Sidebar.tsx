@@ -28,6 +28,7 @@ import {
   BookOpen,
   ClipboardList,
   ClipboardPen,
+  ShieldAlert,
   FileSpreadsheet,
   Bell,
   type LucideIcon,
@@ -66,14 +67,14 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     '/', '/leads', '/deals', '/warehouse', '/sales', '/debtors', '/agents',
     '/agents-swot', '/hr', '/dds', '/trust', '/balance', '/daily', '/finmodel',
     '/bot-deals', '/bot-payments', '/finances', '/references', '/users', '/team',
-    '/registratura', '/stores', '/qodir-ledger', '/daftar'
+    '/registratura', '/stores', '/qodir-ledger', '/daftar', '/control'
   ],
   CFO: [
-    '/dds', '/trust', '/stores', '/qodir-ledger', '/daftar', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references'
+    '/dds', '/trust', '/stores', '/qodir-ledger', '/daftar', '/balance', '/debtors', '/daily', '/finances', '/finmodel', '/agents', '/references', '/control'
   ],
   COO: [
     '/deals', '/warehouse', '/sales', '/leads', '/debtors', '/agents', '/agents-swot', '/daily', '/trust',
-    '/stores', '/qodir-ledger', '/daftar'
+    '/stores', '/qodir-ledger', '/daftar', '/control'
   ],
   CALL_CENTER_HEAD: [
     '/leads', '/hr', '/deals', '/agents', '/agents-swot'
@@ -103,9 +104,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     '/hr', '/daily'
   ],
   VIEWER: [
-    '/', '/deals', '/finances', '/finmodel', '/agents-swot', '/trust', '/stores', '/qodir-ledger', '/daftar'
+    '/', '/deals', '/finances', '/finmodel', '/agents-swot', '/trust', '/stores', '/qodir-ledger', '/daftar', '/control'
   ],
-  MANAGER: ['/deals', '/warehouse', '/sales', '/debtors', '/agents', '/daily', '/trust', '/stores', '/qodir-ledger', '/daftar'],
+  MANAGER: ['/deals', '/warehouse', '/sales', '/debtors', '/agents', '/daily', '/trust', '/stores', '/qodir-ledger', '/daftar', '/control'],
   CASHIER: ['/dds', '/daily', '/balance', '/bot-payments', '/trust', '/stores', '/qodir-ledger', '/daftar']
 };
 
@@ -142,6 +143,7 @@ const MENU: MenuItem[] = [
   { to: '/stores', key: 'stores', icon: Store, group: 'finance' },
   { to: '/qodir-ledger', key: 'qodir_ledger', icon: BookOpen, group: 'finance' },
   { to: '/daftar', key: 'daftar', icon: ClipboardList, group: 'finance' },
+  { to: '/control', key: 'control', icon: ShieldAlert, group: 'finance' },
   { to: '/balance', key: 'balance', icon: Wallet, group: 'finance' },
   { to: '/daily', key: 'daily', icon: CalendarCheck, group: 'finance' },
   { to: '/bot-payments', key: 'bot_payments', icon: Receipt, group: 'finance' },

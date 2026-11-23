@@ -9,6 +9,7 @@ interface HistoryItem {
   atLabel: string;
   by: string | null;
   reason: string | null;
+  inputError?: boolean;
   rule: string | null;
   changes: { field: string; label: string; fromText: string; toText: string; money: boolean }[];
 }
@@ -58,6 +59,7 @@ export const DealHistory: React.FC<{ dealId: string }> = ({ dealId }) => {
                   <span className={c.money ? 'font-medium tabular-nums text-warning' : 'tabular-nums text-fg'}>{c.toText}</span>
                 </p>
               ))}
+              {h.inputError && <p className="text-xs font-medium text-danger">{t('dealsPage.input_error_mark')}</p>}
               {h.rule && <p className="break-words text-xs text-danger">{h.rule}</p>}
               {h.reason && (
                 <p className="break-words text-xs text-fg-secondary">

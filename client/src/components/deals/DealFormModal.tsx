@@ -200,6 +200,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   const [discountRule, setDiscountRule] = useState<DiscountRule | null>(null);
   // Admin qoidadan chetlab o'tishi sababi (bitim tarixiga yoziladi)
   const [overrideReason, setOverrideReason] = useState('');
+  // Tasdiqlangan chekni tuzatish registrator xatosi tufayli (6-blok statistikasi)
+  const [inputError, setInputError] = useState(false);
   const [serverRuleError, setServerRuleError] = useState(false);
   // Yangi chek hujjatlari: chek saqlangach yuklanadi (egasi, 23.11.2026)
   const [pendingFiles, setPendingFiles] = useState<{ kind: AttachmentKind; file: File }[]>([]);
@@ -386,6 +388,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         payload.overrideReason = overrideReason.trim();
         payload.editReason = overrideReason.trim();
       }
+      if (admin && approvedEdit) payload.inputError = inputError;
       if (admin) payload.registratorId = form.registratorId || null;
       else delete payload.registratorId;
       if (hideAgentPickers) {
@@ -698,6 +701,12 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
             <Field label={t(approvedEdit && !discountError ? 'dealsPage.edit_reason' : 'dealsPage.override_reason')} required hint={t('dealsPage.override_reason_hint')}>
               <Input value={overrideReason} autoComplete="off" onChange={(e) => setOverrideReason(e.target.value)} />
             </Field>
+          )}
+          {admin && approvedEdit && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-fg">
+              <input type="checkbox" className="h-4 w-4 accent-brand" checked={inputError} onChange={(e) => setInputError(e.target.checked)} />
+              {t('dealsPage.input_error')}
+            </label>
           )}
 
           {isQodirStore(store?.name) && (
