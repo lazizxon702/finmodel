@@ -309,6 +309,17 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
     }
     return list;
   })();
+  // Yandex Split (egasi, 23.11.2026): agentlik va operator — "Apple" avtomatik (server ham shunday qo'yadi), agentga ulush yo'q
+  const yandexSelected = /^(yandex( split)?|yandeks split|яндекс сплит)$/i.test((providers.find((p) => p.id === form.providerId)?.name || '').trim());
+  useEffect(() => {
+    if (!yandexSelected) return;
+    const apple = agencies.find((a) => a.name.trim().toLowerCase() === 'apple');
+    if (!apple) return;
+    const agent = (apple.agents || []).find((g: any) => String(g.name).trim().toLowerCase() === 'apple') || (apple.agents || [])[0];
+    setForm((prev) => (prev.agencyId === apple.id && prev.agentId === (agent?.id || '') ? prev : { ...prev, agencyId: apple.id, agentId: agent?.id || '' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yandexSelected, agencies.length]);
+
   // Provayder almashsa va tanlangan do'kon ro'yxatda bo'lmasa — birinchi ruxsat etilgan do'kon avtomatik tanlanadi
   useEffect(() => {
     if (!allowedStores.length) return;

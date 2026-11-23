@@ -70,3 +70,17 @@ describe('admin chetlab o\'tishi', () => {
     expect(overrideReasonOf('ADMIN', { overrideReason: 'ok' })).toBeNull();
   });
 });
+
+describe('Yandex Split (egasi, 23.11.2026): agentga foyda yo\'q', () => {
+  it('agent ulushi 0, diskontning hammasi bizning foyda', async () => {
+    const { CalculationService } = await import('../src/services/calculation.service');
+    const c = CalculationService.calculateDeal({ customerLimit: 10_000_000, withdrawnLimit: 10_000_000, calculatedAmount: 7_000_000, storeName: 'Apple', providerName: 'Yandex Split', agencyName: 'Apple', date: '2026-11-23' } as any, []);
+    expect(c.agentAmount).toBe(0);
+    expect(c.profit).toBe(3_000_000);
+    expect(c.totalPurchaseCost).toBe(7_000_000);
+  });
+  it("foizi spravochnikda bo'lmasa ham saqlanadi; maksimal 45% qoladi", () => {
+    expect(v('Apple', 'Yandex Split', 0.3)).toBeNull();
+    expect(v('Apple', 'Yandex Split', 0.5)).toMatch(/maksimal 45%/);
+  });
+});

@@ -437,6 +437,10 @@ export function discountLimitsFor(
   dealDate?: Date | string | null
 ): DiscountLimits {
   const c = resolveCommission(storeName, providerName, rules, dealDate);
+  // Yandex Split: agent ulushi yo'q — minimal diskont cheklanmaydi (spravochnikda foiz bo'lsa — o'sha), maksimal 45% qoladi
+  if (isNoAgentProvider(providerName)) {
+    return { minPct: c.rate, maxPct: MAX_DISCOUNT_PCT, exactPct: null, label: String(providerName || ''), missing: false };
+  }
   const storeKey = normalizeName(canonicalStoreName(storeName));
   const isGreen = storeKey === 'green bazar';
   const storeLabelled = isGreen || isQodirStore(storeName) || isTrustName(storeName);
@@ -663,6 +667,17 @@ export const REGISTRATURA_AGENCY_NAME = 'Registratura';
 export function isRegistraturaAgency(agencyName?: string | null): boolean {
   const n = normalizeName(agencyName);
   return n === 'registratura' || n === 'регистратура';
+}
+
+/**
+ * Yandex Split (egasi, 23.11.2026): bu provayder orqali urilgan chekdan agentga foyda CHIQMAYDI — diskontning hammasi
+ * kompaniya foydasi. Do'kon — faqat "Apple", agentlik va operator — "Apple" (avtomatik qo'yiladi).
+ */
+export const YANDEX_STORE_NAME = 'Apple';
+export const YANDEX_AGENCY_NAME = 'Apple';
+const NO_AGENT_PROVIDERS = new Set(['yandex split', 'yandex', 'yandeks split', 'яндекс сплит']);
+export function isNoAgentProvider(providerName?: string | null): boolean {
+  return NO_AGENT_PROVIDERS.has(normalizeName(providerName));
 }
 
 export function initialApprovalStatus(role?: string | null): 'PENDING_APPROVAL' | 'APPROVED' {
@@ -1099,7 +1114,7 @@ export class CalculationService {
     // Agent foydasi = limit × (diskont − kompaniya ulushi); diskont ulushdan kichik bo'lsa 0 (manfiy bo'lmaydi)
     const agentShare = Math.max(0, withdrawn * (purchaseDiscountPct - ruleRate));
     // Registratura cheki: agent yo'q — uning ulushi kompaniyada qoladi (foydaga qo'shiladi)
-    const noAgent = isRegistraturaAgency(input.agencyName);
+    const noAgent = isRegistraturaAgency(input.agencyName) || isNoAgentProvider(pName);
     const agentAmount = noAgent ? 0 : agentShare;
     // Kutilayotgan foyda (holatga bog'liq emas): limit − mijozga berilgan − agent − hamkor ulushi
     const expectedProfit = round2(

@@ -449,6 +449,29 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     }
   });
 
+  it("Yandex Split: agentlik/operator avtomatik Apple, agentga 0, diskont to'liq foyda", async () => {
+    const ya = await ensureByName('provider', 'Yandex Split');
+    let apple = await prisma.agency.findFirst({ where: { name: 'Apple' }, include: { agents: true } });
+    const createdApple = !apple;
+    if (!apple) apple = await prisma.agency.create({ data: { name: 'Apple', agents: { create: [{ name: 'Apple' }] } }, include: { agents: true } });
+    try {
+      // registrator emas — operator: o'z agentligi o'rniga Apple qo'yiladi
+      const r = await api('opA', 'POST', '/api/deals', dealBody({ providerId: ya.id, calculatedAmount: 3_500_000 }));
+      expect(r.status, JSON.stringify(r.data)).toBe(201);
+      expect(r.data.agencyId).toBe(apple.id);
+      expect(r.data.agentId).toBe(apple.agents.find((a) => a.name === 'Apple')!.id);
+      const row = await prisma.deal.findUnique({ where: { id: r.data.id } });
+      expect(Number(row!.agentAmount)).toBe(0);
+      expect(Number(row!.profit)).toBe(1_500_000);
+      expect((await api('opA', 'DELETE', `/api/deals/${r.data.id}`)).status).toBe(200);
+    } finally {
+      if (createdApple) {
+        await prisma.agent.deleteMany({ where: { agencyId: apple.id } });
+        await prisma.agency.delete({ where: { id: apple.id } });
+      }
+    }
+  });
+
   it('sverka akti: qo\'lda summa va CSV vipiska bilan solishtirish', async () => {
     const created = await api('admin', 'POST', '/api/deals', dealBody({ contractNumber: `${TAG}-recon` }));
     expect(created.status).toBe(201);

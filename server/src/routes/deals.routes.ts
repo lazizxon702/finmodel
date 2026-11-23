@@ -19,6 +19,8 @@ import {
   normalizeContractNumber,
   DEAL_ATTACHMENT_KINDS,
   isStaleDeal,
+  isNoAgentProvider,
+  YANDEX_AGENCY_NAME,
   normalizeUzPhone,
   type CommissionRuleItem,
 } from '../services/calculation.service';
@@ -584,6 +586,17 @@ export function requiredFieldsMissing(input: { customerName: unknown; phone1: st
   if (!input.contractNumber) missing.push('shartnoma raqami');
   if (!input.hasProduct) missing.push('tovar');
   return missing.length ? `To'ldirilmagan yoki noto'g'ri: ${missing.join(', ')}` : null;
+}
+
+/** Yandex Split cheki uchun "Apple" agentligi va uning "Apple" operatori (bo'lmasa — birinchi operatori) */
+export async function yandexAgency(): Promise<{ agencyId: string; agencyName: string; agentId: string | null } | null> {
+  const a = await prisma.agency.findFirst({
+    where: { name: { equals: YANDEX_AGENCY_NAME, mode: 'insensitive' } },
+    select: { id: true, name: true, agents: { select: { id: true, name: true }, orderBy: { name: 'asc' } } },
+  });
+  if (!a) return null;
+  const agent = a.agents.find((x) => x.name.trim().toLowerCase() === YANDEX_AGENCY_NAME.toLowerCase()) || a.agents[0];
+  return { agencyId: a.id, agencyName: a.name, agentId: agent?.id || null };
 }
 
 /** Admin qoidani chetlab o'tganda yoziladigan sabab — kamida 5 belgi */
@@ -1614,7 +1627,8 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
     // agent ulushi odatdagidek o'sha agentga hisoblanadi (registratorga ko'rsatilmaydi), registraturaga ulush yo'q.
     let agentId: string | null = body.agentId ? String(body.agentId) : null;
     let agencyName: string | null = null;
-    if (user.role === Role.REGISTRATURA) {
+    const yandex = isNoAgentProvider(provider.name);
+    if (user.role === Role.REGISTRATURA && !yandex) {
       const picked = body.agencyId ? await prisma.agency.findUnique({ where: { id: String(body.agencyId) }, select: { id: true, name: true } }) : null;
       if (!picked) return res.status(400).json({ error: 'Agent tanlanishi shart' });
       agencyId = picked.id;
@@ -1643,6 +1657,15 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
         }
       }
       if (agencyId) agencyName = (await prisma.agency.findUnique({ where: { id: agencyId }, select: { name: true } }))?.name || null;
+    }
+    // Yandex Split (egasi, 23.11.2026): agentlik va operator — har doim "Apple", kim kiritsa ham; agent ulushi 0
+    if (yandex) {
+      const ya = await yandexAgency();
+      if (ya) {
+        agencyId = ya.agencyId;
+        agencyName = ya.agencyName;
+        agentId = ya.agentId;
+      }
     }
 
     // Registrator (eski "sotuvchi"): registrator o'zi kiritsa — o'zi; admin ro'yxatdan tanlashi mumkin; operator/agent kiritmaydi
@@ -1951,7 +1974,8 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
     }
 
     // Agentlik nomi hisobga ta'sir qiladi (Registratura: agent ulushi yo'q)
-    const putAgencyId = given('agencyId') ? (body.agencyId ? String(body.agencyId) : null) : existing.agencyId;
+    const putYandex = isNoAgentProvider(provider.name) ? await yandexAgency() : null;
+    const putAgencyId = putYandex ? putYandex.agencyId : given('agencyId') ? (body.agencyId ? String(body.agencyId) : null) : existing.agencyId;
     const putAgencyName = putAgencyId
       ? (await prisma.agency.findUnique({ where: { id: putAgencyId }, select: { name: true } }))?.name || null
       : null;
@@ -2073,8 +2097,8 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
       statusChangeReason: given('statusChangeReason') ? strOrNull(body.statusChangeReason) : existing.statusChangeReason,
       debtDueDate: given('debtDueDate') ? (body.debtDueDate ? new Date(body.debtDueDate) : null) : existing.debtDueDate,
       status: calcResult.status,
-      agencyId: given('agencyId') ? (body.agencyId ? String(body.agencyId) : null) : existing.agencyId,
-      agentId: given('agentId') ? (body.agentId ? String(body.agentId) : null) : existing.agentId,
+      agencyId: putAgencyId,
+      agentId: putYandex ? putYandex.agentId : given('agentId') ? (body.agentId ? String(body.agentId) : null) : existing.agentId,
       extraDaftar: calcResult.extraDaftar,
       qodirDebt: calcResult.qodirDebt,
       qodirBalance: calcResult.qodirBalance,
