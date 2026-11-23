@@ -2,6 +2,16 @@
 
 Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-21.
 
+## 23.11 kech — DO'KONLAR TOZALANDI VA PROVAYDER → DO'KON FILTRI (egasi; JONLIDA)
+Zaxira `backups/db-raw-db-2026-11-23T14-22-48-263Z.json`, `scripts/apply-store-cleanup-2311.ts --apply` (BIR MARTALIK), server+klient deploy (commit 55b8d02).
+- YASHIRILDI (isActive=false, o'chirilmagan — cheklar, daftar, hisob-kitob joyida): Asosiy do'kon, Birzum, Boshqa, Denov, Green Bazar, Angren, Jizzax, Novza, Xusanboy. Bitimlar sahifasi filtrida ko'rinadi (`?all=1`).
+- Nomi o'zgardi: Chilonzor → Media park Chilonzor, Samarqand → Media park Samarqand, Gorkiy → Media park Gorkiy.
+- Juftliklar (Nazorat → Do'kon — provayder) va tekshiruv YOQILDI: Finsum → Qodir aka, Planet Phone; Alif Offline → Iman rebus, Media park Angren/Gorkiy/Chilonzor/Samarqand/qoratosh, Маргилон Медиа парк;
+  Alif Online → Media park Gorkiy; Imanum → Iman rebus; Trust 1 → Trust. "Novza → Rebus" = Novza o'rniga "Iman rebus" (Novza cheklari KO'CHIRILMAGAN).
+- Qoida (`dealChecks.service.ts` `storeProviderProblem`): juftligi bor provayder — faqat o'sha do'konlar; juftligi yo'q provayder (Variant, Paylater, Payme, Infin, 6 oylik Alif, Alif nasiya, Birzum) — hamma faol do'kon.
+  Forma: `DealFormModal` `allowedStores` (`GET /api/control/pairs/map`), bitta bo'lsa avtomatik tanlanadi; tahrirda chekning o'z (yashirin) do'koni ro'yxatda qoladi.
+- Egasiga yuborilgan: `backups/holat-2311.xlsx` (Samsung — 48 ochiq chek, xaridor/narx kutilmoqda; #8173 va #8188 da bir xil IMEI). Samsung cheklari saytda yopilMAGAN.
+
 ## 23.11 — REGISTRATOR XATOLARIGA QARSHI 9 BLOKLI VAZIFA (egasi spetsifikatsiyasi; ish davom etmoqda)
 **Bajarildi va JONLIDA (server+klient deploy 23.11; commit'lar 0707343, e3c58f8, b690cee; GitHub'ga push QILINMAGAN):**
 - **1-blok diskont chegarasi:** `calculation.service.ts` `discountLimitsFor`, `discountViolation`, `MAX_DISCOUNT_PCT` 45%, Green Bazar — diskont ANIQ ulush+5% (35%; men shunday tushundim, egasi savolga javob bermagan);
