@@ -13,6 +13,7 @@ vi.mock('../src/services/sheetsSync.service', () => ({
 }));
 vi.mock('../src/services/notification.service', () => ({
   notifyDealDecision: vi.fn(async () => undefined),
+  notifyAdmins: vi.fn(async () => undefined),
 }));
 
 import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../src/services/access.service';
@@ -137,15 +138,20 @@ describe("Yaratish / tahrirlash / o'chirish huquqi", () => {
       expect(dealWriteDenial('edit', role, 'PENDING_APPROVAL')).toBeNull();
       expect(dealWriteDenial('edit', role, 'REJECTED')).toBeNull();
     }
-    for (const role of ['ADMIN', 'MANAGER', 'CASHIER']) {
-      expect(dealWriteDenial('edit', role, 'APPROVED')).toBeNull();
+    // 23.11.2026: tasdiqlangan chekni faqat ADMIN o'zgartiradi (sabab bilan — PUT da)
+    expect(dealWriteDenial('edit', 'ADMIN', 'APPROVED')).toBeNull();
+    for (const role of ['MANAGER', 'CASHIER', 'CFO', 'COO']) {
+      expect(dealWriteDenial('edit', role, 'APPROVED')).toBeTruthy();
+      expect(dealWriteDenial('edit', role, 'PENDING_APPROVAL')).toBeNull();
     }
   });
 
   it("o'chirish: ADMIN/MANAGER — istalgan; OPERATOR/AGENT — faqat kutilayotgan; qolganlar — yo'q", () => {
     for (const status of ['PENDING_APPROVAL', 'APPROVED', 'REJECTED']) {
       expect(dealWriteDenial('delete', 'ADMIN', status)).toBeNull();
-      expect(dealWriteDenial('delete', 'MANAGER', status)).toBeNull();
+      // MANAGER tasdiqlangan chekni o'chira olmaydi (23.11.2026)
+      if (status === 'APPROVED') expect(dealWriteDenial('delete', 'MANAGER', status)).toBeTruthy();
+      else expect(dealWriteDenial('delete', 'MANAGER', status)).toBeNull();
       for (const role of ['CASHIER', 'CFO', 'VIEWER', 'SELLER', 'STOREKEEPER']) {
         expect(dealWriteDenial('delete', role, status)).toBeTruthy();
       }

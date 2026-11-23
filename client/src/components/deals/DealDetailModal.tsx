@@ -5,6 +5,7 @@ import { useTranslation } from '../../context/LanguageContext';
 import { formatDateTime, formatMoney, formatPercent } from '../../utils/format';
 import type { Deal, Role } from '../../types';
 import { ApprovalBadge, DealStatusBadge } from './DealBadges';
+import { DealHistory } from './DealHistory';
 import { cleanText, dealDateTime, dealItems, dealPermissions, dealPhones, isQodirStore, isRegistratura } from './dealUtils';
 
 interface Props {
@@ -307,6 +308,8 @@ export const DealDetailModal: React.FC<Props> = ({ deal, role, onClose, onEdit, 
             <p className="whitespace-pre-wrap break-words rounded-control border border-line px-3 py-2.5 text-sm text-fg-secondary">{deal.note}</p>
           </Section>
         )}
+
+        <DealHistory dealId={deal.id} />
       </div>
     </Modal>
   );

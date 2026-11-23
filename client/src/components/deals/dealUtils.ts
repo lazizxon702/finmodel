@@ -139,8 +139,9 @@ export function dealPermissions(role: Role | string | null | undefined, deal: De
   const admin = role === 'ADMIN';
   return {
     // OPERATOR/AGENT: faqat hali tasdiqlanmagan bitim
-    edit: scoped ? status !== 'APPROVED' : role !== 'VIEWER',
-    remove: admin || role === 'MANAGER' || (scoped && status === 'PENDING_APPROVAL'),
+    // Tasdiqlangan chekni faqat ADMIN o'zgartiradi/o'chiradi (sabab bilan — egasi, 23.11.2026)
+    edit: status === 'APPROVED' ? admin : role !== 'VIEWER',
+    remove: status === 'APPROVED' ? admin : admin || role === 'MANAGER' || (scoped && status === 'PENDING_APPROVAL'),
     approve: admin && status !== 'APPROVED',
     reject: admin && status === 'PENDING_APPROVAL',
     expense: canUseExpense(role) && status === 'APPROVED' && !deal.checkExpense,

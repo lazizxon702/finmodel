@@ -270,7 +270,9 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
     form.storeId !== (deal as any).storeId ||
     form.providerId !== (deal as any).providerId;
   const discountError = discountTouched && form.withdrawnLimit > 0 ? discountViolationText(currentDiscount, discountRule, t) : '';
-  const needsReason = admin && (Boolean(discountError) || serverRuleError);
+  // Tasdiqlangan chekni admin faqat sabab bilan o'zgartiradi (egasi, 23.11.2026)
+  const approvedEdit = isEdit && (deal!.approvalStatus || 'APPROVED') === 'APPROVED';
+  const needsReason = admin && (Boolean(discountError) || serverRuleError || approvedEdit);
 
   const store = stores.find((s) => s.id === form.storeId);
   const agency = agencies.find((a) => a.id === form.agencyId);
@@ -363,7 +365,10 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         })),
       };
       // Registrator: faqat ADMIN tanlaydi (bo'shatilsa null); boshqalarga server o'zi qo'yadi
-      if (admin && needsReason) payload.overrideReason = overrideReason.trim();
+      if (admin && needsReason) {
+        payload.overrideReason = overrideReason.trim();
+        payload.editReason = overrideReason.trim();
+      }
       if (admin) payload.registratorId = form.registratorId || null;
       else delete payload.registratorId;
       if (hideAgentPickers) {
@@ -386,7 +391,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
       onSaved(res.data, isEdit);
     } catch (err: any) {
       // Diskont qoidasi buzildi (server): admin sabab yozib qayta saqlashi mumkin
-      if (err?.response?.data?.code === 'DISCOUNT_RULE' && err.response.data.overridable) setServerRuleError(true);
+      if (['DISCOUNT_RULE', 'EDIT_REASON'].includes(err?.response?.data?.code) && err.response.data.overridable) setServerRuleError(true);
       setError(apiError(err, t));
     } finally {
       setSaving(false);
@@ -628,7 +633,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
             </div>
           )}
           {needsReason && (
-            <Field label={t('dealsPage.override_reason')} required hint={t('dealsPage.override_reason_hint')}>
+            <Field label={t(approvedEdit && !discountError ? 'dealsPage.edit_reason' : 'dealsPage.override_reason')} required hint={t('dealsPage.override_reason_hint')}>
               <Input value={overrideReason} autoComplete="off" onChange={(e) => setOverrideReason(e.target.value)} />
             </Field>
           )}

@@ -39,6 +39,7 @@ vi.mock('../src/services/sheetsSync.service', () => ({
 }));
 vi.mock('../src/services/notification.service', () => ({
   notifyDealDecision: vi.fn(async () => undefined),
+  notifyAdmins: vi.fn(async () => undefined),
 }));
 
 import { prisma } from '../src/lib/prisma';

@@ -545,6 +545,23 @@ export async function notifyDealDecision(notice: DealDecisionNotice): Promise<vo
   }
 }
 
+/**
+ * Egasiga (barcha faol ADMIN foydalanuvchilarga) ogohlantirish: tasdiqlangan chekning pul maydoni o'zgardi,
+ * chek uzoq kutmoqda va h.k. HECH QACHON xato tashlamaydi.
+ */
+export async function notifyAdmins(notice: { title: string; lines: string[]; url?: string }): Promise<void> {
+  try {
+    const admins = await prisma.user.findMany({ where: { role: 'ADMIN', isActive: true }, select: { id: true } });
+    const body = notice.lines.join('\n');
+    const html = `⚠️ <b>${escapeHtml(notice.title)}</b>\n\n${notice.lines.map((l) => escapeHtml(l)).join('\n')}`;
+    await Promise.all(
+      admins.map((a) => deliverToUser(a.id, { title: notice.title, body, html, data: { type: 'admin_alert' } }))
+    );
+  } catch (error) {
+    console.warn('notifyAdmins xatosi:', safeError(error));
+  }
+}
+
 /** Sinov bildirishnomasi (POST /api/notifications/test) — foydalanuvchining o'ziga */
 export async function sendTestNotification(userId: string): Promise<NotifyResult> {
   const when = `${formatTashkentDateTime(new Date())} (Toshkent vaqti)`;

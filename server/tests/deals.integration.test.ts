@@ -14,6 +14,7 @@ vi.mock('../src/services/sheetsSync.service', () => ({
 }));
 vi.mock('../src/services/notification.service', () => ({
   notifyDealDecision: vi.fn(async () => undefined),
+  notifyAdmins: vi.fn(async () => undefined),
 }));
 
 function isLocalDatabase(): boolean {
@@ -358,6 +359,40 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(await prisma.ddsTransaction.count({ where: { dealId: r.data.id } })).toBe(1);
   });
 
+  it("tasdiqlangan chek: faqat admin, sabab bilan; tarix (kim, maydon, eski → yangi, sabab); pul o'zgarsa adminlarga xabar", async () => {
+    const notif = await import('../src/services/notification.service');
+    const r = await api('opA', 'POST', '/api/deals', dealBody());
+    expect(r.status).toBe(201);
+    const id = r.data.id;
+    expect((await api('admin', 'POST', `/api/deals/${id}/approve`, {})).status).toBe(200);
+
+    // kassir (avval mumkin edi) va operator — 403
+    expect((await api('cashier', 'PUT', `/api/deals/${id}`, { note: 'x' })).status).toBe(403);
+    expect((await api('opA', 'PUT', `/api/deals/${id}`, { note: 'x' })).status).toBe(403);
+    // admin sababsiz — 400 EDIT_REASON
+    const noReason = await api('admin', 'PUT', `/api/deals/${id}`, { calculatedAmount: 3_400_000 });
+    expect(noReason.status).toBe(400);
+    expect(noReason.data.code).toBe('EDIT_REASON');
+
+    (notif.notifyAdmins as any).mockClear();
+    const ok = await api('admin', 'PUT', `/api/deals/${id}`, { calculatedAmount: 3_400_000, editReason: 'mijoz bilan qayta kelishildi' });
+    expect(ok.status).toBe(200);
+    expect(notif.notifyAdmins).toHaveBeenCalledTimes(1);
+    const msg = (notif.notifyAdmins as any).mock.calls[0][0];
+    expect(msg.lines.join('\n')).toContain('Mijozga: 3 500 000 → 3 400 000');
+
+    const hist = await api('admin', 'GET', `/api/deals/${id}/history`);
+    expect(hist.status).toBe(200);
+    const upd = hist.data.find((h: any) => h.action === 'UPDATE');
+    expect(upd).toMatchObject({ reason: 'mijoz bilan qayta kelishildi', by: expect.any(String) });
+    expect(upd.changes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'calculatedAmount', fromText: '3 500 000', toText: '3 400 000' })])
+    );
+    expect(hist.data.map((h: any) => h.action)).toEqual(expect.arrayContaining(['CREATE', 'APPROVE', 'UPDATE']));
+    // keyingi testlardagi operator KPI hisobiga aralashmasin
+    expect((await api('admin', 'DELETE', `/api/deals/${id}`)).status).toBe(200);
+  });
+
   it("Trust bitimi: tasdiqlangach Trust daftariga DEBT (to'liq limit) tushadi; trustDebtAmount (daromad) 16%, limit o'zgarsa yangilanadi, o'chirilsa yo'qoladi", async () => {
     const r = await api('opA', 'POST', '/api/deals', dealBody({ storeId: trustStore.id, providerId: trustProvider.id, withdrawnLimit: 10_000_000, calculatedAmount: 8_000_000 }));
     expect(r.status).toBe(201);
@@ -372,16 +407,16 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(entry).toMatchObject({ type: 'DEBT' });
     expect(Number(entry!.amount)).toBe(10_000_000);
 
-    const upd = await api('admin', 'PUT', `/api/deals/${id}`, { withdrawnLimit: 5_000_000, calculatedAmount: 4_000_000 });
+    const upd = await api('admin', 'PUT', `/api/deals/${id}`, { withdrawnLimit: 5_000_000, calculatedAmount: 4_000_000, editReason: 'sinov tahriri' });
     expect(upd.status).toBe(200);
     entry = await prisma.trustLedgerEntry.findUnique({ where: { dealId: id } });
     expect(Number(entry!.amount)).toBe(5_000_000);
 
     // do'kon/provayder Trust bo'lmay qolsa — qarz yozuvi o'chadi
-    const moved = await api('admin', 'PUT', `/api/deals/${id}`, { storeId: store.id, providerId: provider.id });
+    const moved = await api('admin', 'PUT', `/api/deals/${id}`, { storeId: store.id, providerId: provider.id, editReason: 'sinov tahriri' });
     expect(moved.status).toBe(200);
     expect(await prisma.trustLedgerEntry.count({ where: { dealId: id } })).toBe(0);
-    const back = await api('admin', 'PUT', `/api/deals/${id}`, { storeId: trustStore.id, providerId: trustProvider.id });
+    const back = await api('admin', 'PUT', `/api/deals/${id}`, { storeId: trustStore.id, providerId: trustProvider.id, editReason: 'sinov tahriri' });
     expect(back.status).toBe(200);
     expect(await prisma.trustLedgerEntry.count({ where: { dealId: id } })).toBe(1);
 
@@ -441,7 +476,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(found.data.deals.map((d: any) => d.id)).toEqual([id]);
 
     // eski klient formati (deviceItems) bilan to'liq almashtirish
-    const upd = await api('admin', 'PUT', `/api/deals/${id}`, {
+    const upd = await api('admin', 'PUT', `/api/deals/${id}`, { editReason: 'sinov tahriri',
       deviceItems: [{ id: '1', productName: 'Redmi 13', color: 'Green', storageGb: '128GB', quantity: 1, imeiBarcode: `${TAG}-C1`, imei2: '' }],
     });
     expect(upd.status).toBe(200);

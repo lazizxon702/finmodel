@@ -37,6 +37,7 @@ import {
   lockSale,
 } from '../services/sale.service';
 import { pushDealToGoogleSheets } from '../services/sheetsSync.service';
+import { notifyAdmins } from '../services/notification.service';
 
 const router = Router();
 
@@ -216,12 +217,13 @@ export function dealWriteDenial(
       : "Registratura bitimni o'chira olmaydi — administratorga murojaat qiling";
   }
   const scoped = isScopedRole(role);
-  if (action === 'edit') {
-    if (scoped && approvalStatus === 'APPROVED') {
-      return "Tasdiqlangan bitimni tahrirlab bo'lmaydi — administratorga murojaat qiling";
-    }
-    return null;
+  // Tasdiqlangan chekni FAQAT admin o'zgartiradi yoki o'chiradi (egasi, 23.11.2026); admin — sabab bilan (PUT da tekshiriladi)
+  if (approvalStatus === 'APPROVED' && role !== Role.ADMIN) {
+    return action === 'edit'
+      ? "Tasdiqlangan chekni faqat administrator o'zgartira oladi — administratorga murojaat qiling"
+      : "Tasdiqlangan chekni faqat administrator o'chira oladi";
   }
+  if (action === 'edit') return null;
   if (role === Role.ADMIN || role === Role.MANAGER) return null;
   if (scoped) {
     return approvalStatus === 'PENDING_APPROVAL'
@@ -568,8 +570,64 @@ const getActiveRules = () => loadActiveCommissionRules();
 /** Admin qoidani chetlab o'tganda yoziladigan sabab — kamida 5 belgi */
 export function overrideReasonOf(role: Role | string, body: any): string | null {
   if (role !== Role.ADMIN) return null;
-  const r = String(body?.overrideReason ?? '').replace(/\s+/g, ' ').trim();
+  const r = String(body?.overrideReason ?? body?.editReason ?? '').replace(/\s+/g, ' ').trim();
   return r.length >= 5 ? r : null;
+}
+
+/** Tarixda ko'rsatiladigan maydonlar (Batafsil → O'zgarishlar tarixi). money — Telegram ogohlantirishi uchun */
+export const HISTORY_FIELDS: { key: string; label: string; money?: boolean; pick?: (v: any) => unknown }[] = [
+  { key: 'date', label: 'Sana', pick: (v) => v?.dateYmd ?? null },
+  { key: 'store', label: "Do'kon", money: true, pick: (v) => v?.store?.name ?? null },
+  { key: 'provider', label: 'Provayder', money: true, pick: (v) => v?.provider?.name ?? null },
+  { key: 'customerLimit', label: 'Mijoz limiti' },
+  { key: 'withdrawnLimit', label: 'Yechilgan limit', money: true },
+  { key: 'purchaseDiscountPct', label: 'Diskont', money: true },
+  { key: 'calculatedAmount', label: 'Mijozga', money: true },
+  { key: 'agentAmount', label: 'Agentga', money: true },
+  { key: 'profit', label: 'Foyda' },
+  { key: 'agency', label: 'Agent', pick: (v) => v?.agency?.name ?? null },
+  { key: 'agent', label: 'Operator', pick: (v) => v?.agent?.name ?? null },
+  { key: 'customerName', label: 'Mijoz' },
+  { key: 'customerPhone1', label: 'Telefon' },
+  { key: 'productName', label: 'Tovar' },
+  { key: 'imeiBarcode', label: 'IMEI' },
+  { key: 'status', label: 'Tovar holati' },
+  { key: 'approvalStatus', label: 'Tasdiq' },
+  { key: 'note', label: 'Izoh' },
+];
+
+function historyValue(f: (typeof HISTORY_FIELDS)[number], v: any): string | number | null {
+  const raw = f.pick ? f.pick(v) : v?.[f.key];
+  if (raw === undefined || raw === null || raw === '') return null;
+  return typeof raw === 'number' ? raw : String(raw);
+}
+function sameValue(a: string | number | null, b: string | number | null): boolean {
+  if (a === null || b === null) return a === b;
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb) && String(a).trim() !== '' && String(b).trim() !== '') return Math.abs(na - nb) < 1e-6;
+  return String(a) === String(b);
+}
+
+/** Ikki bitim ko'rinishi orasidagi o'zgargan maydonlar */
+export function diffDealViews(oldV: any, newV: any) {
+  const out: { field: string; label: string; from: string | number | null; to: string | number | null; money: boolean }[] = [];
+  for (const f of HISTORY_FIELDS) {
+    const a = historyValue(f, oldV);
+    const b = historyValue(f, newV);
+    if (!sameValue(a, b)) out.push({ field: f.key, label: f.label, from: a, to: b, money: !!f.money });
+  }
+  return out;
+}
+
+/** Tarix qiymatini matnga: diskont — foiz, summalar — bo'shliq bilan */
+export function fmtHistory(field: string, v: string | number | null): string {
+  if (v === null || v === undefined) return '—';
+  if (field === 'purchaseDiscountPct') return `${Math.round(Number(v) * 1000) / 10}%`;
+  if (['customerLimit', 'withdrawnLimit', 'calculatedAmount', 'agentAmount', 'profit'].includes(field)) {
+    return Math.round(Number(v)).toLocaleString('ru-RU').replace(/ /g, ' ');
+  }
+  return String(v);
 }
 
 /**
@@ -1302,6 +1360,50 @@ router.get('/my-defaults', authenticateToken, async (req: AuthRequest, res: Resp
   }
 });
 
+// GET /api/deals/:id/history — chek tarixi: kim, qachon, qaysi maydon, eski → yangi, sabab (egasi, 23.11.2026)
+router.get('/:id/history', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const deal = await prisma.deal.findFirst({ where: await scopedDealWhere(user, { id: req.params.id }), select: { id: true } });
+    if (!deal) return res.status(404).json({ error: 'Bitim topilmadi' });
+    const logs = await prisma.auditLog.findMany({
+      where: { entity: 'Deal', entityId: deal.id },
+      orderBy: { createdAt: 'asc' },
+      include: { user: { select: { fullName: true } } },
+    });
+    // Registratorga pul maydonlari ko'rsatilmaydi (Bitimlar sahifasidagi kabi)
+    const hideMoney = user.role === Role.REGISTRATURA;
+    const items = logs.map((l) => {
+      const nv: any = l.newValues || {};
+      const changes =
+        l.action === 'UPDATE'
+          ? diffDealViews(l.oldValues, nv)
+              .filter((c) => !(hideMoney && (c.money || c.field === 'profit' || c.field === 'customerLimit')))
+              .map((c) => ({ ...c, fromText: fmtHistory(c.field, c.from), toText: fmtHistory(c.field, c.to) }))
+          : [];
+      const reason =
+        l.action === 'UPDATE' ? nv._reason || null
+        : l.action === 'OVERRIDE' ? nv.reason || null
+        : l.action === 'REJECT' ? nv.rejectReason || null
+        : null;
+      return {
+        id: l.id,
+        action: l.action,
+        at: l.createdAt,
+        atLabel: formatTashkentDateTime(l.createdAt),
+        by: l.user?.fullName || null,
+        reason,
+        rule: l.action === 'OVERRIDE' && !hideMoney ? nv.rule || null : null,
+        changes,
+      };
+    });
+    // Hech narsa o'zgarmagan tahrirlar (faqat saqlash bosilgan) ko'rsatilmaydi
+    return res.json(items.filter((i) => i.action !== 'UPDATE' || i.changes.length || i.reason));
+  } catch (error: any) {
+    return sendError(res, error, 'Chek tarixini olishda xatolik');
+  }
+});
+
 router.get('/:id', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const deal = await prisma.deal.findFirst({
@@ -1598,6 +1700,16 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
     ]);
     if (!store || !provider) return res.status(400).json({ error: "Do'kon yoki provayder xato" });
 
+    // Tasdiqlangan chek: admin ham faqat sabab bilan o'zgartiradi (sabab tarixga yoziladi)
+    const editReason = existing.approvalStatus === 'APPROVED' ? overrideReasonOf(user.role, body) : null;
+    if (existing.approvalStatus === 'APPROVED' && !editReason) {
+      return res.status(400).json({
+        error: "Tasdiqlangan chekni o'zgartirish sababini yozing (kamida 5 belgi)",
+        code: 'EDIT_REASON',
+        overridable: true,
+      });
+    }
+
     const newStatus = parseDealStatus(body.status);
     if (newStatus && newStatus !== existing.status) {
       if (!body.statusChangeReason || !String(body.statusChangeReason).trim()) {
@@ -1818,8 +1930,23 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
     const updated = await prisma.deal.findUnique({ where: { id }, include: DEAL_INCLUDE });
     const view = serializeDeal(updated);
 
-    await writeAudit(user.id, id, 'UPDATE', serializeDeal(existing), view);
+    const oldView = serializeDeal(existing);
+    await writeAudit(user.id, id, 'UPDATE', oldView, { ...view, _reason: editReason || discountCheck.override?.reason || null });
     if (discountCheck.override) await writeAudit(user.id, id, 'OVERRIDE', undefined, discountCheck.override);
+    // Tasdiqlangan chekda pul maydoni o'zgarsa — egasiga (adminlarga) Telegram/push (egasi, 23.11.2026)
+    if (existing.approvalStatus === 'APPROVED') {
+      const moneyChanges = diffDealViews(oldView, view).filter((c) => c.money);
+      if (moneyChanges.length) {
+        void notifyAdmins({
+          title: `Chek #${existing.dealNumber} o'zgartirildi`,
+          lines: [
+            `Kim: ${user.fullName}`,
+            ...moneyChanges.map((c) => `${c.label}: ${fmtHistory(c.field, c.from)} → ${fmtHistory(c.field, c.to)}`),
+            `Sabab: ${editReason || '—'}`,
+          ],
+        });
+      }
+    }
 
     emitRealtime('deals:updated', { id, action: 'updated', approvalStatus: updated?.approvalStatus });
     if (trustDebt > 0 || hadTrustEntry > 0) emitRealtime('trust:updated', {});

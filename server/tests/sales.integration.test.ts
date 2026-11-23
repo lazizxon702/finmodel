@@ -15,6 +15,7 @@ vi.mock('../src/services/sheetsSync.service', () => ({
 }));
 vi.mock('../src/services/notification.service', () => ({
   notifyDealDecision: vi.fn(async () => undefined),
+  notifyAdmins: vi.fn(async () => undefined),
 }));
 
 function isLocalDatabase(): boolean {
@@ -744,7 +745,7 @@ describe.skipIf(!LOCAL)("Sotuvlar API — ko'p tovarli sotuv (lokal baza)", () =
   it("bitimni tahrirlash (PUT /api/deals/:id) sotuv maydonlarini buzmaydi; tannarx o'zgarsa ulushlar qayta taqsimlanadi", async () => {
     const id = mainDeals[0];
     const before = await prisma.deal.findUnique({ where: { id } });
-    const r = await api('admin', 'PUT', `/api/deals/${id}`, {
+    const r = await api('admin', 'PUT', `/api/deals/${id}`, { editReason: 'sinov tahriri',
       note: 'tahrirlangan izoh',
       status: 'IN_WAREHOUSE',
       statusChangeReason: 'sinov',
@@ -778,7 +779,7 @@ describe.skipIf(!LOCAL)("Sotuvlar API — ko'p tovarli sotuv (lokal baza)", () =
     expect(num(sale.receivedAmount)).toBe(7_000_000);
 
     // Tannarxni o'zgartiradigan tahrir: yechilgan limit / xarid diskonti
-    const r2 = await api('admin', 'PUT', `/api/deals/${id}`, { customerLimit: 9_000_000, withdrawnLimit: 6_000_000, calculatedAmount: 4_000_000 });
+    const r2 = await api('admin', 'PUT', `/api/deals/${id}`, { customerLimit: 9_000_000, withdrawnLimit: 6_000_000, calculatedAmount: 4_000_000, editReason: 'sinov tahriri' });
     expect(r2.status).toBe(200);
     const sale2 = await expectSaleConsistent(mainSaleId);
     expect(num(sale2.totalPrice)).toBe(12_000_000);
