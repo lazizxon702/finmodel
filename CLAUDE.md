@@ -25,7 +25,10 @@ Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-2
   xato = rad etilgan YOKI tasdiqdan keyin admin "Registrator xatosi" belgisi bilan tuzatgan — AuditLog UPDATE `_inputError`), juftliklar (`/pairs`, POST/DELETE, `/pairs/check` — AppSetting `store_provider_check`).
   Juftlik tekshiruvi O'CHIQ — egasi ro'yxatni (01.11 dan 48 juftlik, `scripts/report-store-provider-pairs.ts`) "Nazorat"da qo'shib, o'zi yoqadi. "Trust 1 faqat Trust do'koni" — `dealChecks.service.ts` `storeProviderProblem`, HAR DOIM.
   #8113 (Novza) va #8194 (Angren) — Trust / Trust 1 ga O'TKAZILDI (egasi "Ha, o'tkaz", 23.11; zaxira `backups/db-raw-db-2026-11-23T13-12-00-698Z.json`, `scripts/move-to-trust-1123.ts --deals=8113,8194 --apply`): agent/foyda/Trust daftari o'zgarmadi (provayder allaqachon Trust 1 edi), Novza 18 095 000 va Angren 14 040 000 xato do'kon qarzi o'chdi; store/trust ledger dry-run 0.
-**Qolgan blok:** 9 (provayder bilan sverka akti).
+- **9-blok JONLIDA** (23.11 kech; zaxira `backups/db-raw-db-2026-11-23T13-28-18-133Z.json`, db push — yangi jadval `ReconciliationAct`; commit'lar 735db0d, 16db7b5; testlar 384/384):
+  "Nazorat → Sverka" (ADMIN/CFO/MANAGER): `services/reconciliation.service.ts` (`parseStatement` — .xlsx/.csv, sarlavha qatori va ustun taxmini; `matchStatement` — shartnoma → IMEI → summa+sana ±3 kun;
+  4 ro'yxat: matched/mismatched/providerOnly/oursOnly), `routes/control.routes.ts` `/api/control/recon` (+ `/parse`, `/:id`, `/:id/file`). Solishtiriladigan summa — bizda yechilgan limit (faqat tasdiqlangan cheklar).
+  Haqiqiy Trust Excel fayli bilan SINALMAGAN — egasidan namuna so'ralgan. **Spetsifikatsiyaning 9 bloki hammasi jonlida.** GitHub'ga push qilinmagan.
 Deploy buyrug'i avtomatik ruxsat tizimida to'xtashi mumkin — egasidan aniq "chiqar" so'raladi. Jonli Neon ba'zan birinchi ulanishda "Can't reach" beradi — qayta urin.
 
 ## ENG YANGI HOLAT — 2026-11-21 (yangi suhbat SHU YERDAN boshlasin)
