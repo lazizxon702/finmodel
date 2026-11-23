@@ -12,7 +12,15 @@ Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-2
 - **8-blok JONLI BAZAGA YOZILDI** (zaxira `backups/db-raw-db-2026-11-23T07-02-11-337Z.json`, `scripts/fix-block8-1123.ts --apply`, BIR MARTALIK; qayta dry-run 0, store/trust ledger dry-run 0):
   #8171 → Trust / Trust 1 (agent 2 800 000, foyda 4 480 000, Trust daftari +28 000 000, Novza qarzi o'chdi); Qodir aka qoldig'i 292 212 260 → 9 537 960:
   07.11 PAYMENT 179 081 300 ("07.11 gacha hisob-kitob", DDS'siz), TX-1075 57 692 000 to'lovga bog'landi (14.11 dagi "investitsiya" qarori bekor), 10.11 18 350 000 + 18 562 000 va 12.11 8 989 000 — DDS'da YO'Q, faqat daftarga (DDS'siz). Depozit 119 500 000 hisobga kirmaydi.
-**Qolgan bloklar (boshlanmagan):** 3 (majburiy maydonlar, telefon formati, shartnoma raqami noyob, hujjat ilovasi, IMEI Luhn/noyob omborga qabulda, 3 kundan ortiq kutish — qizil + Telegram), 4 ("Faktik berilgan summa", "Yaxlitlash farqi", 100 000 bardosh),
+- **3 va 4-bloklar JONLIDA** (23.11 kunduzi; zaxira `backups/db-raw-db-2026-11-23T08-25-01-372Z.json`, `prisma db push --accept-data-loss` — faqat yangi bo'sh ustunda unique ogohlantirishi; commit'lar 7641def, 8de72ba; testlar 374/374):
+  sxema `Deal.contractNumber @unique`, `actualPaidAmount/At/ById`, `staleNotifiedAt`, model `DealAttachment` (fayl bazada, Bytes, 3 MB), `DdsSource.DEAL_ROUNDING`.
+  Yangi chekda majburiy: F.I.Sh., telefon (`normalizeUzPhone` → "+998 90 123 45 67" saqlanadi), shartnoma raqami (`normalizeContractNumber`, noyob), tovar — `deals.routes.ts` `requiredFieldsMissing`; admin `overrideReason` bilan o'tkazadi.
+  Omborga qabulda IMEI (15 raqam + Luhn + noyob) — `dealChecks.service.ts` `warehouseImeiProblem`: inventory `/receive`, `/status`, deals POST/PUT; IMEI'siz tovar (kofe mashinka) ham — admin sabab bilan.
+  Hujjatsiz tasdiq yo'q (`/approve` 400 `NO_ATTACHMENT`); `/api/deals/:id/attachments` (GET/POST/DELETE, `/:attId` fayl). Faktik summa: `POST /:id/actual-paid` (ADMIN/CASHIER/MANAGER/CFO, tasdiqdan oldin) yoki tasdiqlash oynasida;
+  `ledger.approveDeal` chekni hisoblangan summa bilan, farqni "Yaxlitlash farqi" (DEAL_ROUNDING) qatori bilan yozadi (jami = faktik); bardosh AppSetting `payout_tolerance` (standart 100 000), oshsa 400 `PAYOUT_DIFF`.
+  3 kundan ortiq PENDING/NEED_TO_BUY: `serializeDeal.isStale` (jadvalda qizil), `notifyStaleDealsOncePerDay` — `GET /api/deals` da kuniga bir marta (AppSetting `stale_check_ymd`), har chekka bir marta.
+  Jonlida ko'z bilan tekshirilmagan; tasdiq kutayotgan eski cheklarga ham hujjat kerak.
+**Qolgan bloklar (boshlanmagan):**
 2 (do'kon↔provayder juftlari — avval 01.11 dan tasdiqlangan cheklardan ro'yxat egasiga ko'rsatiladi), 6 (registrator xatolari statistikasi), 7 (do'kon bo'yicha kutilayotgan tovar hisoboti), 9 (provayder bilan sverka akti).
 Deploy buyrug'i avtomatik ruxsat tizimida to'xtashi mumkin — egasidan aniq "chiqar" so'raladi. Jonli Neon ba'zan birinchi ulanishda "Can't reach" beradi — qayta urin.
 
