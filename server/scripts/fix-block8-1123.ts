@@ -118,7 +118,7 @@ async function main() {
     for (const m of manual) {
       await tx.storeLedgerEntry.create({ data: { storeId: qodir.id, type: StoreEntryType.PAYMENT, amount: m.amount, dateTime: at(m.ymd), note: m.note } });
     }
-  });
+  }, { timeout: 60_000, maxWait: 30_000 })
   console.log('\nYOZILDI.');
 }
 
