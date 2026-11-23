@@ -2,6 +2,10 @@
 
 Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-21.
 
+## 23.11 kech — YANDEX SPLIT (egasi; JONLIDA)
+Provayder "Yandex Split" (egasi qo'shgan): agentga ulush YO'Q — diskont to'liq kompaniya foydasi (`calculation.service.ts` `isNoAgentProvider`, calculateDeal `noAgent`; minimal diskont cheklanmaydi, maks 45%);
+agentlik va operator har doim "Apple" (`deals.routes.ts` `yandexAgency`, POST/PUT; forma ham avtomatik). Do'kon — faqat "Split RB" (egasi qo'shgan; juftlik jonliga yozildi, zaxira `backups/db-raw-db-2026-11-23T14-42-45-163Z.json`, `scripts/add-yandex-split-store-2311.ts`). Server+klient deploy. Ochiq savol: Split RB do'kon daftarida "bizga qarzdor" bo'lib yoziladi — to'g'rimi.
+
 ## 23.11 kech — DO'KONLAR TOZALANDI VA PROVAYDER → DO'KON FILTRI (egasi; JONLIDA)
 Zaxira `backups/db-raw-db-2026-11-23T14-22-48-263Z.json`, `scripts/apply-store-cleanup-2311.ts --apply` (BIR MARTALIK), server+klient deploy (commit 55b8d02).
 - YASHIRILDI (isActive=false, o'chirilmagan — cheklar, daftar, hisob-kitob joyida): Asosiy do'kon, Birzum, Boshqa, Denov, Green Bazar, Angren, Jizzax, Novza, Xusanboy. Bitimlar sahifasi filtrida ko'rinadi (`?all=1`).
