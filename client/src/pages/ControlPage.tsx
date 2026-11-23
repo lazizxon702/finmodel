@@ -23,15 +23,19 @@ import {
 import { useTranslation } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { formatDate, formatMoney } from '../utils/format';
+import { ReconciliationTab } from '../components/control/ReconciliationTab';
 
 // Nazorat (egasi, 23.11.2026): 7-blok tovar kutish, 6-blok registrator xatolari, 2-blok do'kon — provayder juftliklari.
-type Tab = 'awaiting' | 'errors' | 'pairs';
+type Tab = 'awaiting' | 'errors' | 'pairs' | 'recon';
 
 const errText = (e: any, fallback: string) => e?.response?.data?.error || fallback;
 
 export const ControlPage: React.FC = () => {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('awaiting');
+  const { user } = useAuth();
+  // Sverka — faqat ADMIN, CFO, MANAGER (server ham shunday)
+  const canRecon = ['ADMIN', 'CFO', 'MANAGER'].includes(String(user?.role || ''));
   return (
     <div className="space-y-5">
       <PageHeader icon={<ShieldCheck className="h-5 w-5" />} title={t('control.title')} description={t('control.subtitle')} />
@@ -40,6 +44,7 @@ export const ControlPage: React.FC = () => {
           { value: 'awaiting', label: t('control.tab_awaiting') },
           { value: 'errors', label: t('control.tab_errors') },
           { value: 'pairs', label: t('control.tab_pairs') },
+          ...(canRecon ? [{ value: 'recon' as Tab, label: t('control.tab_recon') }] : []),
         ]}
         value={tab}
         onChange={setTab}
@@ -47,6 +52,7 @@ export const ControlPage: React.FC = () => {
       {tab === 'awaiting' && <AwaitingGoods />}
       {tab === 'errors' && <RegistratorErrors />}
       {tab === 'pairs' && <StoreProviderPairs />}
+      {tab === 'recon' && canRecon && <ReconciliationTab />}
     </div>
   );
 };
