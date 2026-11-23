@@ -104,8 +104,10 @@ export async function storeProviderProblem(
     return `${provider.name} faqat Trust do'koni bilan ishlaydi — "${store.name}" tanlangan`;
   }
   if (!(await isStoreProviderCheckOn(db))) return null;
-  const ok = await db.storeProviderPair.findUnique({ where: { storeId_providerId: { storeId: store.id, providerId: provider.id } } });
-  return ok ? null : `Bu do'kon bu provayder bilan ishlamaydi: ${store.name} — ${provider.name}`;
+  // Provayderga ro'yxatda do'kon biriktirilmagan bo'lsa — cheklanmaydi (egasi, 23.11.2026: ro'yxat faqat ba'zi provayderlar uchun)
+  const pairs = await db.storeProviderPair.findMany({ where: { providerId: provider.id }, select: { storeId: true } });
+  if (!pairs.length) return null;
+  return pairs.some((p) => p.storeId === store.id) ? null : `Bu do'kon bu provayder bilan ishlamaydi: ${store.name} — ${provider.name}`;
 }
 
 /** Faktik berilgan summa uchun bardosh (so'm). AppSetting "payout_tolerance", bo'lmasa 100 000 */

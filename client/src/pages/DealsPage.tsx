@@ -178,7 +178,7 @@ export const DealsPage: React.FC = () => {
     (async () => {
       try {
         const [sRes, pRes, aRes] = await Promise.all([
-          axios.get('/api/references/stores'),
+          axios.get('/api/references/stores', { params: { all: 1 } }),
           axios.get('/api/references/providers'),
           axios.get('/api/references/agencies'),
         ]);

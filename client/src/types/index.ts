@@ -49,6 +49,8 @@ export interface Store {
   name: string;
   contactPhone?: string;
   address?: string;
+  /** false — yashirilgan (yangi chekda tanlanmaydi, eski cheklarda va filtrlarda ko'rinadi) */
+  isActive?: boolean;
 }
 
 export interface Provider {

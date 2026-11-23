@@ -164,6 +164,18 @@ router.get('/pairs', authenticateToken, requireRoles(VIEW_ROLES), async (_req: A
   }
 });
 
+// GET /api/control/pairs/map — chek formasi uchun (har qanday rol): { enabled, map: { providerId: [storeId...] } }
+router.get('/pairs/map', authenticateToken, async (_req: AuthRequest, res: Response) => {
+  try {
+    const [enabled, pairs] = await Promise.all([isStoreProviderCheckOn(), prisma.storeProviderPair.findMany({ select: { storeId: true, providerId: true } })]);
+    const map: Record<string, string[]> = {};
+    for (const p of pairs) (map[p.providerId] ||= []).push(p.storeId);
+    return res.json({ enabled, map });
+  } catch {
+    return res.json({ enabled: false, map: {} });
+  }
+});
+
 router.post('/pairs', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
   try {
     const list = Array.isArray(req.body?.pairs) ? req.body.pairs : [];

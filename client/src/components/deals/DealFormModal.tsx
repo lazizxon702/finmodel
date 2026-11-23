@@ -287,6 +287,35 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   const approvedEdit = isEdit && (deal!.approvalStatus || 'APPROVED') === 'APPROVED';
   const needsReason = admin && (Boolean(discountError) || serverRuleError || approvedEdit);
 
+  // Provayder → do'konlar (egasi, 23.11.2026): faqat faol do'konlar; "Trust 1" — faqat Trust; ro'yxat yoqilgan bo'lsa —
+  // provayderga biriktirilgan do'konlar (biriktirilmagan provayderda hamma faol do'kon). Tahrirda chekning o'z do'koni har doim ro'yxatda.
+  const [pairMap, setPairMap] = useState<{ enabled: boolean; map: Record<string, string[]> } | null>(null);
+  useEffect(() => {
+    axios
+      .get('/api/control/pairs/map')
+      .then((r) => setPairMap(r.data))
+      .catch(() => setPairMap({ enabled: false, map: {} }));
+  }, []);
+  const allowedStores = (() => {
+    const own = isEdit ? (deal as any).storeId : null;
+    const active = stores.filter((s) => s.isActive !== false || s.id === own);
+    const pName = (providers.find((p) => p.id === form.providerId)?.name || '').trim().toLowerCase();
+    let list = active;
+    if (pName === 'trust 1' || pName === 'trust') list = active.filter((s) => /^trust/i.test(s.name.trim()));
+    else if (pairMap?.enabled && pairMap.map[form.providerId]?.length) list = active.filter((s) => pairMap.map[form.providerId].includes(s.id));
+    if (own && !list.some((s) => s.id === own)) {
+      const o = stores.find((s) => s.id === own);
+      if (o) list = [...list, o];
+    }
+    return list;
+  })();
+  // Provayder almashsa va tanlangan do'kon ro'yxatda bo'lmasa — birinchi ruxsat etilgan do'kon avtomatik tanlanadi
+  useEffect(() => {
+    if (!allowedStores.length) return;
+    if (!allowedStores.some((s) => s.id === form.storeId)) setForm((prev) => ({ ...prev, storeId: allowedStores[0].id }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.providerId, pairMap, stores.length]);
+
   const store = stores.find((s) => s.id === form.storeId);
   const agency = agencies.find((a) => a.id === form.agencyId);
   const agents = agency?.agents || [];
@@ -506,7 +535,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
           </Field>
           <Field label={t('common.store')} required>
             <Select value={form.storeId} onChange={(e) => set({ storeId: e.target.value })}>
-              {stores.map((s) => (
+              {allowedStores.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
