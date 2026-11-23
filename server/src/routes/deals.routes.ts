@@ -14,6 +14,9 @@ import {
   isQodirStore,
   normalizeDealItems,
   tashkentDayRange,
+  discountLimitsFor,
+  discountViolation,
+  type CommissionRuleItem,
 } from '../services/calculation.service';
 import { ensureOperatorRecord } from '../services/team.service';
 import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../services/access.service';
@@ -561,6 +564,33 @@ async function findScopedDeal(user: AuthUser, id: string) {
 
 /** Faol komissiya qoidalari — sotuvni omborga qaytarish ham aynan shu yuklagichni ishlatadi (sale.service) */
 const getActiveRules = () => loadActiveCommissionRules();
+
+/** Admin qoidani chetlab o'tganda yoziladigan sabab — kamida 5 belgi */
+export function overrideReasonOf(role: Role | string, body: any): string | null {
+  if (role !== Role.ADMIN) return null;
+  const r = String(body?.overrideReason ?? '').replace(/\s+/g, ' ').trim();
+  return r.length >= 5 ? r : null;
+}
+
+/**
+ * Diskont chegarasi (egasi, 23.11.2026): minimal — provayder/do'kon ulushi (spravochnik), maksimal 45%, Green Bazar — aniq ulush + 5%.
+ * Buzilsa: admin sabab bilan o'tkazishi mumkin (sabab bitim tarixiga yoziladi), qolganlarga 400.
+ */
+export function checkDiscount(
+  role: Role | string,
+  body: any,
+  input: { storeName: string; providerName: string; withdrawn: number; calculated: number; date: Date | string },
+  rules: CommissionRuleItem[]
+): { ok: true; override: { rule: string; reason: string } | null } | { ok: false; error: string; overridable: boolean } {
+  const w = Number(input.withdrawn) || 0;
+  if (w <= 0) return { ok: true, override: null };
+  const disc = (w - (Number(input.calculated) || 0)) / w;
+  const violation = discountViolation(disc, discountLimitsFor(input.storeName, input.providerName, rules, input.date));
+  if (!violation) return { ok: true, override: null };
+  const reason = overrideReasonOf(role, body);
+  if (reason) return { ok: true, override: { rule: violation, reason } };
+  return { ok: false, error: violation, overridable: role === Role.ADMIN };
+}
 
 /** Summani o'qiydi: bo'sh → 0; son bo'lmasa yoki manfiy bo'lsa 400 */
 function toAmount(value: unknown, label: string): number {
@@ -1233,6 +1263,24 @@ router.get('/kpi-details', authenticateToken, async (req: AuthRequest, res: Resp
 // GET /api/deals/:id — doiradan tashqaridagi bitim 404
 // GET /api/deals/my-defaults — yangi chek formasi uchun avtomatik qiymatlar (kim kiritayotganiga qarab)
 //   { agencyId, agencyName, agentId, agentName, registratorId, registratorName, lockAgency, lockAgent }
+// GET /api/deals/discount-rule?storeId&providerId&date — formadagi diskont chegarasi (min/maks/aniq, spravochnikdan)
+router.get('/discount-rule', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const { storeId, providerId, date } = req.query as Record<string, string | undefined>;
+    if (!storeId || !providerId) return res.status(400).json({ error: "Do'kon yoki provayder tanlanmagan" });
+    const [store, provider, rules] = await Promise.all([
+      prisma.store.findUnique({ where: { id: String(storeId) }, select: { name: true } }),
+      prisma.provider.findUnique({ where: { id: String(providerId) }, select: { name: true } }),
+      getActiveRules(),
+    ]);
+    if (!store || !provider) return res.status(404).json({ error: "Do'kon yoki provayder topilmadi" });
+    const at = date ? new Date(`${String(date).slice(0, 10)}T12:00:00+05:00`) : new Date();
+    return res.json(discountLimitsFor(store.name, provider.name, rules, isNaN(at.getTime()) ? new Date() : at));
+  } catch (error: any) {
+    return sendError(res, error, 'Diskont qoidasini olishda xatolik');
+  }
+});
+
 router.get('/my-defaults', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
@@ -1366,6 +1414,16 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
 
     const products = buildDealProducts(pickItemsInput(body), body);
 
+    const discountCheck = checkDiscount(
+      user.role,
+      body,
+      { storeName: store.name, providerName: provider.name, withdrawn: withdrawnLimit, calculated: calculatedAmount, date },
+      rules
+    );
+    if ('error' in discountCheck) {
+      return res.status(400).json({ error: discountCheck.error, code: 'DISCOUNT_RULE', overridable: discountCheck.overridable });
+    }
+
     const calcResult = CalculationService.calculateDeal(
       {
         customerLimit,
@@ -1498,6 +1556,7 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
     const view = serializeDeal(newDeal);
 
     await writeAudit(user.id, result.id, 'CREATE', undefined, view);
+    if (discountCheck.override) await writeAudit(user.id, result.id, 'OVERRIDE', undefined, discountCheck.override);
 
     emitRealtime('deals:updated', { id: result.id, action: 'created', approvalStatus });
     if (result.check?.created) emitRealtime('dds:updated', {});
@@ -1595,6 +1654,24 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
     const putAgencyName = putAgencyId
       ? (await prisma.agency.findUnique({ where: { id: putAgencyId }, select: { name: true } }))?.name || null
       : null;
+
+    // Diskont chegarasi — faqat pul/do'kon/provayder/sana o'zgarganda (eski cheklar boshqa sabab bilan tahrirlanaversin)
+    const discountTouched =
+      Number(withdrawnLimit) !== Number(existing.withdrawnLimit) ||
+      Number(calculatedAmount) !== Number(existing.calculatedAmount) ||
+      storeId !== existing.storeId ||
+      providerId !== existing.providerId;
+    const discountCheck = discountTouched
+      ? checkDiscount(
+          user.role,
+          body,
+          { storeName: store.name, providerName: provider.name, withdrawn: Number(withdrawnLimit), calculated: Number(calculatedAmount), date },
+          rules
+        )
+      : { ok: true as const, override: null as { rule: string; reason: string } | null };
+    if ('error' in discountCheck) {
+      return res.status(400).json({ error: discountCheck.error, code: 'DISCOUNT_RULE', overridable: discountCheck.overridable });
+    }
 
     const calcResult = CalculationService.calculateDeal(
       {
@@ -1742,6 +1819,7 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
     const view = serializeDeal(updated);
 
     await writeAudit(user.id, id, 'UPDATE', serializeDeal(existing), view);
+    if (discountCheck.override) await writeAudit(user.id, id, 'OVERRIDE', undefined, discountCheck.override);
 
     emitRealtime('deals:updated', { id, action: 'updated', approvalStatus: updated?.approvalStatus });
     if (trustDebt > 0 || hadTrustEntry > 0) emitRealtime('trust:updated', {});

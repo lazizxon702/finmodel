@@ -10,6 +10,31 @@ import type { Agency, Deal, Provider, Role, Store } from '../../types';
 import { DealItemsEditor, isItemRowFilled, newItemRow, type ItemRow } from './DealItemsEditor';
 import { ACCOUNT_CODES, DEAL_STATUSES, type AccountCode, apiError, cleanText, dealItems, isQodirStore, isRegistratura, isScopedRole } from './dealUtils';
 
+/** GET /api/deals/discount-rule — diskont chegarasi (ulushlarda: 0.35 = 35%) */
+interface DiscountRule {
+  minPct: number;
+  maxPct: number;
+  exactPct: number | null;
+  label: string;
+  missing: boolean;
+}
+
+const pctLabel = (v: number) => String(Math.round(v * 1000) / 10);
+const DISCOUNT_EPS = 0.0005;
+
+/** Server bilan bir xil qoida (calculation.service.ts discountViolation); buzilmasa '' */
+function discountViolationText(d: number, rule: DiscountRule | null, t: (k: string, p?: any) => string): string {
+  if (!rule) return '';
+  const pct = pctLabel(d);
+  if (rule.missing) return t('dealsPage.err_discount_missing', { name: rule.label });
+  if (d > rule.maxPct + DISCOUNT_EPS) return t('dealsPage.err_discount_high', { pct, max: pctLabel(rule.maxPct) });
+  if (rule.exactPct !== null) {
+    return Math.abs(d - rule.exactPct) > DISCOUNT_EPS ? t('dealsPage.err_discount_exact', { pct, name: rule.label, exact: pctLabel(rule.exactPct) }) : '';
+  }
+  if (d < rule.minPct - DISCOUNT_EPS) return t('dealsPage.err_discount_low', { pct, name: rule.label, min: pctLabel(rule.minPct) });
+  return '';
+}
+
 /** Lead sahifasidan kelgan boshlang'ich qiymatlar */
 export interface DealPrefill {
   customerName?: string;
@@ -162,6 +187,11 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
   const [debtAlert, setDebtAlert] = useState<{ hasDebt: boolean; totalDebt: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Diskont chegarasi (egasi, 23.11.2026): server spravochnikdan beradi — min (provayder ulushi), maks 45%, Green Bazar — aniq
+  const [discountRule, setDiscountRule] = useState<DiscountRule | null>(null);
+  // Admin qoidadan chetlab o'tishi sababi (bitim tarixiga yoziladi)
+  const [overrideReason, setOverrideReason] = useState('');
+  const [serverRuleError, setServerRuleError] = useState(false);
 
   const set = (updates: Partial<FormState>) => setForm((prev) => ({ ...prev, ...updates }));
 
@@ -215,6 +245,33 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
     return /imani|imanum|imanu|иман/.test(p) && /denov|денов|jizzax|jizzah|жиззах/.test(s);
   })();
 
+  useEffect(() => {
+    if (!form.storeId || !form.providerId) {
+      setDiscountRule(null);
+      return;
+    }
+    let alive = true;
+    axios
+      .get('/api/deals/discount-rule', { params: { storeId: form.storeId, providerId: form.providerId, date: form.date || undefined } })
+      .then((res) => alive && setDiscountRule(res.data || null))
+      .catch(() => alive && setDiscountRule(null));
+    return () => {
+      alive = false;
+    };
+  }, [form.storeId, form.providerId, form.date]);
+
+  // Joriy diskont (ulush): (yechilgan − mijozga) / yechilgan
+  const currentDiscount = form.withdrawnLimit > 0 ? (form.withdrawnLimit - form.calculatedAmount) / form.withdrawnLimit : 0;
+  // Tahrirda: pul/do'kon/provayder o'zgarmagan bo'lsa tekshirilmaydi (server ham shunday)
+  const discountTouched =
+    !isEdit ||
+    Number(form.withdrawnLimit) !== Number(deal!.withdrawnLimit) ||
+    Number(form.calculatedAmount) !== Number(deal!.calculatedAmount) ||
+    form.storeId !== (deal as any).storeId ||
+    form.providerId !== (deal as any).providerId;
+  const discountError = discountTouched && form.withdrawnLimit > 0 ? discountViolationText(currentDiscount, discountRule, t) : '';
+  const needsReason = admin && (Boolean(discountError) || serverRuleError);
+
   const store = stores.find((s) => s.id === form.storeId);
   const agency = agencies.find((a) => a.id === form.agencyId);
   const agents = agency?.agents || [];
@@ -261,6 +318,8 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
 
     if (statusChanged && !form.statusChangeReason.trim()) return setError(t('dealsPage.err_status_reason'));
     if (registratura && !isEdit && !form.agencyId) return setError(t('dealsPage.err_agency_required'));
+    if (discountError && !admin) return setError(discountError);
+    if (needsReason && overrideReason.trim().length < 5) return setError(discountError ? `${discountError} ${t('dealsPage.err_override_reason')}` : t('dealsPage.err_override_reason'));
 
     setSaving(true);
     try {
@@ -304,6 +363,7 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
         })),
       };
       // Registrator: faqat ADMIN tanlaydi (bo'shatilsa null); boshqalarga server o'zi qo'yadi
+      if (admin && needsReason) payload.overrideReason = overrideReason.trim();
       if (admin) payload.registratorId = form.registratorId || null;
       else delete payload.registratorId;
       if (hideAgentPickers) {
@@ -324,7 +384,9 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
 
       const res = deal ? await axios.put(`/api/deals/${deal.id}`, payload) : await axios.post('/api/deals', payload);
       onSaved(res.data, isEdit);
-    } catch (err) {
+    } catch (err: any) {
+      // Diskont qoidasi buzildi (server): admin sabab yozib qayta saqlashi mumkin
+      if (err?.response?.data?.code === 'DISCOUNT_RULE' && err.response.data.overridable) setServerRuleError(true);
       setError(apiError(err, t));
     } finally {
       setSaving(false);
@@ -551,6 +613,25 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
               %
             </label>
           </div>
+
+          {discountRule && !discountRule.missing && (
+            <p className="text-xs tabular-nums text-fg-muted">
+              {discountRule.exactPct !== null
+                ? t('dealsPage.discount_rule_exact', { name: discountRule.label, pct: pctLabel(discountRule.exactPct) })
+                : t('dealsPage.discount_rule_range', { name: discountRule.label, min: pctLabel(discountRule.minPct), max: pctLabel(discountRule.maxPct) })}
+            </p>
+          )}
+          {discountError && (
+            <div role="alert" className="flex items-start gap-2 rounded-control bg-danger-soft px-3 py-2.5 text-sm text-danger">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <p>{discountError}</p>
+            </div>
+          )}
+          {needsReason && (
+            <Field label={t('dealsPage.override_reason')} required hint={t('dealsPage.override_reason_hint')}>
+              <Input value={overrideReason} autoComplete="off" onChange={(e) => setOverrideReason(e.target.value)} />
+            </Field>
+          )}
 
           {isQodirStore(store?.name) && (
             <div className="rounded-control bg-warning-soft px-3 py-2.5 text-sm">

@@ -176,6 +176,7 @@ describe.skipIf(!LOCAL)("Sotuvlar API — ko'p tovarli sotuv (lokal baza)", () =
     store = await prisma.store.create({ data: { name: `${TAG}_store` } });
     store2 = await prisma.store.create({ data: { name: `${TAG}_store2` } });
     provider = await prisma.provider.create({ data: { name: `${TAG}_provider` } });
+    await prisma.commissionRule.create({ data: { name: `${TAG}_rule`, providerId: provider.id, ratePercent: 0 } });
     initial = await balances();
   });
 
@@ -195,6 +196,7 @@ describe.skipIf(!LOCAL)("Sotuvlar API — ko'p tovarli sotuv (lokal baza)", () =
       await prisma.auditLog.deleteMany({ where: { OR: [{ userId: { in: userIds } }, { entityId: { in: dealIds } }] } });
       await prisma.user.deleteMany({ where: { id: { in: userIds } } });
       await prisma.store.deleteMany({ where: { name: { startsWith: TAG } } });
+      await prisma.commissionRule.deleteMany({ where: { name: { startsWith: TAG } } });
       await prisma.provider.deleteMany({ where: { name: { startsWith: TAG } } });
     } finally {
       await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));

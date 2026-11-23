@@ -344,7 +344,77 @@ export const DEFAULT_COMMISSION_RULES: DefaultRule[] = [
   { kind: 'provider', keys: ['paylater offline'], name: 'Paylater offline', ratePercent: 0.22 },
   { kind: 'provider', keys: ['paylater online'], name: 'Paylater online', ratePercent: 0.27 },
   { kind: 'provider', keys: ['finsum', 'finsim'], name: 'Finsum Nasiya', ratePercent: 0.22 },
+  // Birzum — 20% (egasi ro'yxati, 23.11.2026). Faqat shu kundan: eski Birzum cheklari qayta hisoblanmaydi
+  { kind: 'provider', keys: ['birzum'], name: 'Birzum', ratePercent: 0.2, validFromYmd: '2026-11-23' },
 ];
+
+// ───────────────────────── Diskont chegaralari (egasi, 23.11.2026) ─────────────────────────
+
+/** Maksimal diskont — undan yuqorisi faqat admin, sabab bilan */
+export const MAX_DISCOUNT_PCT = 0.45;
+/** Green Bazar: agentga qat'iy limit × 5% — diskont = kompaniya ulushi + 5% bo'lishi shart */
+export const GREEN_BAZAR_AGENT_PCT = 0.05;
+/** Yaxlitlash uchun bardosh (0.05 foiz punkti) */
+const DISCOUNT_EPS = 0.0005;
+
+export interface DiscountLimits {
+  /** Minimal diskont = kompaniya ulushi (spravochnikdan) */
+  minPct: number;
+  maxPct: number;
+  /** Aniq diskont (faqat Green Bazar) */
+  exactPct: number | null;
+  /** Xato matnidagi nom (provayder yoki do'kon) */
+  label: string;
+  /** Spravochnikda ham, standart ro'yxatda ham qoida topilmadi */
+  missing: boolean;
+}
+
+/** Chek uchun ruxsat etilgan diskont oralig'i. Foiz spravochnikdan (resolveCommission), qotirilmagan. */
+export function discountLimitsFor(
+  storeName: string | null | undefined,
+  providerName: string | null | undefined,
+  rules: CommissionRuleItem[] = [],
+  dealDate?: Date | string | null
+): DiscountLimits {
+  const c = resolveCommission(storeName, providerName, rules, dealDate);
+  const storeKey = normalizeName(canonicalStoreName(storeName));
+  const isGreen = storeKey === 'green bazar';
+  const storeLabelled = isGreen || isQodirStore(storeName) || isTrustName(storeName);
+  const label = (storeLabelled ? canonicalStoreName(storeName) : canonicalProviderName(providerName)) || String(providerName || '');
+  return {
+    minPct: c.rate,
+    maxPct: MAX_DISCOUNT_PCT,
+    exactPct: isGreen && c.source !== 'NONE' ? round2((c.rate + GREEN_BAZAR_AGENT_PCT) * 10000) / 10000 : null,
+    label,
+    missing: c.source === 'NONE',
+  };
+}
+
+const pctText = (v: number) => `${Math.round(v * 1000) / 10}`.replace(/\.0$/, '') + '%';
+
+/**
+ * Diskont qoidaga mos kelmasa — xato matni (o'zbekcha), mos kelsa null.
+ * Misol: 0.26, "6 oylik Alif" (35%) → "Diskont 26% — 6 oylik Alif uchun minimal 35%. Agent bilan qayta kelishing."
+ */
+export function discountViolation(discountPct: number, limits: DiscountLimits): string | null {
+  const d = Number(discountPct) || 0;
+  if (limits.missing) {
+    return `${limits.label || 'Bu provayder'} uchun foiz spravochnikda yo'q — administratorga ayting.`;
+  }
+  if (d > limits.maxPct + DISCOUNT_EPS) {
+    return `Diskont ${pctText(d)} — maksimal ${pctText(limits.maxPct)}. Undan yuqorisi faqat admin ruxsati bilan.`;
+  }
+  if (limits.exactPct !== null) {
+    if (Math.abs(d - limits.exactPct) > DISCOUNT_EPS) {
+      return `Diskont ${pctText(d)} — ${limits.label} uchun diskont aniq ${pctText(limits.exactPct)} bo'lishi kerak (agentga 5%). Agent bilan qayta kelishing.`;
+    }
+    return null;
+  }
+  if (d < limits.minPct - DISCOUNT_EPS) {
+    return `Diskont ${pctText(d)} — ${limits.label} uchun minimal ${pctText(limits.minPct)}. Agent bilan qayta kelishing.`;
+  }
+  return null;
+}
 
 export interface ResolvedCommission {
   /** Kompaniya ulushi (ulush) */

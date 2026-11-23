@@ -81,6 +81,8 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     customerLimit: 10_000_000,
     withdrawnLimit: 5_000_000,
     calculatedAmount: 3_500_000,
+    // Admin uchun diskont chegarasini chetlab o'tish sababi (boshqa rollarda e'tiborsiz)
+    overrideReason: 'integratsion sinov',
     productName: 'Test telefon',
     ...extra,
   });
@@ -139,6 +141,8 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     createdRefs.stores.push(store.id);
     provider = await prisma.provider.create({ data: { name: `${TAG}_provider` } });
     createdRefs.providers.push(provider.id);
+    // Diskont chegarasi (23.11.2026): sinov provayderiga 0% qoida — foiz "spravochnikda yo'q" bo'lmasin
+    await prisma.commissionRule.create({ data: { name: `${TAG}_rule`, providerId: provider.id, ratePercent: 0 } });
     qodirStore = await ensureByName('store', 'Qodir aka');
     trustStore = await ensureByName('store', 'Trust');
     trustProvider = await ensureByName('provider', 'Trust 1');
@@ -165,6 +169,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
       await prisma.agent.deleteMany({ where: { agencyId: { in: createdRefs.agencies } } });
       await prisma.agency.deleteMany({ where: { id: { in: createdRefs.agencies } } });
       await prisma.store.deleteMany({ where: { id: { in: createdRefs.stores } } });
+      await prisma.commissionRule.deleteMany({ where: { providerId: { in: createdRefs.providers } } });
       await prisma.provider.deleteMany({ where: { id: { in: createdRefs.providers } } });
     } finally {
       await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
@@ -367,7 +372,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(entry).toMatchObject({ type: 'DEBT' });
     expect(Number(entry!.amount)).toBe(10_000_000);
 
-    const upd = await api('admin', 'PUT', `/api/deals/${id}`, { withdrawnLimit: 5_000_000 });
+    const upd = await api('admin', 'PUT', `/api/deals/${id}`, { withdrawnLimit: 5_000_000, calculatedAmount: 4_000_000 });
     expect(upd.status).toBe(200);
     entry = await prisma.trustLedgerEntry.findUnique({ where: { dealId: id } });
     expect(Number(entry!.amount)).toBe(5_000_000);

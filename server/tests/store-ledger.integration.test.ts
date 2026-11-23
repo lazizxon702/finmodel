@@ -172,6 +172,7 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
     trustStore = await ensureStore('Trust');
     const provider = await prisma.provider.create({ data: { name: `${TAG}_provider` } });
     created.providers.push(provider.id);
+    await prisma.commissionRule.create({ data: { name: `${TAG}_rule`, providerId: provider.id, ratePercent: 0 } });
     providerId = provider.id;
 
     const app = express();
@@ -204,6 +205,7 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
         await prisma.user.deleteMany({ where: { id: adminId } });
       }
       await prisma.store.deleteMany({ where: { id: { in: created.stores } } });
+      await prisma.commissionRule.deleteMany({ where: { providerId: { in: created.providers } } });
       await prisma.provider.deleteMany({ where: { id: { in: created.providers } } });
 
       if (balancesBefore) {
@@ -319,6 +321,7 @@ describe.skipIf(!LOCAL)("Do'kon daftari va do'konlar hisoboti (faqat lokal baza)
         withdrawnLimit: 5_000_000,
         calculatedAmount: 1_200_000,
         productName: 'Test telefon',
+        overrideReason: 'integratsion sinov',
       });
       expect(r.status, JSON.stringify(r.body)).toBe(201);
       expect(r.body.approvalStatus).toBe('APPROVED');
