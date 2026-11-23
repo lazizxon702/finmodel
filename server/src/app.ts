@@ -38,6 +38,7 @@ import registraturaRoutes from './routes/registratura.routes';
 import storeReportsRoutes from './routes/storeReports.routes';
 import daftarRoutes from './routes/daftar.routes';
 import salesRoutes from './routes/sales.routes';
+import controlRoutes from './routes/control.routes';
 
 const app = express();
 
@@ -80,6 +81,7 @@ app.use('/api/registratura', registraturaRoutes);
 app.use('/api/store-reports', storeReportsRoutes);
 app.use('/api/daftar-reports', daftarRoutes);
 app.use('/api/sales', salesRoutes);
+app.use('/api/control', controlRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -9,6 +9,7 @@ import {
   STALE_DEAL_DAYS,
   formatTashkentDateTime,
   imeiProblem,
+  isTrustName,
 } from './calculation.service';
 import { LedgerError } from './ledger.service';
 import { notifyAdmins } from './notification.service';
@@ -80,6 +81,31 @@ export async function warehouseImeiProblem(
     return `IMEI ${c.imei} allaqachon ${c.dealNumbers.map((n) => '#' + n).join(', ')} chekda bor — takror bo'lishi mumkin emas`;
   }
   return null;
+}
+
+/** Juftlik tekshiruvi yoqilganmi (egasi boshlang'ich ro'yxatni tasdiqlagach admin yoqadi) */
+export const STORE_PROVIDER_CHECK_KEY = 'store_provider_check';
+export async function isStoreProviderCheckOn(db: Db = prisma): Promise<boolean> {
+  const row = await db.appSetting.findUnique({ where: { key: STORE_PROVIDER_CHECK_KEY } }).catch(() => null);
+  return row?.value === 'on';
+}
+
+/**
+ * Do'kon — provayder juftligi (egasi, 23.11.2026). Xato matni yoki null.
+ *   • "Trust 1" provayderi FAQAT "Trust" do'koni bilan — har doim tekshiriladi (#8171 xatosi);
+ *   • qolgani — ruxsat etilgan juftliklar ro'yxati bo'yicha, faqat tekshiruv yoqilgan bo'lsa.
+ */
+export async function storeProviderProblem(
+  db: Db,
+  store: { id: string; name: string },
+  provider: { id: string; name: string }
+): Promise<string | null> {
+  if (isTrustName(provider.name) && !isTrustName(store.name)) {
+    return `${provider.name} faqat Trust do'koni bilan ishlaydi — "${store.name}" tanlangan`;
+  }
+  if (!(await isStoreProviderCheckOn(db))) return null;
+  const ok = await db.storeProviderPair.findUnique({ where: { storeId_providerId: { storeId: store.id, providerId: provider.id } } });
+  return ok ? null : `Bu do'kon bu provayder bilan ishlamaydi: ${store.name} — ${provider.name}`;
 }
 
 /** Faktik berilgan summa uchun bardosh (so'm). AppSetting "payout_tolerance", bo'lmasa 100 000 */

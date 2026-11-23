@@ -148,6 +148,7 @@ model Store {
   deals           Deal[]
   commissionRules CommissionRule[]
   ledgerEntries   StoreLedgerEntry[]
+  providerPairs   StoreProviderPair[]
 }
 
 model Provider {
@@ -158,6 +159,7 @@ model Provider {
   isActive        Boolean          @default(true)
   deals           Deal[]
   commissionRules CommissionRule[]
+  storePairs      StoreProviderPair[]
 }
 
 model CommissionRule {
@@ -776,4 +778,18 @@ model InventoryAudit {
   difference       Int      @default(0)
   discrepancyNotes String?
   status           String   @default("YOPILDI")
+}
+
+// Ruxsat etilgan "do'kon — provayder" juftliklari (egasi, 23.11.2026). Tekshiruv AppSetting "store_provider_check" = "on" bo'lgandagina ishlaydi
+// (egasi boshlang'ich ro'yxatni tasdiqlagach yoqiladi). Faqat ADMIN tahrirlaydi.
+model StoreProviderPair {
+  id          String   @id @default(uuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([storeId, providerId])
 }

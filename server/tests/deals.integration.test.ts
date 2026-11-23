@@ -118,6 +118,7 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     app.use('/api/agents', (await import('../src/routes/agents.routes')).default);
     app.use('/api/debtors', (await import('../src/routes/debtors.routes')).default);
     app.use('/api/inventory', (await import('../src/routes/inventory.routes')).default);
+    app.use('/api/control', (await import('../src/routes/control.routes')).default);
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -422,6 +423,41 @@ describe.skipIf(!LOCAL)('Bitimlar API (lokal baza)', () => {
     expect(hist.data.map((h: any) => h.action)).toEqual(expect.arrayContaining(['CREATE', 'APPROVE', 'UPDATE']));
     // keyingi testlardagi operator KPI hisobiga aralashmasin
     expect((await api('admin', 'DELETE', `/api/deals/${id}`)).status).toBe(200);
+  });
+
+  it("do'kon — provayder: Trust 1 faqat Trust do'konida (har doim); ro'yxat tekshiruvi yoqilganda ishlaydi", async () => {
+    const trustElsewhere = await api('opA', 'POST', '/api/deals', dealBody({ storeId: store.id, providerId: trustProvider.id }));
+    expect(trustElsewhere.status).toBe(400);
+    expect(trustElsewhere.data.code).toBe('STORE_PROVIDER');
+
+    expect((await api('opA', 'GET', '/api/control/pairs')).status).toBe(403);
+    expect((await api('admin', 'POST', '/api/control/pairs', { pairs: [{ storeId: store.id, providerId: provider.id }] })).status).toBe(201);
+    const listed = await api('admin', 'GET', '/api/control/pairs');
+    const mine = listed.data.pairs.find((p: any) => p.storeId === store.id && p.providerId === provider.id);
+    expect(mine).toBeTruthy();
+    try {
+      expect((await api('admin', 'POST', '/api/control/pairs/check', { enabled: true })).data.enabled).toBe(true);
+      const bad = await api('opA', 'POST', '/api/deals', dealBody({ storeId: qodirStore.id }));
+      expect(bad.status).toBe(400);
+      expect(bad.data.error).toMatch(/ishlamaydi/);
+      const good = await api('opA', 'POST', '/api/deals', dealBody());
+      expect(good.status).toBe(201);
+      expect((await api('opA', 'DELETE', `/api/deals/${good.data.id}`)).status).toBe(200);
+    } finally {
+      await api('admin', 'POST', '/api/control/pairs/check', { enabled: false });
+      await api('admin', 'DELETE', `/api/control/pairs/${mine.id}`);
+    }
+  });
+
+  it('nazorat hisobotlari: tovar kutish va registrator xatolari', async () => {
+    const aw = await api('admin', 'GET', '/api/control/awaiting-goods');
+    expect(aw.status).toBe(200);
+    expect(aw.data).toMatchObject({ staleDays: 3, totals: expect.objectContaining({ count: expect.any(Number) }) });
+    expect((await api('opA', 'GET', '/api/control/awaiting-goods')).status).toBe(403);
+    const re = await api('admin', 'GET', '/api/control/registrator-errors?month=2026-11');
+    expect(re.status).toBe(200);
+    expect(Array.isArray(re.data.rows)).toBe(true);
+    expect((await api('admin', 'GET', '/api/control/registrator-errors?month=2026-13')).status).toBe(400);
   });
 
   it("omborga qabul: IMEI majburiy (15 raqam, Luhn, takrorlanmaydi); shartnoma raqami takrorlanmaydi", async () => {

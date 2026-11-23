@@ -22,7 +22,7 @@ import {
   normalizeUzPhone,
   type CommissionRuleItem,
 } from '../services/calculation.service';
-import { getPayoutTolerance, notifyStaleDealsOncePerDay, warehouseImeiProblem } from '../services/dealChecks.service';
+import { getPayoutTolerance, notifyStaleDealsOncePerDay, storeProviderProblem, warehouseImeiProblem } from '../services/dealChecks.service';
 import { ensureOperatorRecord } from '../services/team.service';
 import { APPROVED_ONLY, dealScopeWhere, isScopedRole } from '../services/access.service';
 import {
@@ -1536,6 +1536,7 @@ router.get('/:id/history', authenticateToken, async (req: AuthRequest, res: Resp
         atLabel: formatTashkentDateTime(l.createdAt),
         by: l.user?.fullName || null,
         reason,
+        inputError: l.action === 'UPDATE' ? nv._inputError === true : false,
         rule: l.action === 'OVERRIDE' && !hideMoney ? nv.rule || null : null,
         changes,
       };
@@ -1675,6 +1676,13 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
       const reason = overrideReasonOf(user.role, body);
       if (!reason) return res.status(400).json({ error: missing, code: 'REQUIRED_FIELDS', overridable: user.role === Role.ADMIN });
       overrides.push({ rule: missing, reason });
+    }
+    // Do'kon — provayder juftligi (egasi, 23.11.2026)
+    const pairErr = await storeProviderProblem(prisma, store, provider);
+    if (pairErr) {
+      const reason = overrideReasonOf(user.role, body);
+      if (!reason) return res.status(400).json({ error: pairErr, code: 'STORE_PROVIDER', overridable: user.role === Role.ADMIN });
+      overrides.push({ rule: pairErr, reason });
     }
     if (contractNumber) {
       const dup = await prisma.deal.findUnique({ where: { contractNumber }, select: { dealNumber: true } });
@@ -1966,6 +1974,14 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
       return res.status(400).json({ error: discountCheck.error, code: 'DISCOUNT_RULE', overridable: discountCheck.overridable });
     }
     const putOverrides: { rule: string; reason: string }[] = discountCheck.override ? [discountCheck.override] : [];
+    if (storeId !== existing.storeId || providerId !== existing.providerId) {
+      const pairErr = await storeProviderProblem(prisma, store, provider);
+      if (pairErr) {
+        const reason = overrideReasonOf(user.role, body);
+        if (!reason) return res.status(400).json({ error: pairErr, code: 'STORE_PROVIDER', overridable: user.role === Role.ADMIN });
+        putOverrides.push({ rule: pairErr, reason });
+      }
+    }
 
     // Shartnoma raqami (takrorlanmaydi) va telefon formati (egasi, 23.11.2026)
     const putContract = given('contractNumber') ? normalizeContractNumber(body.contractNumber) : existing.contractNumber;
@@ -2147,7 +2163,9 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
     const view = serializeDeal(updated);
 
     const oldView = serializeDeal(existing);
-    await writeAudit(user.id, id, 'UPDATE', oldView, { ...view, _reason: editReason || discountCheck.override?.reason || null });
+    // _inputError: admin "registrator xatosi" deb belgilagan tuzatish — 6-blok statistikasi uchun
+    const inputError = existing.approvalStatus === 'APPROVED' && (body.inputError === true || body.inputError === 'true');
+    await writeAudit(user.id, id, 'UPDATE', oldView, { ...view, _reason: editReason || discountCheck.override?.reason || null, _inputError: inputError });
     for (const o of putOverrides) await writeAudit(user.id, id, 'OVERRIDE', undefined, o);
     // Tasdiqlangan chekda pul maydoni o'zgarsa — egasiga (adminlarga) Telegram/push (egasi, 23.11.2026)
     if (existing.approvalStatus === 'APPROVED') {
