@@ -20,8 +20,12 @@ Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-2
   `ledger.approveDeal` chekni hisoblangan summa bilan, farqni "Yaxlitlash farqi" (DEAL_ROUNDING) qatori bilan yozadi (jami = faktik); bardosh AppSetting `payout_tolerance` (standart 100 000), oshsa 400 `PAYOUT_DIFF`.
   3 kundan ortiq PENDING/NEED_TO_BUY: `serializeDeal.isStale` (jadvalda qizil), `notifyStaleDealsOncePerDay` — `GET /api/deals` da kuniga bir marta (AppSetting `stale_check_ymd`), har chekka bir marta.
   Jonlida ko'z bilan tekshirilmagan; tasdiq kutayotgan eski cheklarga ham hujjat kerak.
-**Qolgan bloklar (boshlanmagan):**
-2 (do'kon↔provayder juftlari — avval 01.11 dan tasdiqlangan cheklardan ro'yxat egasiga ko'rsatiladi), 6 (registrator xatolari statistikasi), 7 (do'kon bo'yicha kutilayotgan tovar hisoboti), 9 (provayder bilan sverka akti).
+- **2, 6, 7-bloklar JONLIDA** (23.11 kech; zaxira `backups/db-raw-db-2026-11-23T12-53-22-174Z.json`, db push — yangi jadval `StoreProviderPair`, ogohlantirishsiz; commit'lar 57dbc09, 1e8c2f3; testlar 376/376):
+  menyu "Nazorat" (`/control`, `pages/ControlPage.tsx`, server `routes/control.routes.ts`, rollar ADMIN/MANAGER/CFO/COO/VIEWER): tovar kutish (`/api/control/awaiting-goods`), registrator xatolari (`/registrator-errors?month=`;
+  xato = rad etilgan YOKI tasdiqdan keyin admin "Registrator xatosi" belgisi bilan tuzatgan — AuditLog UPDATE `_inputError`), juftliklar (`/pairs`, POST/DELETE, `/pairs/check` — AppSetting `store_provider_check`).
+  Juftlik tekshiruvi O'CHIQ — egasi ro'yxatni (01.11 dan 48 juftlik, `scripts/report-store-provider-pairs.ts`) "Nazorat"da qo'shib, o'zi yoqadi. "Trust 1 faqat Trust do'koni" — `dealChecks.service.ts` `storeProviderProblem`, HAR DOIM.
+  Egasidan so'ralgan: #8113 (Novza) va #8194 (Angren) — Trust 1 orqali, do'koni Trust emas (#8171 kabi) — tuzatilsinmi, javob yo'q.
+**Qolgan blok:** 9 (provayder bilan sverka akti).
 Deploy buyrug'i avtomatik ruxsat tizimida to'xtashi mumkin — egasidan aniq "chiqar" so'raladi. Jonli Neon ba'zan birinchi ulanishda "Can't reach" beradi — qayta urin.
 
 ## ENG YANGI HOLAT — 2026-11-21 (yangi suhbat SHU YERDAN boshlasin)
