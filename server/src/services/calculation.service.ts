@@ -671,9 +671,9 @@ export function isRegistraturaAgency(agencyName?: string | null): boolean {
 
 /**
  * Yandex Split (egasi, 23.11.2026): bu provayder orqali urilgan chekdan agentga foyda CHIQMAYDI — diskontning hammasi
- * kompaniya foydasi. Do'kon — faqat "Apple", agentlik va operator — "Apple" (avtomatik qo'yiladi).
+ * kompaniya foydasi. Do'kon — faqat "Split RB" (juftlik), agentlik va operator — "Apple" (avtomatik qo'yiladi).
  */
-export const YANDEX_STORE_NAME = 'Apple';
+export const YANDEX_STORE_NAME = 'Split RB';
 export const YANDEX_AGENCY_NAME = 'Apple';
 const NO_AGENT_PROVIDERS = new Set(['yandex split', 'yandex', 'yandeks split', 'яндекс сплит']);
 export function isNoAgentProvider(providerName?: string | null): boolean {
