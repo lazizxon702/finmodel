@@ -2,6 +2,14 @@
 
 Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-21.
 
+## 26.11 — AGENTLIKKA XOS FOIZ (SHAXZOD) VA SPRAVOCHNIKDA PROVAYDER → DO'KONLAR (egasi; JONLIDA)
+Zaxira `backups/db-raw-db-2026-11-26T13-41-47-307Z.json`, db push (`CommissionRule.agencyId`), `scripts/apply-shaxzod-rules-2611.ts --apply --recalc`, server+klient deploy (commit 85c26ae).
+- `resolveCommission(..., agencyName)`: agentlik qoidasi faqat o'sha agentlik cheklariga; tartib: priority → do'kon qoidasi → agentlik qoidasi → uzunroq nom. calculateDeal, discountLimitsFor, do'kon daftari (ledger) agentlikni uzatadi.
+- Shaxzod: Variant online 20%, Variant offline 20% (egasi "Variant 20" dedi — ikkalasiga qo'yildi), Alif Online 26%, Alif Offline 22%, Imanum 25%. Eski cheklardan faqat #8276 o'zgardi (agent 110 000 → 302 500, foyda 742 500 → 550 000).
+- Spravochnik → Provayderlar → "Do'konlar" ustuni: provayderga do'konlarni belgilash (`PUT /api/control/pairs/provider/:id`); qoida formasida "Agentlik" tanlovi.
+- Spravochnikda egasi o'zgartirgan: "Variant" → "Variant online"; yangi do'konlar "Alif RB", "Split RB"; yangi provayder "Tbc".
+- 25.11: 10.11 sverkasi — saytda 7 chek (jadvalda 5; +#8222, #8223 Qodir "chek yo'q"); egasi "ko'proq bo'lishi kerak" dedi — manbasi so'ralgan, javob yo'q. 09.11: jadvalda #3699, #3702, #3703 bor (ilgari o'chirilgan).
+
 ## 23.11 kech — YANDEX SPLIT (egasi; JONLIDA)
 Provayder "Yandex Split" (egasi qo'shgan): agentga ulush YO'Q — diskont to'liq kompaniya foydasi (`calculation.service.ts` `isNoAgentProvider`, calculateDeal `noAgent`; minimal diskont cheklanmaydi, maks 45%);
 agentlik va operator har doim "Apple" (`deals.routes.ts` `yandexAgency`, POST/PUT; forma ham avtomatik). Do'kon — faqat "Split RB" (egasi qo'shgan; juftlik jonliga yozildi, zaxira `backups/db-raw-db-2026-11-23T14-42-45-163Z.json`, `scripts/add-yandex-split-store-2311.ts`). Server+klient deploy. Ochiq savol: Split RB do'kon daftarida "bizga qarzdor" bo'lib yoziladi — to'g'rimi.
