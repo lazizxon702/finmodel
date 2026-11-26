@@ -1,6 +1,34 @@
 # FinModel / Macmobi ERP — loyiha holati va ish qoidalari
 
-Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-21.
+Bu fayl yangi suhbatda ishni davom ettirish uchun. Oxirgi yangilanish: 2026-11-26.
+
+## >>> YANGI SUHBAT SHU YERDAN BOSHLASIN (26.11.2026 kech) <<<
+**Holat:** hamma kod JONLIDA va GitHub'da (`main`, oxirgi push 26.11 — commit f064aab; undan keyin faqat lokal commit'lar: Denov hisobot skripti va shu CLAUDE.md).
+Pastdagi bandlar sana bo'yicha tarix (yangisi tepada); ziddiyat bo'lsa YANGI sanali band ustun. 23.11 bandidagi "push qilinmagan" va "juftlik tekshiruvi O'CHIQ" degan yozuvlar ESKIRGAN (push qilingan, tekshiruv YOQILGAN).
+
+**23–26.11 da jonliga chiqqanlar (tafsiloti pastda):** registrator xatolariga qarshi 9 blok (diskont chegarasi, majburiy maydonlar, IMEI, hujjatlar, faktik summa, tarix, Nazorat sahifasi, sverka);
+#8171/#8113/#8194 → Trust; Qodir aka qoldig'i 9 537 960 ga tenglashtirildi; do'konlar tozalandi (9 ta yashirildi, 3 tasi qayta nomlandi) va provayder → do'kon filtri;
+Yandex Split (agentga 0, agent/operator Apple, do'kon Split RB); agentlikka xos foiz (Shaxzod); spravochnikda provayderga do'kon biriktirish.
+
+**Egasiga yuborilgan hisobotlar (23–26.11):** Novza va Rebus tovarlari — Google Sheets `1s2q1IarpFoqHyoOagX4E7VvEj8dWwAUlMXg4grNA86s` (`scripts/report-novza-rebus-xlsx.ts`);
+23.11 holati — fayl `backups/holat-2311.xlsx` (`scripts/report-holat-2311-xlsx.ts`; Drive'ga sig'madi — create_file'da fayl havolasini `sha256:<hash>:<yo'l>` ishlat, base64 matn emas);
+Denov hamma cheklari — Google Sheets `1ihQbuc5bw3k2zoH-kCw2GUHr1tHpvKitwzah3AwYB_Q` (`scripts/report-store-deals-xlsx.ts <fayl> --store=Denov`, istalgan do'kon uchun ishlaydi).
+
+**EGASIDAN JAVOB KUTILAYOTGANLAR (26.11):**
+1. **Samsung:** egasi "Samsung'lar hammasi kelgan, omborda qolmagan" dedi. Saytda 48 ta Samsung cheki (65 dona, tannarx 336 991 100) hali Kutilmoqda/Omborda/Sotib olish kerak holatida — yopish uchun kimga va qanchaga sotilgani kerak (jadval `holat-2311.xlsx` "Samsung — yopish kerak" varag'i). #8173 va #8188 da bir xil IMEI 352857626165283.
+2. **10.11 sverka:** egasi "10.11 da 7 tadan ko'p chek bo'lishi kerak" dedi. Saytda 7 ta (jadvaldagi 5 ta + #8222, #8223), "Фин модел" jadvalining hamma varaqlarida 5 ta. #3714–#3724 (11 ta) 10.11 kuni kiritilgan, sanasi 09.11 — ehtimol aslida 10.11. Egasidan manba so'ralgan.
+3. **09.11:** jadvalda #3699, #3702, #3703 (Novza/Birzum) bor, saytda yo'q (ilgari o'chirilgan) — qaytarilsinmi, javob yo'q.
+4. Split RB do'kon daftarida "bizga qarzdor" bo'lib yoziladi — to'g'rimi.
+5. Ro'yxatda yo'q provayderlar (Variant, Paylater, Payme, Infin, 6 oylik Alif, Alif nasiya, Birzum, Tbc) — hamma faol do'konlar bilan; cheklansinmi.
+6. Haqiqiy Trust Excel vipiskasi bilan sverka sinalmagan — namuna kerak.
+7. Denov: 16 chekdan 12 tasida tovar nomi yo'q, #3644 "Sotildi" lekin narxsiz (daftar foydasi 0).
+8. 21.11 ro'yxatidagi eski savollar (pastda) — hali ochiq.
+
+**Ish uslubi (23–26.11 saboqlari):** egasi savol oynasini (AskUserQuestion) rad etdi — oddiy qarorni o'zing qil, tushuntir, jonli yozishdan oldin "Ha" so'ra;
+deploy buyrug'ini avtomatik ruxsat tizimi to'xtatsa — egasidan aniq "chiqar" so'raladi; Neon birinchi ulanishda "Can't reach" beradi — 5–6 marta qayta urin;
+jonli yozish tartibi: zaxira (`backup-db-raw.ts`) → dry-run → egasi "ha" → `--apply` → qayta dry-run 0 → deploy → CLAUDE.md → commit → egasi so'rasa push.
+Sheets bitim sinxronlashi O'CHIQ (ustunni tartib raqami bilan o'qiydi); jadvalni tekshirish kerak bo'lsa — eksport xlsx'ni yuklab, ustunlarni SARLAVHA bo'yicha o'qi (export?format=xlsx ochiq ishlaydi).
+
 
 ## 26.11 — AGENTLIKKA XOS FOIZ (SHAXZOD) VA SPRAVOCHNIKDA PROVAYDER → DO'KONLAR (egasi; JONLIDA)
 Zaxira `backups/db-raw-db-2026-11-26T13-41-47-307Z.json`, db push (`CommissionRule.agencyId`), `scripts/apply-shaxzod-rules-2611.ts --apply --recalc`, server+klient deploy (commit 85c26ae).
