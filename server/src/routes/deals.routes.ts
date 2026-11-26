@@ -671,13 +671,13 @@ export function fmtHistory(field: string, v: string | number | null): string {
 export function checkDiscount(
   role: Role | string,
   body: any,
-  input: { storeName: string; providerName: string; withdrawn: number; calculated: number; date: Date | string },
+  input: { storeName: string; providerName: string; withdrawn: number; calculated: number; date: Date | string; agencyName?: string | null },
   rules: CommissionRuleItem[]
 ): { ok: true; override: { rule: string; reason: string } | null } | { ok: false; error: string; overridable: boolean } {
   const w = Number(input.withdrawn) || 0;
   if (w <= 0) return { ok: true, override: null };
   const disc = (w - (Number(input.calculated) || 0)) / w;
-  const violation = discountViolation(disc, discountLimitsFor(input.storeName, input.providerName, rules, input.date));
+  const violation = discountViolation(disc, discountLimitsFor(input.storeName, input.providerName, rules, input.date, input.agencyName));
   if (!violation) return { ok: true, override: null };
   const reason = overrideReasonOf(role, body);
   if (reason) return { ok: true, override: { rule: violation, reason } };
@@ -1360,7 +1360,7 @@ router.get('/kpi-details', authenticateToken, async (req: AuthRequest, res: Resp
 // GET /api/deals/discount-rule?storeId&providerId&date — formadagi diskont chegarasi (min/maks/aniq, spravochnikdan)
 router.get('/discount-rule', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    const { storeId, providerId, date } = req.query as Record<string, string | undefined>;
+    const { storeId, providerId, date, agencyId } = req.query as Record<string, string | undefined>;
     if (!storeId || !providerId) return res.status(400).json({ error: "Do'kon yoki provayder tanlanmagan" });
     const [store, provider, rules] = await Promise.all([
       prisma.store.findUnique({ where: { id: String(storeId) }, select: { name: true } }),
@@ -1369,7 +1369,8 @@ router.get('/discount-rule', authenticateToken, async (req: AuthRequest, res: Re
     ]);
     if (!store || !provider) return res.status(404).json({ error: "Do'kon yoki provayder topilmadi" });
     const at = date ? new Date(`${String(date).slice(0, 10)}T12:00:00+05:00`) : new Date();
-    return res.json(discountLimitsFor(store.name, provider.name, rules, isNaN(at.getTime()) ? new Date() : at));
+    const agencyName = agencyId ? (await prisma.agency.findUnique({ where: { id: String(agencyId) }, select: { name: true } }))?.name || null : null;
+    return res.json(discountLimitsFor(store.name, provider.name, rules, isNaN(at.getTime()) ? new Date() : at, agencyName));
   } catch (error: any) {
     return sendError(res, error, 'Diskont qoidasini olishda xatolik');
   }
@@ -1715,7 +1716,7 @@ router.post('/', authenticateToken, denyViewer, async (req: AuthRequest, res: Re
     const discountCheck = checkDiscount(
       user.role,
       body,
-      { storeName: store.name, providerName: provider.name, withdrawn: withdrawnLimit, calculated: calculatedAmount, date },
+      { storeName: store.name, providerName: provider.name, withdrawn: withdrawnLimit, calculated: calculatedAmount, date, agencyName },
       rules
     );
     if ('error' in discountCheck) {
@@ -1990,7 +1991,7 @@ router.put('/:id', authenticateToken, denyViewer, async (req: AuthRequest, res: 
       ? checkDiscount(
           user.role,
           body,
-          { storeName: store.name, providerName: provider.name, withdrawn: Number(withdrawnLimit), calculated: Number(calculatedAmount), date },
+          { storeName: store.name, providerName: provider.name, withdrawn: Number(withdrawnLimit), calculated: Number(calculatedAmount), date, agencyName: putAgencyName },
           rules
         )
       : { ok: true as const, override: null as { rule: string; reason: string } | null };

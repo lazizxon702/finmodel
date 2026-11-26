@@ -2,6 +2,8 @@
 
 export interface RuleFormState {
   name: string;
+  /** Faqat shu agentlik cheklariga (bo'sh — hamma agentlik) */
+  agencyId: string;
   storeId: string;
   providerId: string;
   ratePct: string; // "Kompaniya ulushi %"
@@ -14,6 +16,7 @@ export interface RuleFormState {
 
 export const emptyRuleForm: RuleFormState = {
   name: '',
+  agencyId: '',
   storeId: '',
   providerId: '',
   ratePct: '22',
@@ -52,6 +55,7 @@ export function isoToTashkentYmd(iso: unknown): string {
 export function ruleToForm(rule: any): RuleFormState {
   return {
     name: rule.name || '',
+    agencyId: rule.agencyId || '',
     storeId: rule.storeId || '',
     providerId: rule.providerId || '',
     ratePct: fractionToPct(rule.ratePercent),
@@ -72,6 +76,7 @@ export function formToRuleBody(f: RuleFormState): { body: any } | { error: 'rate
   return {
     body: {
       name: f.name.trim(),
+      agencyId: f.agencyId || null,
       storeId: f.storeId || null,
       providerId: f.providerId || null,
       ratePercent: rate,

@@ -91,12 +91,13 @@ export async function guardDealNotClaimed<T>(dealId: string, write: () => Promis
 export async function loadActiveCommissionRules(db: Db = prisma) {
   const rules = await db.commissionRule.findMany({
     where: { isActive: true },
-    include: { store: true, provider: true },
+    include: { store: true, provider: true, agency: true },
     orderBy: { priority: 'desc' },
   });
   return rules.map((r) => ({
     storeName: r.store?.name || null,
     providerName: r.provider?.name || null,
+    agencyName: r.agency?.name || null,
     ratePercent: Number(r.ratePercent),
     profitPercent: r.profitPercent === null ? null : Number(r.profitPercent),
     validFrom: r.validFrom,

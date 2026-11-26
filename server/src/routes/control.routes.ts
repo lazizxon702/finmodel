@@ -194,6 +194,28 @@ router.post('/pairs', authenticateToken, requireRoles([Role.ADMIN]), async (req:
   }
 });
 
+// PUT /api/control/pairs/provider/:providerId { storeIds: [] } — provayderga biriktirilgan do'konlar ro'yxatini to'liq almashtiradi
+// (Spravochnik → Provayderlar → "Do'konlar"; egasi, 26.11.2026). Bo'sh ro'yxat — provayder cheklanmaydi (hamma faol do'kon).
+router.put('/pairs/provider/:providerId', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
+  try {
+    const providerId = String(req.params.providerId);
+    const provider = await prisma.provider.findUnique({ where: { id: providerId }, select: { id: true } });
+    if (!provider) return res.status(404).json({ error: 'Provayder topilmadi' });
+    const raw: unknown[] = Array.isArray(req.body?.storeIds) ? req.body.storeIds : [];
+    const ids = [...new Set(raw.map((x) => String(x)).filter(Boolean))];
+    const found = await prisma.store.findMany({ where: { id: { in: ids } }, select: { id: true } });
+    if (found.length !== ids.length) return res.status(400).json({ error: "Do'kon topilmadi" });
+    await prisma.$transaction([
+      prisma.storeProviderPair.deleteMany({ where: { providerId, storeId: { notIn: ids } } }),
+      prisma.storeProviderPair.createMany({ data: ids.map((storeId) => ({ storeId, providerId, createdById: req.user!.id })), skipDuplicates: true }),
+    ]);
+    return res.json({ providerId, storeIds: ids });
+  } catch (error: any) {
+    console.error('pairs provider:', error);
+    return res.status(500).json({ error: "Do'konlarni saqlab bo'lmadi" });
+  }
+});
+
 router.delete('/pairs/:id', authenticateToken, requireRoles([Role.ADMIN]), async (req: AuthRequest, res: Response) => {
   try {
     await prisma.storeProviderPair.delete({ where: { id: req.params.id } });

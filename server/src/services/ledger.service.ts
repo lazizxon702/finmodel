@@ -348,10 +348,11 @@ export async function syncTrustDebtForDeal(tx: Tx, dealId: string) {
  */
 /** Faol komissiya qoidalari (sale.service bilan aylanma import bo'lmasligi uchun shu yerda alohida o'qiladi) */
 async function loadRulesForLedger(db: Tx | typeof prisma) {
-  const rules = await db.commissionRule.findMany({ where: { isActive: true }, include: { store: true, provider: true } });
+  const rules = await db.commissionRule.findMany({ where: { isActive: true }, include: { store: true, provider: true, agency: true } });
   return rules.map((r) => ({
     storeName: r.store?.name || null,
     providerName: r.provider?.name || null,
+    agencyName: r.agency?.name || null,
     ratePercent: Number(r.ratePercent),
     profitPercent: r.profitPercent === null ? null : Number(r.profitPercent),
     validFrom: r.validFrom,
@@ -368,6 +369,7 @@ interface DealForStoreDebt {
   date: Date;
   store?: { name: string } | null;
   provider?: { name: string } | null;
+  agency?: { name: string } | null;
 }
 
 /**
@@ -390,6 +392,7 @@ export async function storeDebtPartsForDeal(
         storeName: deal.store?.name || '',
         providerName: deal.provider?.name || '',
         date: deal.date,
+        agencyName: deal.agency?.name,
       },
       rules || (await loadRulesForLedger(db))
     );
@@ -409,7 +412,7 @@ export async function storeDebtPartsForDeal(
 export async function syncStoreDebtForDeal(tx: Tx, dealId: string) {
   const deal = await tx.deal.findUnique({
     where: { id: dealId },
-    include: { store: { select: { name: true } }, provider: { select: { name: true } } },
+    include: { store: { select: { name: true } }, provider: { select: { name: true } }, agency: { select: { name: true } } },
   });
   if (!deal) return 0;
 
@@ -804,6 +807,7 @@ export async function getStoreLedger(storeId: string, range: DateRange = {}) {
         approvalStatus: true,
         profit: true,
         provider: { select: { name: true } },
+        agency: { select: { name: true } },
       },
     }),
     prisma.storeLedgerEntry.findMany({

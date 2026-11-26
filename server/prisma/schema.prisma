@@ -170,6 +170,9 @@ model CommissionRule {
   store       Store?    @relation(fields: [storeId], references: [id])
   providerId  String?
   provider    Provider? @relation(fields: [providerId], references: [id])
+  // Faqat shu agentlik cheklari uchun (egasi, 26.11.2026: Shaxzod — Variant 20%, Alif Online 26% ...). Bo'sh — hamma agentlik
+  agencyId    String?
+  agency      Agency?   @relation(fields: [agencyId], references: [id])
   // ratePercent — kompaniya ulushi (ulush, 0.22 = 22%): diskontning shundan ortig'i agent foydasiga o'tadi
   ratePercent Decimal
   // Bizning foydamiz (ulush). Bo'sh bo'lsa = ratePercent. Qodir aka: ulush 0.22, foyda 0.06 (16% uniki)
@@ -188,6 +191,7 @@ model Agency {
   agents Agent[]
   deals  Deal[]
   users  User[]
+  commissionRules CommissionRule[]
 }
 
 model Agent {

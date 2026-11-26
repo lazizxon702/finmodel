@@ -21,6 +21,8 @@ export interface DealCalculationInput {
 export interface CommissionRuleItem {
   storeName?: string | null;
   providerName?: string | null;
+  /** Faqat shu agentlik cheklariga (egasi, 26.11.2026). Bo'sh — hamma agentlik */
+  agencyName?: string | null;
   /** Kompaniya ulushi (ulush: 0.22 = 22%) — diskontning shundan ortig'i agent foydasiga o'tadi */
   ratePercent: number;
   /** Bizning foydamiz (ulush). Bo'sh bo'lsa = ratePercent. Qodir aka: 0.22 dan 0.06 bizniki, 0.16 uniki */
@@ -434,9 +436,10 @@ export function discountLimitsFor(
   storeName: string | null | undefined,
   providerName: string | null | undefined,
   rules: CommissionRuleItem[] = [],
-  dealDate?: Date | string | null
+  dealDate?: Date | string | null,
+  agencyName?: string | null
 ): DiscountLimits {
-  const c = resolveCommission(storeName, providerName, rules, dealDate);
+  const c = resolveCommission(storeName, providerName, rules, dealDate, agencyName);
   // Yandex Split: agent ulushi yo'q — minimal diskont cheklanmaydi (spravochnikda foiz bo'lsa — o'sha), maksimal 45% qoladi
   if (isNoAgentProvider(providerName)) {
     return { minPct: c.rate, maxPct: MAX_DISCOUNT_PCT, exactPct: null, label: String(providerName || ''), missing: false };
@@ -520,7 +523,8 @@ export function resolveCommission(
   storeName: string | null | undefined,
   providerName: string | null | undefined,
   rules: CommissionRuleItem[] = [],
-  dealDate?: Date | string | null
+  dealDate?: Date | string | null,
+  agencyName?: string | null
 ): ResolvedCommission {
   const s = normalizeName(canonicalStoreName(storeName));
   const p = normalizeName(canonicalProviderName(providerName));
@@ -532,6 +536,8 @@ export function resolveCommission(
     profitRate: number;
     priority: number;
     isStore: boolean;
+    /** Agentlikka xos qoida (masalan Shaxzod) — umumiy provayder qoidasidan ustun */
+    isAgency: boolean;
     len: number;
     from: number | null;
     dated: boolean;
@@ -540,6 +546,7 @@ export function resolveCommission(
   const better = (a: Cand, b: Cand) =>
     b.priority - a.priority ||
     Number(b.isStore) - Number(a.isStore) ||
+    Number(b.isAgency) - Number(a.isAgency) ||
     b.len - a.len ||
     Number(b.dated) - Number(a.dated) ||
     (b.from ?? -Infinity) - (a.from ?? -Infinity);
@@ -550,6 +557,8 @@ export function resolveCommission(
     const rp = normalizeName(canonicalProviderName(r.providerName));
     if (!rs && !rp) continue;
     if (rs && rs !== s) continue;
+    const ra = normalizeName(r.agencyName);
+    if (ra && ra !== normalizeName(agencyName)) continue;
     if (rp && !(p.includes(rp) || pRaw.includes(rp))) continue;
     const from = toTime(r.validFrom);
     const to = toTime(r.validTo);
@@ -562,6 +571,7 @@ export function resolveCommission(
       profitRate,
       priority: Number(r.priority) || 0,
       isStore: !!rs,
+      isAgency: !!ra,
       len: rs.length + rp.length,
       from,
       dated: from !== null || to !== null,
@@ -589,6 +599,7 @@ export function resolveCommission(
       profitRate: d.profitPercent ?? d.ratePercent,
       priority: d.kind === 'store' ? 10 : 5,
       isStore: d.kind === 'store',
+      isAgency: false,
       len: key.length,
       from,
       dated: from !== null || to !== null,
@@ -1108,7 +1119,7 @@ export class CalculationService {
     // Daftar "Ha" faqat Imanum + Denov/Jizzax (egasi qarori, 14.11.2026); isDaftarManual endi e'tiborga olinmaydi
     const isDaftar = isDaftarDeal(sName, pName);
     const purchaseDiscountPct = withdrawn > 0 ? (withdrawn - calculated) / withdrawn : 0;
-    const commission = resolveCommission(sName, pName, rules, input.date);
+    const commission = resolveCommission(sName, pName, rules, input.date, input.agencyName);
     const ruleRate = commission.rate;
 
     // Agent foydasi = limit × (diskont − kompaniya ulushi); diskont ulushdan kichik bo'lsa 0 (manfiy bo'lmaydi)

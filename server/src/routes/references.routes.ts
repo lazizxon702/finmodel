@@ -67,6 +67,7 @@ function parseFraction(raw: unknown, label: string): { value: number } | { error
 
 export interface RuleCurrent {
   name?: string;
+  agencyId?: string | null;
   storeId?: string | null;
   providerId?: string | null;
   ratePercent?: unknown;
@@ -77,6 +78,7 @@ export interface RuleCurrent {
 
 type RuleData = {
   name: string;
+  agencyId: string | null;
   storeId: string | null;
   providerId: string | null;
   ratePercent: number;
@@ -141,7 +143,8 @@ export function parseRuleBody(body: any, current?: RuleCurrent): { data: RuleDat
     return { error: "Amal qilish boshi oxiridan keyin bo'lishi mumkin emas" };
   }
 
-  const data: RuleData = { name, storeId, providerId, ratePercent: rate.value, profitPercent, validFrom, validTo };
+  const agencyId = has('agencyId') ? b.agencyId || null : current?.agencyId ?? null;
+  const data: RuleData = { name, agencyId, storeId, providerId, ratePercent: rate.value, profitPercent, validFrom, validTo };
 
   if (has('priority')) {
     const pr = Number(b.priority);
@@ -555,7 +558,7 @@ router.post('/partners', authenticateToken, requireRoles([Role.ADMIN]), async (r
 // ---------------------------------------------------------------------------
 router.get('/rules', authenticateToken, async (req, res: Response) => {
   const rules = await prisma.commissionRule.findMany({
-    include: { store: true, provider: true },
+    include: { store: true, provider: true, agency: true },
     orderBy: { priority: 'desc' },
   });
   return res.json(rules);
@@ -567,7 +570,7 @@ router.post('/rules', authenticateToken, requireRoles([Role.ADMIN, Role.MANAGER]
     if ('error' in parsed) return res.status(400).json({ error: parsed.error });
     const rule = await prisma.commissionRule.create({
       data: { ...parsed.data, priority: parsed.data.priority ?? 1, isActive: parsed.data.isActive ?? true },
-      include: { store: true, provider: true },
+      include: { store: true, provider: true, agency: true },
     });
     return res.status(201).json(rule);
   } catch (error: any) {
@@ -587,7 +590,7 @@ router.put('/rules/:id', authenticateToken, requireRoles([Role.ADMIN, Role.MANAG
     const updated = await prisma.commissionRule.update({
       where: { id },
       data: parsed.data,
-      include: { store: true, provider: true },
+      include: { store: true, provider: true, agency: true },
     });
     return res.json(updated);
   } catch (error: any) {

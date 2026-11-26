@@ -596,3 +596,27 @@ describe('Registratura: agent ulushi hisoblanmaydi, kompaniyada qoladi (egasi, 1
     expect(Math.round(r.agentAmount)).toBe(800_000);
   });
 });
+
+describe('agentlikka xos qoida (egasi, 26.11.2026: Shaxzod)', () => {
+  const rules: CommissionRuleItem[] = [
+    { providerName: 'Variant', ratePercent: 0.27, priority: 5 } as any,
+    { providerName: 'Alif Online', ratePercent: 0.27, priority: 5 } as any,
+    { providerName: 'Variant', agencyName: 'Shaxzod', ratePercent: 0.2, priority: 5 } as any,
+    { providerName: 'Alif Online', agencyName: 'Shaxzod', ratePercent: 0.26, priority: 5 } as any,
+    { storeName: 'Qodir aka', ratePercent: 0.22, profitPercent: 0.06, priority: 10 } as any,
+  ];
+  it('Shaxzod cheki — uning foizi; boshqa agentlik — umumiy foiz', () => {
+    expect(resolveCommission('Media park Angren', 'Variant', rules, '2026-11-26', 'Shaxzod').rate).toBe(0.2);
+    expect(resolveCommission('Media park Angren', 'Alif Online', rules, '2026-11-26', 'shaxzod').rate).toBe(0.26);
+    expect(resolveCommission('Media park Angren', 'Variant', rules, '2026-11-26', 'Jahongir').rate).toBe(0.27);
+    expect(resolveCommission('Media park Angren', 'Variant', rules, '2026-11-26').rate).toBe(0.27);
+  });
+  it("do'kon qoidasi (Qodir aka) agentlik qoidasidan ustun", () => {
+    expect(resolveCommission('Qodir aka', 'Alif Online', rules, '2026-11-26', 'Shaxzod')).toMatchObject({ rate: 0.22 });
+  });
+  it('agent foydasi: diskontning Shaxzod foizidan ortig\'i', () => {
+    const c = CalculationService.calculateDeal({ customerLimit: 10_000_000, withdrawnLimit: 10_000_000, calculatedAmount: 7_000_000, storeName: 'Media park Angren', providerName: 'Variant', agencyName: 'Shaxzod', date: '2026-11-26' } as any, rules);
+    expect(c.agentAmount).toBeCloseTo(1_000_000, 2);
+    expect(c.profit).toBeCloseTo(2_000_000, 2);
+  });
+});

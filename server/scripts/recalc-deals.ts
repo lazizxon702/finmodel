@@ -125,7 +125,7 @@ async function main() {
       },
       rules
     );
-    const res = resolveCommission(sName, pName, rules, d.date);
+    const res = resolveCommission(sName, pName, rules, d.date, d.agency?.name);
     if (res.source === 'NONE' && Number(d.withdrawnLimit) > 0) noRule.push(`#${d.dealNumber} ${sName} / ${pName}`);
     if (Number(d.agentAmount) < 0) negAgent++;
     if (c.profitDeferred) deferred++;

@@ -68,6 +68,35 @@ export const ReferencesPage: React.FC = () => {
   const [editingBuyerId, setEditingBuyerId] = useState<string | null>(null);
   const [buyerForm, setBuyerForm] = useState({ name: '', phone: '', isWholesale: true });
 
+  // Provayder → do'konlar (egasi, 26.11.2026): spravochnikda provayderga do'kon biriktirish
+  const [pairMap, setPairMap] = useState<{ enabled: boolean; map: Record<string, string[]> }>({ enabled: false, map: {} });
+  const [pairsProvider, setPairsProvider] = useState<any | null>(null);
+  const [pairsPicked, setPairsPicked] = useState<string[]>([]);
+  const [pairsSaving, setPairsSaving] = useState(false);
+  const loadPairs = () =>
+    axios
+      .get('/api/control/pairs/map')
+      .then((r) => setPairMap(r.data || { enabled: false, map: {} }))
+      .catch(() => undefined);
+  const openPairs = (p: any) => {
+    setPairsProvider(p);
+    setPairsPicked(pairMap.map[p.id] || []);
+  };
+  const savePairs = async () => {
+    if (!pairsProvider) return;
+    setPairsSaving(true);
+    try {
+      await axios.put(`/api/control/pairs/provider/${pairsProvider.id}`, { storeIds: pairsPicked });
+      await loadPairs();
+      notify(t('references.providers.stores_saved'));
+      setPairsProvider(null);
+    } catch (err) {
+      showError(err);
+    } finally {
+      setPairsSaving(false);
+    }
+  };
+
   const fetchAll = async () => {
     try {
       setLoading(true);
@@ -94,6 +123,8 @@ export const ReferencesPage: React.FC = () => {
 
   useEffect(() => {
     fetchAll();
+    void loadPairs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const notify = (msg: string) => {
@@ -390,7 +421,14 @@ export const ReferencesPage: React.FC = () => {
                 {rules.length === 0 && <TableEmpty colSpan={9} title={t('references.rules.empty')} />}
                 {rules.map((rule) => (
                   <Tr key={rule.id} className={dimmed(!rule.isActive)}>
-                    <Td className="font-semibold text-fg">{rule.name}</Td>
+                    <Td className="font-semibold text-fg">
+                      {rule.name}
+                      {rule.agency?.name && (
+                        <Badge tone="info" size="sm" className="ml-2">
+                          {t('references.rules.agencyOnly', { name: rule.agency.name })}
+                        </Badge>
+                      )}
+                    </Td>
                     <Td className="text-fg-secondary">{rule.store?.name || t('references.rules.anyStore')}</Td>
                     <Td className="text-fg-secondary">{rule.provider?.name || t('references.rules.anyProvider')}</Td>
                     <Td align="right" numeric className="font-semibold text-accent">
@@ -439,12 +477,13 @@ export const ReferencesPage: React.FC = () => {
                   <Th>{t('references.providers.col.name')}</Th>
                   <Th align="right">{t('references.providers.col.discount')}</Th>
                   <Th align="center">{t('references.providers.col.daftar')}</Th>
+                  <Th>{t('references.providers.col.stores')}</Th>
                   <Th align="center">{t('references.providers.col.id')}</Th>
                   <Th align="center">{t('common.actions')}</Th>
                 </Tr>
               </Thead>
               <Tbody>
-                {providers.length === 0 && <TableEmpty colSpan={5} title={t('references.providers.empty')} />}
+                {providers.length === 0 && <TableEmpty colSpan={6} title={t('references.providers.empty')} />}
                 {providers.map((p) => (
                   <Tr key={p.id} className={dimmed(!p.isActive)}>
                     <Td className="font-semibold text-fg">{p.name}{hiddenBadge(!p.isActive)}</Td>
@@ -453,6 +492,18 @@ export const ReferencesPage: React.FC = () => {
                       <Badge tone={p.isDaftarDefault ? 'danger' : 'neutral'}>
                         {p.isDaftarDefault ? t('references.providers.daftarYes') : t('common.no')}
                       </Badge>
+                    </Td>
+                    <Td className="max-w-[18rem]">
+                      <button
+                        type="button"
+                        className="w-full text-left text-sm text-accent hover:underline"
+                        onClick={() => openPairs(p)}
+                        title={t('references.providers.stores_edit')}
+                      >
+                        {(pairMap.map[p.id] || []).length
+                          ? (pairMap.map[p.id] || []).map((id) => stores.find((s) => s.id === id)?.name || '?').join(', ')
+                          : t('references.providers.stores_all')}
+                      </button>
                     </Td>
                     <Td align="center" numeric className="font-mono text-xs text-fg-muted">{p.id.slice(0, 8)}...</Td>
                     <Td align="center">
@@ -673,6 +724,37 @@ export const ReferencesPage: React.FC = () => {
         </div>
       )}
 
+      {/* MODAL: Provayder → do'konlar */}
+      <Modal
+        open={!!pairsProvider}
+        onClose={() => setPairsProvider(null)}
+        title={t('references.providers.stores_title', { name: pairsProvider?.name || '' })}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPairsProvider(null)}>{t('common.cancel')}</Button>
+            <Button onClick={savePairs} loading={pairsSaving}>{t('common.save')}</Button>
+          </>
+        }
+      >
+        <p className="mb-3 text-sm text-fg-secondary">{t('references.providers.stores_hint')}</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {stores
+            .filter((s) => s.isActive || pairsPicked.includes(s.id))
+            .map((s) => (
+              <label key={s.id} className="flex cursor-pointer items-center gap-2 rounded-control border border-line px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-brand"
+                  checked={pairsPicked.includes(s.id)}
+                  onChange={(e) => setPairsPicked((x) => (e.target.checked ? [...x, s.id] : x.filter((id) => id !== s.id)))}
+                />
+                {s.name}
+              </label>
+            ))}
+        </div>
+        {!pairMap.enabled && <p className="mt-3 text-xs text-warning">{t('references.providers.stores_check_off')}</p>}
+      </Modal>
+
       {/* MODAL: Qoida */}
       <Modal
         open={showAddRuleModal}
@@ -719,6 +801,15 @@ export const ReferencesPage: React.FC = () => {
               <option value="">{t('references.rules.field.allProviders')}</option>
               {providers.filter((p) => p.isActive || p.id === ruleForm.providerId).map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label={t('references.rules.field.agency')} hint={t('references.rules.field.agency_hint')} htmlFor="ref-rule-agency">
+            <Select id="ref-rule-agency" value={ruleForm.agencyId} onChange={(e) => setRuleForm({ ...ruleForm, agencyId: e.target.value })}>
+              <option value="">{t('references.rules.field.allAgencies')}</option>
+              {agencies.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </Select>
           </Field>

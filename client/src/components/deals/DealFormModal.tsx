@@ -265,13 +265,13 @@ export const DealFormModal: React.FC<Props> = ({ deal, prefill, stores, provider
     }
     let alive = true;
     axios
-      .get('/api/deals/discount-rule', { params: { storeId: form.storeId, providerId: form.providerId, date: form.date || undefined } })
+      .get('/api/deals/discount-rule', { params: { storeId: form.storeId, providerId: form.providerId, date: form.date || undefined, agencyId: form.agencyId || undefined } })
       .then((res) => alive && setDiscountRule(res.data || null))
       .catch(() => alive && setDiscountRule(null));
     return () => {
       alive = false;
     };
-  }, [form.storeId, form.providerId, form.date]);
+  }, [form.storeId, form.providerId, form.date, form.agencyId]);
 
   // Joriy diskont (ulush): (yechilgan − mijozga) / yechilgan
   const currentDiscount = form.withdrawnLimit > 0 ? (form.withdrawnLimit - form.calculatedAmount) / form.withdrawnLimit : 0;

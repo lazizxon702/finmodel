@@ -91,6 +91,7 @@ async function main() {
         storeId: true,
         store: { select: { name: true } },
         provider: { select: { name: true } },
+        agency: { select: { name: true } },
       },
     }),
     prisma.storeLedgerEntry.findMany({
